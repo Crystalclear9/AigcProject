@@ -11,6 +11,7 @@ from app.schemas.card import (
     AnalyzeScreenshotTextResponse,
 )
 from app.services.llm_client import extract_cards_with_lanxin
+from app.services.demo_scenarios import evaluate_demo_scenarios, scenario_catalog
 from app.services.rule_extractor import extract_cards_with_rules, preview_actions_for
 
 router = APIRouter()
@@ -61,3 +62,34 @@ def complete_card(card_id: str) -> ActionCard:
         return repo.complete(card_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="card not found") from exc
+
+
+@router.get("/demo/scenarios")
+def list_demo_scenarios() -> list[dict[str, object]]:
+    return scenario_catalog()
+
+
+@router.get("/demo/evaluate")
+def evaluate_demo() -> dict[str, object]:
+    return evaluate_demo_scenarios()
+
+
+@router.get("/metrics/summary")
+def metrics_summary() -> dict[str, object]:
+    cards = repo.list()
+    active_cards = [card for card in cards if card.status not in {"done", "archived"}]
+    confirmed_cards = [card for card in cards if card.status == "confirmed"]
+    reminders = sum(len(card.reminders) for card in cards)
+    need_confirm = sum(len(card.need_confirm) for card in cards)
+    card_types = {card.card_type for card in cards}
+    estimated_minutes_saved = round(len(cards) * 2.5, 1)
+    return {
+        "cards_total": len(cards),
+        "cards_active": len(active_cards),
+        "cards_confirmed": len(confirmed_cards),
+        "reminders_total": reminders,
+        "need_confirm_fields": need_confirm,
+        "card_type_coverage": sorted(card_types),
+        "estimated_minutes_saved": estimated_minutes_saved,
+        "demo_eval": evaluate_demo_scenarios(),
+    }
