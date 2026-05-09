@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_card_repository
-from app.db.session import CardRepository
+from app.repositories.cards import CardRepository
 from app.schemas.card import ActionCard, ActionCardCreate, ActionCardUpdate
 
 router = APIRouter()

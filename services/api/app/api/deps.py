@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.db.session import CardRepository
+from app.repositories.cards import CardRepository
 
 _card_repository = CardRepository()
 
