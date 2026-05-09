@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router
+from app.api.router import api_router
 from app.core.config import settings
 from app.db.session import init_db
 
@@ -18,7 +18,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.include_router(router, prefix=settings.api_prefix)
+    app.include_router(api_router, prefix=settings.api_prefix)
 
     @app.get("/health")
     def health() -> dict[str, str]:

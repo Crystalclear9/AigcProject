@@ -11,7 +11,7 @@ load_dotenv()
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "随手办 API"
-    api_prefix: str = "/api/v1"
+    api_prefix: str = "/api"
     database_path: str = os.getenv("DATABASE_PATH", "./suishouban.db")
     cors_origins: str = os.getenv("CORS_ORIGINS", "*")
     lanxin_api_key: str = os.getenv("LANXIN_API_KEY", "")

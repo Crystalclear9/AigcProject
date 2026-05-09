@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
-import com.suishouban.app.ui.components.brandGradient
+import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
 
@@ -63,6 +63,10 @@ fun ImportScreen(
         item {
             Spacer(Modifier.height(12.dp))
             SectionHeader("截图导入", state.engine.ifBlank { "OCR + AI" })
+        }
+
+        item {
+            WorkflowStrip(currentStep = if (state.ocrText.isBlank()) 0 else 1, modifier = Modifier.fillMaxWidth())
         }
 
         item {
@@ -148,7 +152,7 @@ fun ImportScreen(
         }
 
         item {
-            SectionHeader("高频场景")
+            SectionHeader("样例")
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 sampleTexts.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

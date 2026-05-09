@@ -33,6 +33,7 @@ import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
+import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.visualForCardType
@@ -52,6 +53,10 @@ fun PreviewScreen(
         item {
             Spacer(Modifier.height(12.dp))
             SectionHeader("动作预览", if (state.engine.isBlank()) null else state.engine)
+        }
+
+        item {
+            WorkflowStrip(currentStep = 2, modifier = Modifier.fillMaxWidth())
         }
 
         if (state.draftCards.isEmpty()) {

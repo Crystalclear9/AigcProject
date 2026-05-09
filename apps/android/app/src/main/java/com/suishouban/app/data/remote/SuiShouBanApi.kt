@@ -8,22 +8,22 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface SuiShouBanApi {
-    @POST("api/v1/analyze/screenshot-text")
+    @POST("api/analyze/screenshot-text")
     suspend fun analyzeScreenshotText(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse
 
-    @GET("api/v1/cards")
+    @GET("api/cards")
     suspend fun listCards(
         @Query("card_type") cardType: String? = null,
         @Query("status") status: String? = null,
         @Query("q") keyword: String? = null,
     ): List<ActionCardDto>
 
-    @POST("api/v1/cards")
+    @POST("api/cards")
     suspend fun createCard(@Body card: ActionCardDto): ActionCardDto
 
-    @PATCH("api/v1/cards/{id}")
+    @PATCH("api/cards/{id}")
     suspend fun updateCard(@Path("id") id: String, @Body card: ActionCardDto): ActionCardDto
 
-    @POST("api/v1/cards/{id}/complete")
+    @POST("api/cards/{id}/complete")
     suspend fun completeCard(@Path("id") id: String): ActionCardDto
 }

@@ -2,6 +2,7 @@ package com.suishouban.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,7 +18,6 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.PhotoCamera
-import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +39,7 @@ import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.Pill
 import com.suishouban.app.ui.components.SectionHeader
+import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.components.brandGradient
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.EventBlue
@@ -59,7 +60,6 @@ fun HomeScreen(
     val urgentCards = activeCards.filter { it.priority == Priority.HIGH }.take(3)
     val needConfirm = activeCards.count { it.needConfirm.isNotEmpty() }
     val reminders = state.cards.sumOf { it.reminders.size }
-    val coverage = state.cards.map { it.cardType }.toSet().size
     val timedCards = state.cards.count { it.primaryTime() != null }
     val savedMinutes = (state.cards.size * 2.5).toInt()
 
@@ -107,6 +107,10 @@ fun HomeScreen(
         }
 
         item {
+            WorkflowStrip(currentStep = if (state.draftCards.isNotEmpty()) 2 else 0, modifier = Modifier.fillMaxWidth())
+        }
+
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricTile("待办", activeCards.size.toString(), TaskRed, Modifier.weight(1f))
                 MetricTile("待确认", needConfirm.toString(), PromiseOrange, Modifier.weight(1f))
@@ -118,7 +122,6 @@ fun HomeScreen(
             ImpactDashboard(
                 savedMinutes = savedMinutes,
                 reminders = reminders,
-                coverage = coverage,
                 timedCards = timedCards,
                 engine = state.engine.ifBlank { if (state.settings.preferCloudModel) "云端优先" else "本地兜底" },
             )
@@ -155,19 +158,6 @@ fun HomeScreen(
         }
 
         item {
-            SectionHeader("场景覆盖")
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SceneTile("课程通知", TaskRed, Modifier.weight(1f))
-                SceneTile("比赛报名", EventBlue, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SceneTile("社团活动", NoteGreen, Modifier.weight(1f))
-                SceneTile("聊天承诺", PromiseOrange, Modifier.weight(1f))
-            }
-        }
-
-        item {
             Spacer(Modifier.height(92.dp))
         }
     }
@@ -177,7 +167,6 @@ fun HomeScreen(
 private fun ImpactDashboard(
     savedMinutes: Int,
     reminders: Int,
-    coverage: Int,
     timedCards: Int,
     engine: String,
 ) {
@@ -194,9 +183,9 @@ private fun ImpactDashboard(
                 Text("AI 行动闭环看板", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricTile("节省分钟", savedMinutes.toString(), BrandBlue, Modifier.weight(1f))
-                MetricTile("提醒", reminders.toString(), PromiseOrange, Modifier.weight(1f))
-                MetricTile("有时间", timedCards.toString(), EventBlue, Modifier.weight(1f))
+                FlatMetric("节省", "${savedMinutes}m", BrandBlue, Modifier.weight(1f))
+                FlatMetric("提醒", reminders.toString(), PromiseOrange, Modifier.weight(1f))
+                FlatMetric("入历", timedCards.toString(), EventBlue, Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Pill("OCR", color = BrandBlue)
@@ -204,15 +193,21 @@ private fun ImpactDashboard(
                 Pill("预览", color = PromiseOrange, soft = Color(0xFFFFF0E6))
                 Pill("提醒", color = NoteGreen, soft = Color(0xFFEAF8F1))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Route, contentDescription = null, tint = NoteGreen)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "卡片类型覆盖 $coverage/4，当前引擎：$engine",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text("引擎：$engine", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun FlatMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(color.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(value, style = MaterialTheme.typography.titleLarge, color = color, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -233,33 +228,6 @@ private fun MetricTile(label: String, value: String, color: Color, modifier: Mod
 }
 
 @Composable
-private fun SceneTile(label: String, color: Color, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.height(72.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Spacer(
-                modifier = Modifier
-                    .width(5.dp)
-                    .height(42.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(color)
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(label, style = MaterialTheme.typography.titleMedium)
-        }
-    }
-}
-
-@Composable
 private fun EmptyHomeCard(onImport: () -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -268,11 +236,6 @@ private fun EmptyHomeCard(onImport: () -> Unit) {
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("从第一张截图开始", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "课程通知、比赛海报、聊天约定都可以转成行动卡。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
                 Text("导入截图")
             }
