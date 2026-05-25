@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -31,6 +32,47 @@ def _extract_json(text: str) -> Any:
         return json.loads(match.group(1))
 
 
+def _coerce_list(value: Any) -> list[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if item not in (None, "")]
+    return [str(value)]
+
+
+def _normalize_choice(value: Any, allowed: set[str], default: str, aliases: dict[str, str] | None = None) -> str:
+    text = str(value or "").strip().lower()
+    if aliases and text in aliases:
+        text = aliases[text]
+    return text if text in allowed else default
+
+
+def _normalize_card_payload(item: dict[str, Any], text: str, card_id: str, now: datetime) -> dict[str, Any]:
+    normalized = dict(item)
+    normalized["id"] = normalized.get("id") or card_id
+    normalized.setdefault("created_at", now)
+    normalized.setdefault("source_text", text)
+    normalized["status"] = _normalize_choice(normalized.get("status"), {"draft", "confirmed", "done", "archived"}, "draft")
+    normalized["priority"] = _normalize_choice(
+        normalized.get("priority"),
+        {"low", "normal", "high"},
+        "normal",
+        {"medium": "normal", "中": "normal", "普通": "normal", "低": "low", "高": "high"},
+    )
+    normalized["card_type"] = _normalize_choice(
+        normalized.get("card_type"),
+        {"task", "event", "promise", "note"},
+        "task",
+        {"任务": "task", "事件": "event", "承诺": "promise", "资料": "note", "笔记": "note"},
+    )
+
+    # LLMs often return a single string for list fields; normalize before Pydantic validation.
+    for field in ("materials", "tags", "reminders", "need_confirm"):
+        normalized[field] = _coerce_list(normalized.get(field))
+
+    return normalized
+
+
 async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = None) -> list[ActionCard]:
     if not settings.has_llm_config:
         raise RuntimeError("LANXIN_API_KEY or LANXIN_BASE_URL is missing")
@@ -48,15 +90,18 @@ async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = Non
             {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)},
         ],
         "temperature": 0.1,
-        "response_format": {"type": "json_object"},
+        "max_tokens": 2048,
+        "stream": False,
     }
     headers = {
         "Authorization": f"Bearer {settings.lanxin_api_key}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json; charset=utf-8",
     }
+    # vivo API requires a per-request UUID in the query string.
+    params = {"request_id": str(uuid.uuid4())}
 
     async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-        response = await client.post(url, json=payload, headers=headers)
+        response = await client.post(url, params=params, json=payload, headers=headers)
         response.raise_for_status()
         body = response.json()
 
@@ -69,14 +114,6 @@ async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = Non
     cards: list[ActionCard] = []
     now = datetime.now(timezone.utc)
     for item in raw_cards:
-        item.setdefault("id", "")
-        item["id"] = item["id"] or f"llm-{len(cards) + 1}-{int(now.timestamp())}"
-        item.setdefault("created_at", now)
-        item.setdefault("source_text", text)
-        item.setdefault("status", "draft")
-        item.setdefault("materials", [])
-        item.setdefault("tags", [])
-        item.setdefault("reminders", [])
-        item.setdefault("need_confirm", [])
-        cards.append(ActionCard(**item))
+        card_id = f"llm-{len(cards) + 1}-{int(now.timestamp())}"
+        cards.append(ActionCard(**_normalize_card_payload(item, text, card_id, now)))
     return cards

@@ -1,0 +1,346 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1716890024412"></link><div id="mark-down" class="markdown-body"><h1><a id="_0"></a>服务简介</h1>
+<p>提供端侧文本审核服务，智能检测文本内容是否命中包括暴力、涉黄、涉政、辱骂等敏感内容，命中则审核不通过</p>
+<h1><a id="_3"></a>接入准备</h1>
+<h2><a id="SDK_5"></a>SDK下载</h2>
+<p><a href="https://vstack-vivofs.vivo.com.cn/uAfNzbyGPR9eJshQ/v-stack/20240528/202405281733531654358.zip" target="_blank">AIGC文本审核aar</a></p>
+<h3><a id="Android_Studio_8"></a>Android Studio接入</h3>
+<ol>
+<li>添加SDK依赖包：在工程项目下找到文件夹libs，如果没有请新建，将下载的aar包放入</li>
+<li>添加依赖：打开应用级&quot;build.gradle&quot;文件，在&quot;dependencies&quot;中添加依赖</li>
+</ol>
+<pre><code class="lang-">dependencies {
+    implementation files('libs/aisdk-cms-local-1.0.0.0.aar')
+}
+</code></pre>
+<ol start="3">
+<li>混淆配置: 编译APK前需配置混淆配置文件，避免混淆导致功能异常<br />
+在应用级根目录下打开混淆配置文件，如 proguard-rules.pro。添加如下配置</li>
+</ol>
+<pre><code class="lang-">-keep class com.vivo.aisdk.**{*;}
+-dontwarn com.vivo.aisdk.**
+-keep class com.vivo.aiservice.cms.**{*;}
+</code></pre>
+<h2><a id="_24"></a>应用开发指南</h2>
+<h3><a id="SDK_25"></a>SDK初始化</h3>
+<p>应用开发之前，必须先完成SDK初始化流程，完成公共参数的设置和相关初始化设置</p>
+<h4><a id="_28"></a>接口函数</h4>
+<pre><code class="lang-">/**
+ * 初始化sdk
+ * @param context     context上下文对象
+ * @param listener    初始化回调结果
+ */
+public void init(final Context context, final IInitializeListener listener)
+</code></pre>
+<h4><a id="_38"></a>输入输出</h4>
+<table>
+<thead>
+<tr>
+<th>参数明细</th>
+<th>类型</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>context</td>
+<td>Context</td>
+<td>上下文对象</td>
+</tr>
+<tr>
+<td>listener</td>
+<td>IInitializeListener</td>
+<td>初始化结果回调</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_44"></a>调用示例</h4>
+<pre><code class="lang-">import com.vivo.aisdk.cms.local.CmsLocalFrame; // CMS服务总类
+import com.vivo.aisdk.cms.local.IInitializeListener; // 初始化回调
+import com.vivo.aisdk.cms.local.utils.LogUtils;  // sdk内部日志工具类
+
+// 在Application中初始化CMS本地化框架
+@Override
+public void onCreate() {
+	super.onCreate();
+	// 初始化CMS本地化框架，建议在Application中初始化
+	CmsLocalFrame.getInstance().init(this, new IInitializeListener() {
+		@Override
+		public void onInitSuccess() {
+			LogUtils.i(&quot;sdk 初始化成功!&quot;);
+		}
+		@Override
+		public void onInitFailed(int code, String message) {
+			LogUtils.e(&quot;sdk 初始化失败 code = &quot; + code + &quot;, message = &quot; + message);
+		}
+	});
+}
+</code></pre>
+<h4><a id="code_68"></a>初始化异常code</h4>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>110010</td>
+<td>初始化参数，缺少context</td>
+</tr>
+</tbody>
+</table>
+<h2><a id="_74"></a>文本审核功能</h2>
+<p>初始化SDK完成之后即可开始具体功能-文本审核的开发工作</p>
+<h4><a id="_77"></a>接口函数</h4>
+<pre><code class="lang-">/**
+ * 文本审核
+ *
+ * @param text    待审核文本
+ * @param timeout 超时时间
+ * @return ResponseResult  结果
+ */
+public void TextModeration(String text, CommApiCallBack&lt;ResponseResult&gt; callBack, int timeout)
+</code></pre>
+<h4><a id="_89"></a>输入输出</h4>
+<table>
+<thead>
+<tr>
+<th>参数明细</th>
+<th>类型</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>text</td>
+<td>String</td>
+<td>待审核文本</td>
+</tr>
+<tr>
+<td>callback</td>
+<td>CommApiCallBack<ResponseResult></td>
+<td>callback 结果回调</td>
+</tr>
+<tr>
+<td>timeout</td>
+<td>long</td>
+<td>超时时间（ms）</td>
+</tr>
+</tbody>
+</table>
+<p>ResponseResult 数据结构：</p>
+<table>
+<thead>
+<tr>
+<th>参数明细</th>
+<th>类型</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>code</td>
+<td>int</td>
+<td>0:成功；其他: 异常，详见错误码说明</td>
+</tr>
+<tr>
+<td>msg</td>
+<td>String</td>
+<td>错误信息</td>
+</tr>
+<tr>
+<td>data</td>
+<td>String</td>
+<td>结果数据内容，json 字符串</td>
+</tr>
+<tr>
+<td>respId</td>
+<td>String</td>
+<td>id</td>
+</tr>
+<tr>
+<td>ver</td>
+<td>String</td>
+<td>协议版本</td>
+</tr>
+<tr>
+<td>api</td>
+<td>int</td>
+<td>sdk接口</td>
+</tr>
+<tr>
+<td>type</td>
+<td>String</td>
+<td>service 能力接口类型</td>
+</tr>
+<tr>
+<td>extras</td>
+<td>String</td>
+<td>extral</td>
+</tr>
+</tbody>
+</table>
+<p>ResponseResult.getData 数据结构:</p>
+<table>
+<thead>
+<tr>
+<th>参数明细</th>
+<th>类型</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>result</td>
+<td>String</td>
+<td>0:审核通过， 1：嫌疑， 2：审核不通过</td>
+</tr>
+</tbody>
+</table>
+<p>结果示例</p>
+<pre><code class="lang-">{&quot;result&quot;:&quot;0&quot;}
+</code></pre>
+<h4><a id="_121"></a>调用示例</h4>
+<pre><code class="lang-">1.导入必须类：在使用文本审核API时，将相关的类添加至工程
+
+import com.vivo.aisdk.cms.local.CmsLocalFrame;   // CMS服务总类
+import com.vivo.aisdk.cms.local.internal.CommApiCallBack; // 结果回调
+import com.vivo.aisdk.cms.local.internal.ResponseResult;  // 接口返回的结果类
+import com.vivo.aisdk.cms.local.utils.LogUtils;   // log工具类
+
+2. 应用CmsLocalFrame进行接口调用， 异步获取审核结果
+ String text = &quot;待测试文本内容&quot;;
+ long  timeout = 5000;
+
+ CmsLocalFrame.getInstance().TextModeration(text, new CommApiCallBack&lt;ResponseResult&gt;() {
+	@Override
+	public void onCallBack(ResponseResult responseResult) {
+		if (responseResult.getCode() == CMSLocalConstants.ResultCode.SUCCESS) {
+			//调用成功：解析结果
+			String data = responseResult.getData();
+			try {
+				JSONObject json = new JSONObject(data);
+				// 系统默认方法将 String转换为int 类型。
+				int result = json.getInt(&quot;result&quot;);
+				if (result == 0) {
+					// 审核通过
+					LogUtils.d(&quot;checked&quot;);
+				} else if (result == 1) {
+					// 存在嫌疑
+					LogUtils.d(&quot;Under suspicion&quot;);
+				} else if (result == 2) {
+					// 未通过审核
+					LogUtils.d(&quot;not checked&quot;);
+				}
+			} catch (JSONException e) {
+				LogUtils.e(&quot;json error: &quot; + e.getMessage());
+			}
+		} else {
+			//返回错误码
+			showMesage(responseResult.getMsg());
+		}
+	}
+},  timeout);
+</code></pre>
+<h4><a id="_164"></a>结果示例</h4>
+<table>
+<thead>
+<tr>
+<th>测试文案</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>如果您想管理自己的数字货币，可以到数字人民币的官方服务平台，注册开通个人钱包，这样可以帮助您保护好自己的现金，不必担心跟踪失败或遗失问题，并有效地进行数字货币交易和转账。</td>
+<td>2：审核不通过</td>
+</tr>
+<tr>
+<td>今天天气真不错</td>
+<td>0：审核通过</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_171"></a>错误码</h4>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>错误描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>success：成功</td>
+</tr>
+<tr>
+<td>110001</td>
+<td>未知错误</td>
+</tr>
+<tr>
+<td>110002</td>
+<td>参数错误</td>
+</tr>
+<tr>
+<td>110003</td>
+<td>远程服务不存在</td>
+</tr>
+<tr>
+<td>110004</td>
+<td>远程服务未连接</td>
+</tr>
+<tr>
+<td>110005</td>
+<td>能力不支持</td>
+</tr>
+<tr>
+<td>110006</td>
+<td>请求超时</td>
+</tr>
+<tr>
+<td>110007</td>
+<td>返回结果为空</td>
+</tr>
+<tr>
+<td>110008</td>
+<td>鉴权失败</td>
+</tr>
+<tr>
+<td>110009</td>
+<td>远程服务错误</td>
+</tr>
+<tr>
+<td>110010</td>
+<td>初始化参数，缺少context</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="Demo_186"></a>文本审核Demo体验</h4>
+<p>Demo简介：</p>
+<p>Application入口: DemoApplication，sdk初始化<br />
+MainActivity：文本审核功能实现。</p>
+<ol>
+<li>
+<p>文本输入框：输入审核文本</p>
+</li>
+<li>
+<p>&quot;Submit&quot;按钮：调用输入文本进行文本审核</p>
+</li>
+<li>
+<p>结果展示: 展示审核结果</p>
+</li>
+<li>
+<p><a href="https://vstack-vivofs.vivo.com.cn/uAfNzbyGPR9eJshQ/v-stack/20240528/202405281733531654358.zip" target="_blank">Demo apk</a></p>
+</li>
+<li>
+<p><a href="https://vstack-vivofs.vivo.com.cn/uAfNzbyGPR9eJshQ/v-stack/20240528/202405281738277348462.rar" target="_blank">Demo 源码</a></p>
+</li>
+</ol>
+<h1><a id="_198"></a>常见问题</h1>
+<ul>
+<li>文本审核失败，toast提示错误信息 “unexception error, result is null”<br />
+请确保审核能力在调用前已成功初始化，需要进一步分析可以抓取“_V_AiSdk”相关的LOG，并联系vivo的开发人员</li>
+</ul>
+</div>

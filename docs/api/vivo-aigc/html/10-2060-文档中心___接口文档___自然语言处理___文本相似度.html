@@ -1,0 +1,173 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1773365092003"></link><div id="mark-down" class="markdown-body"><h3><a id="_0"></a>服务简介</h3>
+<p>将用户提供的文本信息从语义的角度来判断两者相似度。</p>
+<h3><a id="_4"></a>接口说明</h3>
+<p>请求地址：https://api-ai.vivo.com.cn/rerank</p>
+<p>访问方式：<code>POST</code></p>
+<h3><a id="_10"></a>请求参数</h3>
+<p><strong>Header</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-Type</td>
+<td>是</td>
+<td>application/json</td>
+</tr>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+</tr>
+</tbody>
+</table>
+<p><strong>查询参数</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>requestId</td>
+<td>uuid</td>
+<td>是</td>
+<td>uuid值</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Body</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名称</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>是否必须</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>model_name</td>
+<td>string</td>
+<td>是</td>
+<td>文本向量化模型名称，当前支持：bge-reranker-large</td>
+</tr>
+<tr>
+<td>query</td>
+<td>string</td>
+<td>是</td>
+<td>示例：“科技发展趋势”</td>
+</tr>
+<tr>
+<td>sentences</td>
+<td>array<string></td>
+<td>是</td>
+<td>需要向量化文本的JSON格式数组，示例：[“自动追焦相关报表”, “太古汇内云集逾180家知名品牌”]</td>
+</tr>
+</tbody>
+</table>
+<p>model_name说明</p>
+<table>
+<thead>
+<tr>
+<th>model_name</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>bge-reranker-large</td>
+<td>介绍见<a href="https://huggingface.co/BAAI/bge-reranker-large" target="_blank">https://huggingface.co/BAAI/bge-reranker-large</a></td>
+</tr>
+</tbody>
+</table>
+<p>我们重点优化了bge-reranker-large模型的推理性能。</p>
+<p>请求参数示例</p>
+<pre><div class="hljs"><code class="lang-bash"><span class="hljs-comment"># Content-Type设置为JSON格式，如"Content-Type: application/json" </span>
+{
+    <span class="hljs-string">"model_name"</span>: <span class="hljs-string">"bge-reranker-large"</span>,
+    <span class="hljs-string">"query"</span>: <span class="hljs-string">"科技品牌发展"</span>,
+    <span class="hljs-string">"sentences"</span>:[<span class="hljs-string">"自动追焦相关报表"</span>,<span class="hljs-string">"太古汇内云集逾180家知名品牌"</span>,<span class="hljs-string">"其中逾70个品牌为第一次进驻广州"</span>,<span class="hljs-string">"交通：商场M层连通地铁三号线石牌桥站；毗邻地铁一号线体育中心站。"</span>]
+}
+</code></div></pre>
+<h3><a id="_54"></a>响应结果</h3>
+<table>
+<thead>
+<tr>
+<th><strong>参数</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>data</td>
+<td>array</td>
+<td>对应sentences中每条文本与query文本的相似度</td>
+</tr>
+</tbody>
+</table>
+<p>返回响应示例</p>
+<pre><div class="hljs"><code class="lang-bash"><span class="hljs-comment"># data主体是数组，长度与输入的sentences数组相同，代表query与sentences中每条文本的相似度</span>
+{<span class="hljs-string">"data"</span>:[-8.067169189453125,-5.946075439453125,-4.977325439453125,-8.957794189453125]}
+</code></div></pre>
+<h3><a id="_69"></a>调用示例</h3>
+<p>备注：鉴权文档<a href="https://aigc.vivo.com/#/document/index?id=1677" target="_blank">鉴权方式-AppKey获取</a></p>
+<pre><div class="hljs"><code class="lang-python"><span class="hljs-comment">#!/usr/bin/env python</span>
+<span class="hljs-comment"># encoding: utf-8</span>
+
+<span class="hljs-keyword">import</span> requests
+<span class="hljs-keyword">import</span> uuid
+
+<span class="hljs-comment"># 注意替换AppId、AppKey</span>
+AppId = <span class="hljs-string">'your_AppId'</span>
+AppKey = <span class="hljs-string">"your_AppKey"</span>
+DOMAIN = <span class="hljs-string">'api-ai.vivo.com.cn'</span>
+URI = <span class="hljs-string">'/rerank'</span>
+METHOD = <span class="hljs-string">'POST'</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">rerank</span><span class="hljs-params">()</span>:</span>
+    params = {}
+    post_data = {
+        <span class="hljs-string">"model_name"</span>: <span class="hljs-string">"bge-reranker-large"</span>,
+        <span class="hljs-string">"query"</span>: <span class="hljs-string">"老夫聊发少年狂"</span>,
+        <span class="hljs-string">"sentences"</span>: [<span class="hljs-string">"豫章故郡，洪都新府"</span>, <span class="hljs-string">"星分翼轸，地接衡庐"</span>]
+    }
+    params = {
+        <span class="hljs-string">"requestId"</span>: str(uuid.uuid4())
+    }
+    print(params[<span class="hljs-string">'requestId'</span>])
+    headers = {
+        <span class="hljs-string">"Authorization"</span>: <span class="hljs-string">f"Bearer <span class="hljs-subst">{AppKey}</span>"</span>,
+        <span class="hljs-string">"Content-type"</span>: <span class="hljs-string">"application/json"</span>,
+    }
+    print(<span class="hljs-string">'headers'</span>, headers)
+    url = <span class="hljs-string">'https://{}{}'</span>.format(DOMAIN, URI)
+    response = requests.post(url, json=post_data, headers=headers,params=params )
+    <span class="hljs-keyword">if</span> response.status_code == <span class="hljs-number">200</span>:
+        print(response.json())
+    <span class="hljs-keyword">else</span>:
+        print(response.status_code, response.text)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    rerank()
+
+</code></div></pre>
+<h3><a id="_117"></a>常见问题</h3>
+<p>1.Q：文本相似度能力支持的语种有哪些？</p>
+<p>A：中文、英文，暂不支持其他语种向量化的功能。</p>
+<p>2.Q: 文本长度是否有限制？</p>
+<p>A：文本 query + sentence 长度控制在<strong>500字</strong>以内。</p>
+</div>

@@ -1,0 +1,527 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1773369532959"></link><div id="mark-down" class="markdown-body"><h2><a id="_0"></a>服务简介</h2>
+<p>本文主要描述基于http协议之上的录音文件长语音转写（单次转写文件限制5个小时且小于500M）交互接口协议， 基于该接口协议，客户端可以选择合适的语言进行客户端的开发</p>
+<h2><a id="_6"></a>接口说明</h2>
+<h3><a id="_8"></a>注意</h3>
+<p><font  color="red"> 说明：支持的音频格式有wav，pcm，m4a，mp3，acc，ogg，ogg_opus。</font><br />
+录音文件长语音转写，主要是包含以下5个阶段：</p>
+<p>1.创建音频</p>
+<p>2.文件分片上传</p>
+<p>3.创建任务并开始转写</p>
+<p>4.查询转写进度</p>
+<p>5.查询转写结果</p>
+<h3><a id="API_23"></a><strong>API</strong></h3>
+<h4><a id="_25"></a>请求地址</h4>
+<p>域名：api-ai.vivo.com.cn</p>
+<h4><a id="_29"></a>公共参数</h4>
+<p>Header</p>
+<p>请求头鉴权参数用于服务鉴权</p>
+<table>
+<thead>
+<tr>
+<th>参数名称</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>参数值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+<td>Bearer AppKey</td>
+</tr>
+</tbody>
+</table>
+<p>URL参数</p>
+<p>url参数通过key1=val1&amp;key2=val2…&amp;keyn=valn 方式拼接 ， 并附加在url后面</p>
+<p>例如：http://api-ai.vivo.com.cn/lasr/create?key1=val1&amp;key2=val2…&amp;keyn=valn</p>
+<table>
+<thead>
+<tr>
+<th><strong>字段</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>是否必选</strong></th>
+<th><strong>是否要urlencode</strong></th>
+<th><strong>备注</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>client_version</td>
+<td>string</td>
+<td>应用版本号</td>
+<td>是</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>package</td>
+<td>string</td>
+<td>应用包名</td>
+<td>是</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>string</td>
+<td>用户id(32位字符串，包括数字和小写字母)</td>
+<td>是</td>
+<td>是</td>
+<td>唯一标志符</td>
+</tr>
+<tr>
+<td>system_time</td>
+<td>string</td>
+<td>请求时间</td>
+<td>是</td>
+<td>是</td>
+<td>Unix timestamp, 单位:毫秒</td>
+</tr>
+<tr>
+<td>engineid</td>
+<td>string</td>
+<td>能力id，如fileasrrecorder</td>
+<td>是</td>
+<td>是</td>
+<td>根据所需的长语音转写模型类别选择能力id，普通录音文件转写模型：fileasrrecorder</td>
+</tr>
+<tr>
+<td>requestId</td>
+<td>uuid</td>
+<td>追踪链路</td>
+<td>是</td>
+<td>是</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><strong>【注意事项】</strong></p>
+<p>1.header和url参数1-5阶段都需要带上</p>
+<h3><a id="_60"></a>创建音频</h3>
+<p>【地址】：/lasr/create</p>
+<p>【方式】：POST</p>
+<p>【头部】：“Content-Type”: “application/json; charset=UTF-8”</p>
+<h4><a id="body_68"></a>请求body</h4>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>位置</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>是否必选</strong></th>
+<th><strong>备注</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>audio_type</td>
+<td>string</td>
+<td>body</td>
+<td>音频类型</td>
+<td>是</td>
+<td>pcm格式传pcm<br/>其他wav，ogg(speex)，ogg_opus，mp3，aac，m4a格式传auto</td>
+</tr>
+<tr>
+<td>x-sessionId</td>
+<td>string</td>
+<td>body</td>
+<td>请求端生成uuid，且必须保证创建音频和文件分片上传时使用相同的x-sessionId</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>slice_num</td>
+<td>int</td>
+<td>body</td>
+<td>音频分片总数，用于最后的分片上传数量检查</td>
+<td>是</td>
+<td>slice_num = ceil((file_size)/(slice_size)),slice_size 为文件分片的大小， 目前为5Mfile_size 为录音文件的大小ceil() 表示向上取整，因单次转写限制500M，slice_num取值小于等于100</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_76"></a>响应结果</h4>
+<pre><div class="hljs"><code class="lang-json">{
+	<span class="hljs-attr">"sid"</span>: <span class="hljs-string">"81303be6-c015-4aa3-9191-f1234cdf0a6e"</span>,
+	<span class="hljs-attr">"action"</span>: <span class="hljs-string">"result"</span>,
+	<span class="hljs-attr">"data"</span>: {
+		<span class="hljs-attr">"audio_id"</span>: <span class="hljs-string">"5fb63a82bbb2a462d7bae7dd"</span>  // 音频ID，分片上传和创建任务的API都会用到
+	},
+	<span class="hljs-attr">"code"</span>: <span class="hljs-number">0</span>,
+	<span class="hljs-attr">"desc"</span>: <span class="hljs-string">"success"</span>,
+	<span class="hljs-attr">"type"</span>: <span class="hljs-string">"asr"</span>
+}
+</code></div></pre>
+<h3><a id="_93"></a>文件分片上传</h3>
+<p>【地址】：/lasr/upload</p>
+<p>【方式】：POST</p>
+<p>【头部】：“Content-Type”: &quot;multipart/form-data“</p>
+<h4><a id="URL_101"></a>URL请求参数</h4>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>位置</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>是否必选</strong></th>
+<th><strong>备注</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>audio_id</td>
+<td>string</td>
+<td>query string</td>
+<td>创建任务时，服务器返回的audio_id，URL参数。</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>x-sessionId</td>
+<td>string</td>
+<td>query string</td>
+<td>请求端生成uuid，且必须保证创建音频和文件分片上传时使用相同的x-sessionId，URL参数</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>slice_index</td>
+<td>int</td>
+<td>query string</td>
+<td>本次上传的分片索引编号，从0开始，URL参数</td>
+<td>是</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p><strong>示例:</strong></p>
+<pre><code class="lang-curl">curl -i -X POST -H &quot;Content-Type: multipart/form-data&quot; -F file=@slice_path /lasr/upload?{公参}&amp;audio_id={audio_id}&amp;slice_index={slice_index}&amp;x-sessionId={x-sessionId}
+</code></pre>
+<h4><a id="_115"></a>响应结果</h4>
+<p>分片未上传完：</p>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"sid"</span>:<span class="hljs-string">"6b5e969e-7a53-415c-8ce1-859043731982"</span>,
+    <span class="hljs-attr">"action"</span>:<span class="hljs-string">"result"</span>,
+    <span class="hljs-attr">"data"</span>:{
+        <span class="hljs-attr">"total"</span>:<span class="hljs-number">3</span>,
+        <span class="hljs-attr">"slices"</span>:<span class="hljs-number">1</span>, // 1 ～ slices_num, 服务器已成功保存的分片总数
+        <span class="hljs-attr">"audio_id"</span>:<span class="hljs-string">"5fb63a82bbb2a462d7bae7dd"</span>
+    },
+    <span class="hljs-attr">"code"</span>:<span class="hljs-number">0</span>,
+    <span class="hljs-attr">"desc"</span>:<span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"type"</span>:<span class="hljs-string">"asr"</span>
+}
+</code></div></pre>
+<p>分片上传完：</p>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"sid"</span>:<span class="hljs-string">"f55e388d-f2fa-48b1-9f84-310d74bf4879"</span>,
+    <span class="hljs-attr">"action"</span>:<span class="hljs-string">"result"</span>,
+    <span class="hljs-attr">"data"</span>:{
+        <span class="hljs-attr">"url"</span>:<span class="hljs-string">""</span>,
+        <span class="hljs-attr">"total"</span>:<span class="hljs-number">3</span>,
+        <span class="hljs-attr">"slices"</span>:<span class="hljs-number">3</span>,
+        <span class="hljs-attr">"audio_id"</span>:<span class="hljs-string">"5fb63a82bbb2a462d7bae7dd"</span>
+    },
+    <span class="hljs-attr">"code"</span>:<span class="hljs-number">0</span>,
+    <span class="hljs-attr">"desc"</span>:<span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"type"</span>:<span class="hljs-string">"asr"</span>
+}
+</code></div></pre>
+<p><strong>【注意事项】</strong></p>
+<p>1.为了更好的保障大文件的传输稳定性和效率，分片大小为5M， 5M之内的无需分片（slices_num = 1, slice_index = 0）</p>
+<h3><a id="_158"></a><strong>创建任务并开始转写</strong></h3>
+<p>【地址】：/lasr/run</p>
+<p>【方式】：POST</p>
+<p>【头部】：“Content-Type”: “application/json; charset=UTF-8”</p>
+<h4><a id="body_166"></a>请求body</h4>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>位置</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>是否必选</strong></th>
+<th><strong>备注</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>audio_id</td>
+<td>string</td>
+<td>body</td>
+<td>创建任务时，服务器返回的audio_id</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>x-sessionId</td>
+<td>string</td>
+<td>body</td>
+<td>请求端生成uuid，且必须保证创建音频和文件分片上传时使用相同的x-sessionId</td>
+<td>是</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_173"></a>响应结果</h4>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"sid"</span>:<span class="hljs-string">"64b26906-c491-4664-b6fd-68b3aa4e84b1"</span>,
+    <span class="hljs-attr">"action"</span>:<span class="hljs-string">"result"</span>,
+    <span class="hljs-attr">"data"</span>:{
+        <span class="hljs-attr">"task_id"</span>:<span class="hljs-string">"5fb621c3bb14f77daecb9224"</span>
+    },
+    <span class="hljs-attr">"code"</span>:<span class="hljs-number">0</span>,
+    <span class="hljs-attr">"desc"</span>:<span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"type"</span>:<span class="hljs-string">"asr"</span>
+}
+</code></div></pre>
+<h3><a id="_190"></a><strong>查询转写进度</strong></h3>
+<p>【地址】：/lasr/progress</p>
+<p>【方式】：POST</p>
+<p>【头部】：“Content-Type”: “application/json; charset=UTF-8”</p>
+<h4><a id="body_198"></a>请求body</h4>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>位置</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>是否必选</strong></th>
+<th><strong>备注</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>task_id</td>
+<td>string</td>
+<td>body</td>
+<td>创建转写任务返回的任务ID</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>x-sessionId</td>
+<td>string</td>
+<td>body</td>
+<td>请求端生成uuid，且必须保证创建音频和文件分片上传时使用相同的x-sessionId</td>
+<td>是</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_205"></a>响应结果</h4>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"sid"</span>:<span class="hljs-string">"13d8bfdb-7f2f-46c3-b854-dbf86df52361"</span>,
+    <span class="hljs-attr">"action"</span>:<span class="hljs-string">"result"</span>,
+    <span class="hljs-attr">"data"</span>:{
+        <span class="hljs-attr">"progress"</span>:<span class="hljs-number">100</span> //<span class="hljs-number">0</span> ～ <span class="hljs-number">100</span>，<span class="hljs-number">100</span>表示转写完成
+    },
+    <span class="hljs-attr">"code"</span>:<span class="hljs-number">0</span>,
+    <span class="hljs-attr">"desc"</span>:<span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"type"</span>:<span class="hljs-string">"asr"</span>
+}
+</code></div></pre>
+<h3><a id="_222"></a><strong>查询转写结果</strong></h3>
+<p>【地址】：/lasr/result</p>
+<p>【方式】：POST</p>
+<p>【头部】：“Content-Type”: “application/json; charset=UTF-8”</p>
+<h4><a id="body_230"></a>请求body</h4>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>位置</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>是否必选</strong></th>
+<th><strong>备注</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>task_id</td>
+<td>string</td>
+<td>body</td>
+<td>创建转写任务返回的任务ID</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>x-sessionId</td>
+<td>string</td>
+<td>body</td>
+<td>请求端生成uuid，且必须保证创建音频和文件分片上传时使用相同的x-sessionId</td>
+<td>是</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_237"></a>响应结果</h4>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"sid"</span>:<span class="hljs-string">"dbfeac3d-d931-4bde-99a1-dcff713fdb2b"</span>,
+    <span class="hljs-attr">"action"</span>:<span class="hljs-string">"result"</span>,
+    <span class="hljs-attr">"data"</span>:{
+        <span class="hljs-attr">"result"</span>:[
+            {
+                <span class="hljs-attr">"onebest"</span>:<span class="hljs-string">"播放歌曲摇篮曲。 "</span>,
+                <span class="hljs-attr">"bg"</span>:<span class="hljs-number">0</span>,
+                <span class="hljs-attr">"ed"</span>:<span class="hljs-number">2190</span>,
+                <span class="hljs-attr">"speaker"</span>:<span class="hljs-number">1</span>
+            }
+        ]
+    },
+    <span class="hljs-attr">"code"</span>:<span class="hljs-number">0</span>,
+    <span class="hljs-attr">"desc"</span>:<span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"type"</span>:<span class="hljs-string">"asr"</span>
+}
+</code></div></pre>
+<h3><a id="_261"></a><strong>错误码</strong></h3>
+<h4><a id="_263"></a>创建音频</h4>
+<table>
+<thead>
+<tr>
+<th>业务层错误码</th>
+<th>错误原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10000</td>
+<td>客户端传公共参数校验失败</td>
+</tr>
+<tr>
+<td>10001</td>
+<td>客户端传创建音频相关参数校验失败</td>
+</tr>
+<tr>
+<td>10002</td>
+<td>客户端请求body参数音频分片数slice_num大于100</td>
+</tr>
+<tr>
+<td>10003</td>
+<td>服务端创建音频失败</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_272"></a>文件上传</h4>
+<table>
+<thead>
+<tr>
+<th>业务层错误码</th>
+<th>错误原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10100</td>
+<td>客户端传公共参数校验失败</td>
+</tr>
+<tr>
+<td>10101</td>
+<td>客户端传音频上传相关参数校验失败</td>
+</tr>
+<tr>
+<td>10102</td>
+<td>服务端创建读音频对象失败</td>
+</tr>
+<tr>
+<td>10103</td>
+<td>服务端读取音频失败</td>
+</tr>
+<tr>
+<td>10104</td>
+<td>服务端获取缓存的音频分片数量失败</td>
+</tr>
+<tr>
+<td>10105</td>
+<td>服务端上传音频到数据库失败</td>
+</tr>
+<tr>
+<td>10106</td>
+<td>最后一个分片上传完成时服务端状态流转失败</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_284"></a>开始转写</h4>
+<table>
+<thead>
+<tr>
+<th>业务层错误码</th>
+<th>错误原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10200</td>
+<td>客户端传公共参数校验失败</td>
+</tr>
+<tr>
+<td>10201</td>
+<td>客户端传转写相关参数校验失败</td>
+</tr>
+<tr>
+<td>10202</td>
+<td>服务端创建转写任务失败</td>
+</tr>
+<tr>
+<td>10203</td>
+<td>开始转写时服务端状态流转失败</td>
+</tr>
+</tbody>
+</table>
+<p>####查询进度</p>
+<table>
+<thead>
+<tr>
+<th>业务层错误码</th>
+<th>错误原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10300</td>
+<td>客户端传公共参数校验失败</td>
+</tr>
+<tr>
+<td>10301</td>
+<td>客户端传查询进度相关参数校验失败</td>
+</tr>
+<tr>
+<td>10302</td>
+<td>服务端获取进度失败</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="_301"></a>查询结果</h4>
+<table>
+<thead>
+<tr>
+<th>业务层错误码</th>
+<th>错误原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10400</td>
+<td>客户端传公共参数校验失败</td>
+</tr>
+<tr>
+<td>10401</td>
+<td>客户端传查询结果相关参数校验失败</td>
+</tr>
+<tr>
+<td>10402</td>
+<td>服务端获取结果失败</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_311"></a>调用示例</h3>
+<p>python调用demo：<a href="https://vstack-vivofs.vivo.com.cn/uAfNzbyGPR9eJshQ/v-stack/20260313/202603131038263594744.rar" target="_blank">长语音转写调用demo</a></p>
+<p>使用说明见：<a href="https://vstack-vivofs.vivo.com.cn/uAfNzbyGPR9eJshQ/v-stack/20240419/202404191042322196023.txt" target="_blank">demo使用说明</a></p>
+</div>

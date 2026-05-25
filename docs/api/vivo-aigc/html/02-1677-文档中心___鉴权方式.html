@@ -1,0 +1,94 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1773648622319"></link><div id="mark-down" class="markdown-body"><h2><a id="AppKEY_0"></a>AppKEY获取</h2>
+<p>官网地址: https://aigc.vivo.com.cn/#/platform</p>
+<p><img src="https://vstack-vivofs.vivo.com.cn/uAfNzbyGPR9eJshQ/v-stack/20260316/202603161609586407557.png" alt="image.png" /></p>
+<h2><a id="_6"></a>使用</h2>
+<p>从<a href="https://aigc.vivo.com.cn/#/platform" target="_blank">AIGC官网</a>中获取AppKey，替换接口文档中的<code>AppKey</code>，即可使用当前脚本能力。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+<td>Bearer  AppKey</td>
+</tr>
+</tbody>
+</table>
+<h2><a id="_14"></a>异常说明</h2>
+<p>若鉴权失败，接口将返回HTTP 401状态码，常见错误及解决方式如下：</p>
+<table>
+<thead>
+<tr>
+<th>响应体内容</th>
+<th>说明</th>
+<th>解决方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{&quot;message&quot;:&quot;missing required app_id in the request header&quot;}</code></td>
+<td>认证串格式或内容无效</td>
+<td>检查请求头是否正确携带AppKey</td>
+</tr>
+<tr>
+<td><code>{&quot;message&quot;:&quot;invalid api-key&quot;}</code></td>
+<td>app_key无效</td>
+<td>检查app_key是否正确</td>
+</tr>
+<tr>
+<td><code>{&quot;message&quot;:&quot;not having this ability, you need to apply for it&quot;}</code></td>
+<td>当前应用没有该能力</td>
+<td>联系系统管理员</td>
+</tr>
+</tbody>
+</table>
+<h2><a id="_24"></a>参考示例</h2>
+<pre><div class="hljs"><code class="lang-python"><span class="hljs-comment">#!/usr/bin/env python</span>
+<span class="hljs-comment"># encoding: utf-8</span>
+
+<span class="hljs-keyword">import</span> requests
+<span class="hljs-keyword">import</span> base64
+<span class="hljs-keyword">import</span> uuid
+
+<span class="hljs-comment"># 请注意替换AppKey、PIC_FILE</span>
+AppKey = <span class="hljs-string">"your_AppKey"</span>
+DOMAIN = <span class="hljs-string">'api-ai.vivo.com.cn'</span>
+URI = <span class="hljs-string">'/ocr/general_recognition'</span>
+METHOD = <span class="hljs-string">'POST'</span>
+PIC_FILE = <span class="hljs-string">'./test.jpg'</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ocr_test</span><span class="hljs-params">()</span>:</span>
+    picture = PIC_FILE
+    <span class="hljs-keyword">with</span> open(picture, <span class="hljs-string">"rb"</span>) <span class="hljs-keyword">as</span> f:
+        b_image = f.read()
+    image = base64.b64encode(b_image).decode(<span class="hljs-string">"utf-8"</span>)
+    post_data = {<span class="hljs-string">"image"</span>: image, <span class="hljs-string">"pos"</span>: <span class="hljs-number">2</span>, <span class="hljs-string">"businessid"</span>: <span class="hljs-string">"aigc"</span>+AppId}
+    params = {
+        <span class="hljs-string">"requestId"</span>: str(uuid.uuid4())
+    }
+    print(params[<span class="hljs-string">'requestId'</span>])
+    headers = {
+        <span class="hljs-comment"># 注意该鉴权头的格式</span>
+        <span class="hljs-string">"Authorization"</span>: <span class="hljs-string">f"Bearer <span class="hljs-subst">{AppKey}</span>"</span>,
+        <span class="hljs-string">"Content-type"</span>: <span class="hljs-string">"application/x-www-form-urlencoded"</span>,
+    }
+    url = <span class="hljs-string">'http://{}{}'</span>.format(DOMAIN, URI)
+    response = requests.post(url, data=post_data, headers=headers,params=params, timeout=<span class="hljs-number">3</span>)
+    <span class="hljs-keyword">if</span> response.status_code == <span class="hljs-number">200</span>:
+        print(response.json())
+    <span class="hljs-keyword">else</span>:
+        print(response.status_code, response.text)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    test()
+</code></div></pre>
+</div>

@@ -1,0 +1,151 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1773661954704"></link><div id="mark-down" class="markdown-body"><h1><a id="Function_Call_0"></a>Function Call使用指南</h1>
+<h2><a id="Messages_2"></a>Messages说明</h2>
+<p>直接调用API的话，需要用户自己封装system和解析数据。</p>
+<p>Function call需要使用messages来进行调用，messages为一个列表，包含一条或者多条消息，一个完整的function call的messages示例如下：</p>
+<pre><div class="hljs"><code class="lang-python">[
+    {<span class="hljs-string">'role'</span>:<span class="hljs-string">'system'</span>,<span class="hljs-string">'content'</span>:<span class="hljs-string">'''你是一个AI助手，尽你所能回答用户的问题。
+
+你可以使用的工具如下:
+&lt;APIs&gt;
+[
+   {
+            "name": "get_current_weather",
+            "description": "Get the current weather",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g. San Francisco, CA",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["celsius", "fahrenheit"],
+                        "description": "The temperature unit to use. Infer this from the users location.",
+                    },
+                },
+                "required": ["location", "format"],
+            },
+    }
+]
+&lt;/APIs&gt;
+
+如果用户的问题需要调用工具，输出格式为：
+&lt;APIs&gt;
+[{"name": "函数名","parameters": {"参数名": "参数"}}]
+&lt;/APIs&gt;
+否则直接回复用户。'''</span>},
+    {<span class="hljs-string">'role'</span>:<span class="hljs-string">'user'</span>,<span class="hljs-string">'content'</span>:<span class="hljs-string">'杭州天气怎么样'</span>},
+    {<span class="hljs-string">"role"</span>:<span class="hljs-string">'assistant'</span>,<span class="hljs-string">'content'</span>:<span class="hljs-string">'&lt;APIs&gt;[{"name": "get_current_weather", "parameters": {"location": "Hangzhou", "format": "celsius"}}]&lt;/APIs&gt;'</span>},
+    {<span class="hljs-string">'role'</span>:<span class="hljs-string">'function'</span>,<span class="hljs-string">'content'</span>:<span class="hljs-string">'杭州天气晴，27度'</span>},
+    {<span class="hljs-string">"role"</span>:<span class="hljs-string">'assistant'</span>,<span class="hljs-string">'content'</span>:<span class="hljs-string">'您好，杭州天气晴朗，27度，祝您有个好心情。'</span>}
+]
+</code></div></pre>
+<p>每一条message为字典结构，包含role和content两个字段，其中role为角色，content为对应的内容。</p>
+<table>
+<thead>
+<tr>
+<th><strong>角色</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>举例</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>system</td>
+<td>系统角色，可以用于指定人设、回复格式、API说明、额外知识等内容。可以放任何你想让模型知道的内容。</td>
+<td>你是蓝心小V，请你用萌妹子的口吻回复用户。</td>
+</tr>
+<tr>
+<td>user</td>
+<td>用户的输入内容</td>
+<td>你好</td>
+</tr>
+<tr>
+<td>assistant</td>
+<td>大模型的回复，function call也是在这里</td>
+<td>[{“name”: “get_current_weather”, “parameters”: {“location”: “Hangzhou”, “format”: “celsius”}}]</td>
+</tr>
+<tr>
+<td>function</td>
+<td>function调用结果，如果模型输出了function call，开发者需要将function call的结果通过这个角色给到大模型</td>
+<td>杭州天气晴，27度</td>
+</tr>
+</tbody>
+</table>
+<h1><a id="System_58"></a>System构成</h1>
+<p>一个基本的function call的system包含的信息如下，只需要将您的api定义替换掉{api_desc}即可。</p>
+<ul>
+<li>
+<p>3-12行为固定格式，建议保持一致。</p>
+</li>
+<li>
+<p>角色和功能说明 system：填入您自定义的system内容</p>
+</li>
+<li>
+<p>APIs：API的说明，后面会详细介绍</p>
+</li>
+<li>
+<p><strong>格式返回说明：要求模型返回结构化的字段，包括回复和function call两个信息，二者只会有一个有值。建议先用默认格式，因为训练数据中大部分都为这种格式。</strong></p>
+<ul>
+<li>这块比较核心，如果没有指定返回格式，则无法判断何时为function call何时为正常回复</li>
+</ul>
+</li>
+<li>
+<p>如果有额外的信息需要模型知道，请参考LUI格式使用<TagName></TagName>格式将信息放在角色和功能说明中</p>
+</li>
+</ul>
+<pre><code class="lang-plaintext">你是xxxx，你可以xxxx
+
+用户的信息如下：
+&lt;Knowledge&gt;
+姓名：小白
+年龄：33
+爱好：看书、跑步
+&lt;/Knowledge&gt;
+
+你需要xxxxx
+
+你可以使用的工具如下:
+...
+否则直接回复用户。
+</code></pre>
+<h3><a id="API_87"></a>API定义</h3>
+<p>API推荐使用json格式。</p>
+<p>使用Json格式定义API的好处</p>
+<p>- 训练数据中大部分API都是采用Json格式定义，因此，在使用时采用和训练一致的API格式可以更好保证效果</p>
+<p>- 业界统一使用Json格式的API定义，如OpenAI，Claude，智谱等，方便切换接口，或者使用其他接口构建数据</p>
+<p>如下例：</p>
+<pre><div class="hljs"><code class="lang-python">{
+    <span class="hljs-string">"name"</span>: <span class="hljs-string">"get_current_weather"</span>,
+    <span class="hljs-string">"description"</span>: <span class="hljs-string">"Get the current weather"</span>,
+    <span class="hljs-string">"parameters"</span>: {
+        <span class="hljs-string">"type"</span>: <span class="hljs-string">"object"</span>,
+        <span class="hljs-string">"properties"</span>: {
+            <span class="hljs-string">"location"</span>: {
+                <span class="hljs-string">"type"</span>: <span class="hljs-string">"string"</span>,
+                <span class="hljs-string">"description"</span>: <span class="hljs-string">"The city and state, e.g. San Francisco, CA"</span>,
+            },
+            <span class="hljs-string">"format"</span>: {
+                <span class="hljs-string">"type"</span>: <span class="hljs-string">"string"</span>,
+                <span class="hljs-string">"enum"</span>: [<span class="hljs-string">"celsius"</span>, <span class="hljs-string">"fahrenheit"</span>],
+                <span class="hljs-string">"description"</span>: <span class="hljs-string">"The temperature unit to use. Infer this from the users location."</span>,
+            },
+        },
+        <span class="hljs-string">"required"</span>: [<span class="hljs-string">"location"</span>, <span class="hljs-string">"format"</span>],
+    },
+}
+</code></div></pre>
+<p>每个API说明包含3个必须的字段：</p>
+<ul>
+<li>name: API的名称，最终模型返回时会使用这个name</li>
+<li>description: API的说明，说明这个API的功能和作用，也可以包含API的限制，以及一些示例</li>
+<li>parameters: API的参数，核心是properties，包含了参数名称(key)，和参数的类型和说明（value）。required指定哪些是必须的参数。</li>
+</ul>
+<p>参考：</p>
+<ul>
+<li>https://platform.openai.com/docs/api-reference/chat/create#chat-create-tools</li>
+<li>https://docs.anthropic.com/claude/docs/tool-use#specifying-tools</li>
+<li>https://open.bigmodel.cn/dev/howuse/functioncall</li>
+</ul>
+</div>

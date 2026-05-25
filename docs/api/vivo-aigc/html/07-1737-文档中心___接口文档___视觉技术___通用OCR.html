@@ -1,0 +1,220 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1773363530814"></link><div id="mark-down" class="markdown-body"><h2><a id="_0"></a>服务简介</h2>
+<p>识别用户向服务请求的某张图中的所有文字，并返回文字在图片中的位置信息，方便用户进行文字排版的二次处理参考。</p>
+<h2><a id="_4"></a>接口说明</h2>
+<p>访问地址：http://api-ai.vivo.com.cn/ocr/general_recognition</p>
+<p>访问方式：POST</p>
+<h2><a id="_10"></a>请求参数</h2>
+<h3><a id="Header_12"></a><strong>Header</strong></h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-Type</td>
+<td>string</td>
+<td>是</td>
+<td>application/x-www-form-urlencoded</td>
+</tr>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+<td>Bearer AppKey</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_19"></a>查询参数</h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>requestId</td>
+<td>uuid</td>
+<td>是</td>
+<td>uuid值</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="Body_27"></a><strong>Body</strong></h3>
+<table>
+<thead>
+<tr>
+<th><strong>参数名称</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>是否必须</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>image</td>
+<td>string</td>
+<td>是</td>
+<td>图像数据，base64编码（目前只支持识别jpg、png、bmp格式的图片）</td>
+</tr>
+<tr>
+<td>pos</td>
+<td>string/int</td>
+<td>是</td>
+<td>可取值为0、1、2。0代表只需要文字信息；1代表提供文字信息和坐标信息（坐标绝对值）；2代表将0和1的信息同时提供（坐标为相对值），建议取pos=2</td>
+</tr>
+<tr>
+<td>businessid</td>
+<td>string</td>
+<td>是</td>
+<td>“aigc”+appid</td>
+</tr>
+<tr>
+<td>sessid</td>
+<td>string</td>
+<td>否</td>
+<td>使用uuid，前端传递</td>
+</tr>
+</tbody>
+</table>
+<p><strong>businessid补充说明：</strong></p>
+<ul>
+<li>
+<p>1990173156ceb8a09eee80c293135279，支持旋转图像、非正向文字识别</p>
+</li>
+<li>
+<p>8bf312e702043779ad0f2760b37a0806，只支持正向文字识别，耗时比1990小</p>
+</li>
+</ul>
+<h2><a id="_42"></a>响应结果</h2>
+<table>
+<thead>
+<tr>
+<th><strong>参数</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>error_code</td>
+<td>int</td>
+<td>0: 成功，1: ocr识别失败，2: 图像错误</td>
+</tr>
+<tr>
+<td>error_msg</td>
+<td>string</td>
+<td>succ：成功，ocr fail：识别失败，no parameter image：未上传图片</td>
+</tr>
+<tr>
+<td>result</td>
+<td>json</td>
+<td>请求参数pos为0结果提供文字信息，pos为1结果提供文字信息和坐标信息（绝对值），pos为2结果提供0和1的信息（坐标为相对值）</td>
+</tr>
+<tr>
+<td>version</td>
+<td>string</td>
+<td>ocr_VUG_v2.1.0_20200715</td>
+</tr>
+<tr>
+<td>support</td>
+<td>string</td>
+<td>VIVO识图提供技术支持</td>
+</tr>
+</tbody>
+</table>
+<p>result示例</p>
+<p>请求参数pos为0</p>
+<pre><div class="hljs"><code class="lang-json"># angle可选的值为<span class="hljs-number">0</span>/<span class="hljs-number">90</span>/<span class="hljs-number">180</span>/<span class="hljs-number">270</span> 
+{
+    <span class="hljs-attr">"result"</span>: {
+        <span class="hljs-attr">"words"</span>: [
+            {<span class="hljs-attr">"words"</span>: <span class="hljs-string">"取消"</span>},
+            {<span class="hljs-attr">"words"</span>: <span class="hljs-string">"编辑"</span>}
+        ],
+        <span class="hljs-attr">"angle"</span>: <span class="hljs-number">0</span>
+    }
+}
+</code></div></pre>
+<p>请求参数pos为1</p>
+<pre><div class="hljs"><code class="lang-json"># angle可选的值为<span class="hljs-number">0</span>/<span class="hljs-number">90</span>/<span class="hljs-number">180</span>/<span class="hljs-number">270</span>，top_left：左上，top_right：右上，down_left：左下，down_right：右下，x、y：像素百分比
+{
+    <span class="hljs-attr">"result"</span>: {
+        <span class="hljs-attr">"OCR"</span>: [
+            {
+                <span class="hljs-attr">"words"</span>: <span class="hljs-string">"取消"</span>,
+                <span class="hljs-attr">"location"</span>: {
+                    <span class="hljs-attr">"top_left"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">658.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">1130.0</span>},
+                    <span class="hljs-attr">"top_right"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">893.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">1130.0</span>},
+                    <span class="hljs-attr">"down_left"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">658.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">1174.0</span>},
+                    <span class="hljs-attr">"down_right"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">893.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">1174.0</span>}
+                }
+            },
+            {
+                <span class="hljs-attr">"words"</span>: <span class="hljs-string">"编辑"</span>,
+                <span class="hljs-attr">"location"</span>: {
+                    <span class="hljs-attr">"top_left"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">398.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">825.0</span>},
+                    <span class="hljs-attr">"top_right"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">1912.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">825.0</span>},
+                    <span class="hljs-attr">"down_left"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">398.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">1004.0</span>},
+                    <span class="hljs-attr">"down_right"</span>: {<span class="hljs-attr">"x"</span>: <span class="hljs-number">1912.0</span>, <span class="hljs-attr">"y"</span>: <span class="hljs-number">1004.0</span>}
+                }
+            }
+        ],
+        <span class="hljs-attr">"angle"</span>: <span class="hljs-number">0</span>
+    }
+}
+</code></div></pre>
+<h2><a id="_100"></a>调用示例</h2>
+<p>python示例</p>
+<p>备注：鉴权文档<a href="https://aigc.vivo.com/#/document/index?id=1677" target="_blank">鉴权方式-AppKey获取</a></p>
+<pre><div class="hljs"><code class="lang-python"><span class="hljs-comment">#!/usr/bin/env python</span>
+<span class="hljs-comment"># encoding: utf-8</span>
+
+<span class="hljs-keyword">import</span> requests
+<span class="hljs-keyword">import</span> base64
+<span class="hljs-keyword">import</span> uuid
+
+<span class="hljs-comment"># 请注意替换AppId、AppKey、PIC_FILE</span>
+AppId = <span class="hljs-string">'your_AppId'</span>
+AppKey = <span class="hljs-string">"your_AppKey"</span>
+DOMAIN = <span class="hljs-string">'api-ai.vivo.com.cn'</span>
+URI = <span class="hljs-string">'/ocr/general_recognition'</span>
+METHOD = <span class="hljs-string">'POST'</span>
+PIC_FILE = <span class="hljs-string">'./test.jpg'</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">ocr_test</span><span class="hljs-params">()</span>:</span>
+    picture = PIC_FILE
+    <span class="hljs-keyword">with</span> open(picture, <span class="hljs-string">"rb"</span>) <span class="hljs-keyword">as</span> f:
+        b_image = f.read()
+    image = base64.b64encode(b_image).decode(<span class="hljs-string">"utf-8"</span>)
+    post_data = {<span class="hljs-string">"image"</span>: image, <span class="hljs-string">"pos"</span>: <span class="hljs-number">2</span>, <span class="hljs-string">"businessid"</span>: <span class="hljs-string">"aigc"</span>+AppId}
+    params = {
+        <span class="hljs-string">"requestId"</span>: str(uuid.uuid4())
+    }
+    print(params[<span class="hljs-string">'requestId'</span>])
+    headers = {
+        <span class="hljs-string">"Authorization"</span>: <span class="hljs-string">f"Bearer <span class="hljs-subst">{AppKey}</span>"</span>,
+        <span class="hljs-string">"Content-type"</span>: <span class="hljs-string">"application/x-www-form-urlencoded"</span>,
+    }
+    url = <span class="hljs-string">'http://{}{}'</span>.format(DOMAIN, URI)
+    response = requests.post(url, data=post_data, headers=headers,params=params, timeout=<span class="hljs-number">3</span>)
+    <span class="hljs-keyword">if</span> response.status_code == <span class="hljs-number">200</span>:
+        print(response.json())
+    <span class="hljs-keyword">else</span>:
+        print(response.status_code, response.text)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    ocr_test()
+
+</code></div></pre>
+</div>

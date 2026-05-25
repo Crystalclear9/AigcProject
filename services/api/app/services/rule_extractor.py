@@ -31,15 +31,23 @@ def _next_weekday(base: datetime, weekday: int, next_week: bool = False) -> date
 
 
 def _extract_hour(text: str, default_hour: int = 9) -> tuple[int, int, bool]:
-    fuzzy = False
     minute = 0
-    patterns = [
-        r"(?P<hour>\d{1,2})[:：](?P<minute>\d{2})",
-        r"(上午|早上|中午|下午|晚上|今晚|晚)?\s*(?P<hour>\d{1,2})\s*点\s*(?P<minute>\d{1,2})?分?",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if not match:
+    # Screenshots often contain status-bar/file times before the real event time.
+    for match in re.finditer(r"(?P<hour>\d{1,2})[:：](?P<minute>\d{2})", text):
+        if not _is_action_time_candidate(text, match):
+            continue
+        hour = int(match.group("hour"))
+        minute = int(match.group("minute"))
+        prefix = _nearby_time_prefix(text, match.start())
+        if prefix in {"下午", "晚上", "今晚", "晚"} and hour < 12:
+            hour += 12
+        if prefix == "中午" and hour < 11:
+            hour += 12
+        return hour, minute, False
+
+    pattern = r"(上午|早上|中午|下午|晚上|今晚|晚)?\s*(?P<hour>\d{1,2})\s*点\s*(?P<minute>\d{1,2})?分?"
+    for match in re.finditer(pattern, text):
+        if not _is_action_time_candidate(text, match):
             continue
         hour = int(match.group("hour"))
         minute_group = match.groupdict().get("minute")
@@ -49,7 +57,8 @@ def _extract_hour(text: str, default_hour: int = 9) -> tuple[int, int, bool]:
             hour += 12
         if prefix == "中午" and hour < 11:
             hour += 12
-        return hour, minute, fuzzy
+        return hour, minute, False
+
     if any(word in text for word in ["上午", "早上"]):
         return 9, 0, True
     if "中午" in text:
@@ -57,6 +66,21 @@ def _extract_hour(text: str, default_hour: int = 9) -> tuple[int, int, bool]:
     if any(word in text for word in ["下午", "晚上", "今晚"]):
         return 15 if "下午" in text else 20, 0, True
     return default_hour, minute, True
+
+
+def _nearby_time_prefix(text: str, start: int) -> str:
+    prefix_match = re.search(r"(上午|早上|中午|下午|晚上|今晚|晚)\s*$", text[max(0, start - 8):start])
+    return prefix_match.group(1) if prefix_match else ""
+
+
+def _is_action_time_candidate(text: str, match: re.Match[str]) -> bool:
+    window = text[max(0, match.start() - 28):min(len(text), match.end() + 28)]
+    small_window = text[max(0, match.start() - 12):min(len(text), match.end() + 12)]
+    compact = re.sub(r"\s+", "", window)
+    small_compact = re.sub(r"\s+", "", small_window)
+    if re.search(r"video_\d{8}_\d{6}|KB/s|5G|群文件|\d+(\.\d+)?GB|昨天\d{1,2}[:：]\d{2}", small_compact, flags=re.I):
+        return False
+    return any(word in compact for word in ["通知", "会议", "请", "参加", "地点", "时间", "本周", "下周", "上午", "下午", "晚上", "今晚", "前"])
 
 
 def extract_time(text: str, screenshot_time: str | None = None) -> TimeGuess:
@@ -69,10 +93,11 @@ def extract_time(text: str, screenshot_time: str | None = None) -> TimeGuess:
 
     hour, minute, fuzzy_hour = _extract_hour(text)
 
-    month_day = re.search(r"(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*[日号]?", text)
-    if month_day:
+    for month_day in re.finditer(r"(?P<month>\d{1,2})\s*(?:月|[.．])\s*(?P<day>\d{1,2})\s*[日号]?", text):
         month = int(month_day.group("month"))
         day = int(month_day.group("day"))
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            continue
         year = base.year
         candidate = datetime(year, month, day, hour, minute, tzinfo=CN_TZ)
         if candidate < base - timedelta(days=1):
@@ -116,7 +141,7 @@ def _extract_materials(text: str) -> list[str]:
 
 def _extract_location(text: str) -> str | None:
     patterns = [
-        r"在(?P<location>[^，。；\n]{2,24})(集合|开会|参加|签到|考试)",
+        r"在(?P<location>[^，。；\n]{2,40})(集合|开会|参加|签到|考试|召开|举行)",
         r"地点[:：]\s*(?P<location>[^，。；\n]{2,32})",
         r"至(?P<location>学习通|官网|邮箱|指定邮箱)",
     ]

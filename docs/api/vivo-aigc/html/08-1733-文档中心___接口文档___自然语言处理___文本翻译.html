@@ -1,0 +1,294 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1773365025633"></link><div id="mark-down" class="markdown-body"><h3><a id="_0"></a>能力简介</h3>
+<p>将一段源语言文本转换成目标语言文本，可根据语言参数的不同实现多国语言之间的互译。</p>
+<h3><a id="_4"></a>接口说明</h3>
+<p>访问地址：https://api-ai.vivo.com.cn/translation/query/self</p>
+<p>访问方式：<code>POST</code></p>
+<h3><a id="_10"></a>请求参数</h3>
+<h4><a id="Header_12"></a>Header</h4>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-Type</td>
+<td>string</td>
+<td>是</td>
+<td>application/json</td>
+</tr>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+<td>Bearer AppKey</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_19"></a>查询参数</h3>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>requestId</td>
+<td>uuid</td>
+<td>是</td>
+<td>uuid值</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="Body_25"></a>Body</h4>
+<table>
+<thead>
+<tr>
+<th>参数名称</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>示例值</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>from</td>
+<td>string</td>
+<td>是</td>
+<td>en</td>
+<td>源语言，语言code见下方语言代码对照表</td>
+</tr>
+<tr>
+<td>to</td>
+<td>string</td>
+<td>是</td>
+<td>zh-CHS</td>
+<td>目标语言，语言code见下方语言代码对照表</td>
+</tr>
+<tr>
+<td>text</td>
+<td>string</td>
+<td>是</td>
+<td>hello</td>
+<td>需要翻译的句子，utf-8编码，长度限制1200</td>
+</tr>
+<tr>
+<td>app</td>
+<td>string</td>
+<td>是</td>
+<td>test</td>
+<td>应用包名称，填写&quot;test&quot;</td>
+</tr>
+<tr>
+<td>requestId</td>
+<td>string</td>
+<td>是</td>
+<td>6bb798a1-3b5d-4f57-8a82-c480b56c14df</td>
+<td>请求id，比如uuid</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_35"></a>响应结果</h3>
+<h4><a id="Header_37"></a>Header</h4>
+<table>
+<thead>
+<tr>
+<th>参数名称</th>
+<th>参数值</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-Type</td>
+<td>multipart/form-data</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h4><a id="Body_43"></a>Body</h4>
+<table>
+<thead>
+<tr>
+<th>参数名称</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>示例值</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>code</td>
+<td>number</td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>data</td>
+<td>object</td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>+from</td>
+<td>string</td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>+to</td>
+<td>string</td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>+translation</td>
+<td>string</td>
+<td>否</td>
+<td></td>
+<td>翻译结果</td>
+</tr>
+<tr>
+<td>+text</td>
+<td>string</td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>msg</td>
+<td>null</td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>requestId</td>
+<td></td>
+<td>否</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>响应结果示例</p>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"code"</span>: <span class="hljs-number">0</span>,
+    <span class="hljs-attr">"data"</span>: {
+        <span class="hljs-attr">"text"</span>: <span class="hljs-string">"我很好"</span>,
+        <span class="hljs-attr">"from"</span>: <span class="hljs-string">"zh-CHS"</span>,
+        <span class="hljs-attr">"to"</span>: <span class="hljs-string">"en"</span>,
+        <span class="hljs-attr">"translation"</span>: <span class="hljs-string">"I'm fine"</span>
+    },
+    <span class="hljs-attr">"msg"</span>: <span class="hljs-string">""</span>,
+    <span class="hljs-attr">"requestId"</span>: <span class="hljs-string">"uuid"</span>
+}
+</code></div></pre>
+<h3><a id="_72"></a>调用示例</h3>
+<p>备注：鉴权文档<a href="https://aigc.vivo.com/#/document/index?id=1677" target="_blank">鉴权方式-AppKey获取</a></p>
+<pre><div class="hljs"><code class="lang-python"><span class="hljs-comment"># encoding: utf-8</span>
+
+<span class="hljs-keyword">import</span> uuid
+<span class="hljs-keyword">import</span> requests
+
+<span class="hljs-comment"># 注意替换AppId、AppKey</span>
+AppId = <span class="hljs-string">'your_AppId'</span>
+AppKey = <span class="hljs-string">"your_AppKey"</span>
+URI = <span class="hljs-string">'/translation/query/self'</span>
+DOMAIN = <span class="hljs-string">'api-ai.vivo.com.cn'</span>
+METHOD = <span class="hljs-string">'POST'</span>
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">text_translate</span><span class="hljs-params">()</span>:</span>
+    text = <span class="hljs-string">"I'm fine"</span>
+    data = {
+        <span class="hljs-string">'from'</span>: <span class="hljs-string">'en'</span>,
+        <span class="hljs-string">'to'</span>: <span class="hljs-string">'zh-CHS'</span>,
+        <span class="hljs-string">'text'</span>: text,
+        <span class="hljs-string">'app'</span>: <span class="hljs-string">'test'</span>,
+        <span class="hljs-string">'requestId'</span>: str(uuid.uuid4())
+    }
+    params = {
+        <span class="hljs-string">"requestId"</span>: str(uuid.uuid4())
+    }
+    print(params[<span class="hljs-string">'requestId'</span>])
+    headers = {
+        <span class="hljs-string">"Authorization"</span>: <span class="hljs-string">f"Bearer <span class="hljs-subst">{AppKey}</span>"</span>,
+        <span class="hljs-string">"Content-type"</span>: <span class="hljs-string">"application/json"</span>,
+    }
+    print(<span class="hljs-string">'headers'</span>, headers)
+    url = <span class="hljs-string">'https://{}{}'</span>.format(DOMAIN, URI)
+
+    res = requests.post(url=url, headers=headers, data=data, params=params)
+
+    <span class="hljs-keyword">if</span> res.status_code == <span class="hljs-number">200</span>:
+        print(res.json())
+    <span class="hljs-keyword">else</span>:
+        print(res.status_code, res.text)
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    text_translate()
+</code></div></pre>
+<p><strong>错误返回code</strong></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10000</td>
+<td>服务器异常</td>
+</tr>
+<tr>
+<td>20000</td>
+<td>参数错误</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_131"></a>语言代码对照表</h3>
+<p>下表为各语言对应代码：</p>
+<p>其中auto可以识别中文、英文、日文、韩文。</p>
+<table>
+<thead>
+<tr>
+<th>语言</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>中文</td>
+<td>zh-CHS</td>
+</tr>
+<tr>
+<td>英文</td>
+<td>en</td>
+</tr>
+<tr>
+<td>日文</td>
+<td>ja</td>
+</tr>
+<tr>
+<td>韩文</td>
+<td>ko</td>
+</tr>
+</tbody>
+</table>
+</div>
