@@ -1,0 +1,460 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1777448827910"></link><div id="mark-down" class="markdown-body"><h3><a id="_0"></a>接口说明</h3>
+<p>接口说明：该接口提供图片生成能力，可根据输入的文本或图片生成图片</p>
+<p>访问地址：https://api-ai.vivo.com.cn/api/v1/image_generation</p>
+<p>限制说明：初赛期间每天限制提交10次图片生成任务，总共限制提交300次任务，请勿滥用接口</p>
+<h3><a id="_10"></a>请求参数</h3>
+<p>请求头</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-Type</td>
+<td>string</td>
+<td>是</td>
+<td>application/josn</td>
+</tr>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+<td>Bearer AppKey</td>
+</tr>
+</tbody>
+</table>
+<p>URL参数</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>说明</th>
+<th>是否必填</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>module</td>
+<td>string</td>
+<td>模块名称</td>
+<td>是</td>
+<td>填写“aigc&quot;</td>
+</tr>
+<tr>
+<td>request_id</td>
+<td>string</td>
+<td>请求id</td>
+<td>是</td>
+<td>使用uuid</td>
+</tr>
+<tr>
+<td>system_time</td>
+<td>int</td>
+<td>时间戳</td>
+<td>是</td>
+<td>请求时的Unix时间戳，以秒为单位</td>
+</tr>
+</tbody>
+</table>
+<p>Body参数</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>说明</th>
+<th>是否必填</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>model</td>
+<td>string</td>
+<td>模型名称</td>
+<td>是</td>
+<td>Doubao-Seedream-4.5</td>
+</tr>
+<tr>
+<td>prompt</td>
+<td>string</td>
+<td>文本</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>image</td>
+<td>string/list</td>
+<td>图片链接/图片base64编码</td>
+<td>否</td>
+<td>单张图使用url或base64编码，多张图使用[url, url]或[base64, base64]<br />（1）图片URL：请确保图片URL有效且可被访问。<br />（2）base64编码：请遵循此格式<code>data:image/&lt;图片格式&gt;;base64,&lt;Base64编码&gt;</code>。注意<code>&lt;图片格式&gt;</code>需小写，如<code>data:image/png;base64,&lt;base64_image&gt;</code></td>
+</tr>
+<tr>
+<td>parameters</td>
+<td>object</td>
+<td>其它参数</td>
+<td>否</td>
+<td>其他额外支持的参数放到parameters中</td>
+</tr>
+<tr>
+<td>↳ size</td>
+<td>string</td>
+<td>图像分辨率</td>
+<td>否</td>
+<td>指定生成图片的尺寸或分辨率。</td>
+</tr>
+<tr>
+<td>↳ sequential_image_generation</td>
+<td>string</td>
+<td>组图开关</td>
+<td>否</td>
+<td>默认 <code>disabled</code>。选值：<code>auto</code> (自动生成组图), <code>disabled</code> (单图)。</td>
+</tr>
+<tr>
+<td>↳ sequential_image_generation_options</td>
+<td>object</td>
+<td>组图配置</td>
+<td>否</td>
+<td>组图功能的配置项，仅当 <code>sequential_image_generation</code> 为 <code>auto</code> 时生效。</td>
+</tr>
+</tbody>
+</table>
+<h4><a id="body_39"></a>请求body示例</h4>
+<p>1.文生图</p>
+<pre><div class="hljs"><code class="lang-bash">{
+  <span class="hljs-string">"model"</span>: <span class="hljs-string">"Doubao-Seedream-4.5"</span>,
+  <span class="hljs-string">"prompt"</span>: <span class="hljs-string">"一张温暖的日落海边照片，细节丰富，自然色彩"</span>
+}
+</code></div></pre>
+<p>2.文生图（指定分辨率）</p>
+<pre><div class="hljs"><code class="lang-bash">{
+  <span class="hljs-string">"model"</span>: <span class="hljs-string">"Doubao-Seedream-4.5"</span>,
+  <span class="hljs-string">"prompt"</span>: <span class="hljs-string">"梦幻森林场景，光束穿透树冠，超清细节"</span>,
+  <span class="hljs-string">"parameters"</span>: {
+    <span class="hljs-string">"size"</span>: <span class="hljs-string">"2K"</span>
+  }
+}
+</code></div></pre>
+<p>3.文生图（使用base64编码）</p>
+<pre><div class="hljs"><code class="lang-bash">{
+  <span class="hljs-string">"model"</span>: <span class="hljs-string">"Doubao-Seedream-4.5"</span>,
+    <span class="hljs-string">"prompt"</span>: <span class="hljs-string">"画一个少女骑自行车的图片"</span>,
+    <span class="hljs-string">"image"</span>: <span class="hljs-string">"data:image/webp;base64,UklGRrqAAABXRUJ******XlmUQG6Y0szwqYAAAA=="</span>,
+    <span class="hljs-string">"parameters"</span>: {
+        <span class="hljs-string">"prompt_extend"</span>: <span class="hljs-literal">false</span>,
+        <span class="hljs-string">"size"</span>: <span class="hljs-string">"2K"</span>
+    }  
+}
+</code></div></pre>
+<p>4.图生图</p>
+<pre><div class="hljs"><code class="lang-bash">{
+  <span class="hljs-string">"model"</span>: <span class="hljs-string">"Doubao-Seedream-4.5"</span>,
+  <span class="hljs-string">"prompt"</span>: <span class="hljs-string">"将参考图片转换成油画风格，同时保持主体构图一致"</span>,
+  <span class="hljs-string">"image"</span>: <span class="hljs-string">"https://example.com/reference.jpg"</span>,
+  <span class="hljs-string">"parameters"</span>: {
+    <span class="hljs-string">"size"</span>: <span class="hljs-string">"2048x2048"</span>,
+    <span class="hljs-string">"watermark"</span>: <span class="hljs-literal">false</span>
+  }
+}
+</code></div></pre>
+<h4><a id="_92"></a>响应结果</h4>
+<p>响应header</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Content-Type</td>
+<td>string</td>
+<td>application/json</td>
+</tr>
+</tbody>
+</table>
+<p>响应Body</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>说明</th>
+<th>是否必填</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>code</td>
+<td>int</td>
+<td>错误码</td>
+<td>是</td>
+<td>0为响应正常，其它表示异常</td>
+</tr>
+<tr>
+<td>message</td>
+<td>string</td>
+<td>错误信息</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>trace_id</td>
+<td>string</td>
+<td>追溯id</td>
+<td>是</td>
+<td>用于排查问题</td>
+</tr>
+<tr>
+<td>data</td>
+<td>object</td>
+<td>响应数据</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>-image</td>
+<td>string</td>
+<td>图片链接</td>
+<td>是</td>
+<td>即将废弃，生成的图片建议统一从images中获取（2026/04/13更新）</td>
+</tr>
+<tr>
+<td>-images</td>
+<td>list</td>
+<td>生成的图片列表</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>–url</td>
+<td>string</td>
+<td>图片链接</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>–size</td>
+<td>string</td>
+<td>图片大小</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>-finish_reason</td>
+<td>string</td>
+<td>结束原因</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>-usage</td>
+<td>object</td>
+<td>输出信息</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>–image_count</td>
+<td>int</td>
+<td>生成图片数量</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>–width</td>
+<td>int</td>
+<td>图片宽度</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>–height</td>
+<td>int</td>
+<td>图片高度</td>
+<td>是</td>
+<td></td>
+</tr>
+<tr>
+<td>–input_tokens</td>
+<td>int</td>
+<td>输入tokens</td>
+<td>否</td>
+<td></td>
+</tr>
+<tr>
+<td>–output_tokens</td>
+<td>int</td>
+<td>输出tokens</td>
+<td>否</td>
+<td></td>
+</tr>
+<tr>
+<td>–total_tokens</td>
+<td>int</td>
+<td>总tokens</td>
+<td>否</td>
+<td></td>
+</tr>
+<tr>
+<td>-provider_request_id</td>
+<td>string</td>
+<td>模型侧响应id</td>
+<td>是</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>正常响应示例</p>
+<p>1.响应单张图</p>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"code"</span>: <span class="hljs-number">0</span>,
+    <span class="hljs-attr">"message"</span>: <span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"trace_id"</span>: <span class="hljs-string">"4880ae91-c429-4a70-ae67-1ffe6eaca958"</span>,
+    <span class="hljs-attr">"data"</span>: {
+        <span class="hljs-attr">"image"</span>: <span class="hljs-string">"https://ark-content-generation-v2-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-4-5/021775716043487a1f159c8749400f11e6b8ebd4b19bd2e1b4edd_0.jpeg?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T062732Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=8387f70531f2426287e2cf19eea1db225441aacbd27ca43133d55c19da804de7&amp;X-Tos-SignedHeaders=host"</span>,
+        <span class="hljs-attr">"images"</span>: [
+            {
+                <span class="hljs-attr">"url"</span>: <span class="hljs-string">"https://ark-content-generation-v2-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-4-5/021775716043487a1f159c8749400f11e6b8ebd4b19bd2e1b4edd_0.jpeg?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T062732Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=8387f70531f2426287e2cf19eea1db225441aacbd27ca43133d55c19da804de7&amp;X-Tos-SignedHeaders=host"</span>,
+                <span class="hljs-attr">"size"</span>: <span class="hljs-string">"2048x2048"</span>
+            }
+        ],
+        <span class="hljs-attr">"finish_reason"</span>: <span class="hljs-string">"stop"</span>,
+        <span class="hljs-attr">"usage"</span>: {
+            <span class="hljs-attr">"image_count"</span>: <span class="hljs-number">1</span>,
+            <span class="hljs-attr">"input_tokens"</span>: <span class="hljs-literal">null</span>,
+            <span class="hljs-attr">"output_tokens"</span>: <span class="hljs-number">16384</span>,
+            <span class="hljs-attr">"total_tokens"</span>: <span class="hljs-number">16384</span>
+        },
+        <span class="hljs-attr">"provider_request_id"</span>: <span class="hljs-string">""</span>
+    }
+}
+</code></div></pre>
+<p>2.响应多张图</p>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"code"</span>: <span class="hljs-number">0</span>,
+    <span class="hljs-attr">"message"</span>: <span class="hljs-string">"success"</span>,
+    <span class="hljs-attr">"trace_id"</span>: <span class="hljs-string">"6f016d94-b3e1-4a39-bed0-ce1f2ecd9dc5"</span>,
+    <span class="hljs-attr">"data"</span>: {
+        <span class="hljs-attr">"image"</span>: <span class="hljs-string">"https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-0/021775717005703746a7620dda4a28d54e5c02b79b9456a84af80_0.png?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T064431Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=e32e72b0f77323c8e644bb302145cb341253cf40918769000579f681ce27d9e0&amp;X-Tos-SignedHeaders=host"</span>,
+        <span class="hljs-attr">"images"</span>: [
+            {
+                <span class="hljs-attr">"url"</span>: <span class="hljs-string">"https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-0/021775717005703746a7620dda4a28d54e5c02b79b9456a84af80_0.png?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T064431Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=e32e72b0f77323c8e644bb302145cb341253cf40918769000579f681ce27d9e0&amp;X-Tos-SignedHeaders=host"</span>,
+                <span class="hljs-attr">"size"</span>: <span class="hljs-string">"2048x2048"</span>
+            },
+            {
+                <span class="hljs-attr">"url"</span>: <span class="hljs-string">"https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-0/021775717005703746a7620dda4a28d54e5c02b79b9456a84af80_1.png?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T064438Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=b66c4225f03807ca7f587a77e10f6740d98345a4f2b2a7b904c0dad081f65dd5&amp;X-Tos-SignedHeaders=host"</span>,
+                <span class="hljs-attr">"size"</span>: <span class="hljs-string">"2048x2048"</span>
+            },
+            {
+                <span class="hljs-attr">"url"</span>: <span class="hljs-string">"https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-0/021775717005703746a7620dda4a28d54e5c02b79b9456a84af80_2.png?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T064444Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=4e2d25c74a7fc6d5ae74f22975201fab041619e51f98ab2c2e8b84d54f421147&amp;X-Tos-SignedHeaders=host"</span>,
+                <span class="hljs-attr">"size"</span>: <span class="hljs-string">"2048x2048"</span>
+            },
+            {
+                <span class="hljs-attr">"url"</span>: <span class="hljs-string">"https://ark-acg-cn-beijing.tos-cn-beijing.volces.com/doubao-seedream-5-0/021775717005703746a7620dda4a28d54e5c02b79b9456a84af80_3.png?X-Tos-Algorithm=TOS4-HMAC-SHA256&amp;X-Tos-Credential=<REDACTED_ACCESS_KEY_ID>%2F20260409%2Fcn-beijing%2Ftos%2Frequest&amp;X-Tos-Date=20260409T064449Z&amp;X-Tos-Expires=86400&amp;X-Tos-Signature=1bc94bbeb7725fac8488fb49e8b7c7846467482bf9b772a23fd3797450b4e0df&amp;X-Tos-SignedHeaders=host"</span>,
+                <span class="hljs-attr">"size"</span>: <span class="hljs-string">"2048x2048"</span>
+            }
+        ],
+        <span class="hljs-attr">"finish_reason"</span>: <span class="hljs-string">"stop"</span>,
+        <span class="hljs-attr">"usage"</span>: {
+            <span class="hljs-attr">"image_count"</span>: <span class="hljs-number">4</span>,
+            <span class="hljs-attr">"input_tokens"</span>: <span class="hljs-literal">null</span>,
+            <span class="hljs-attr">"output_tokens"</span>: <span class="hljs-number">65536</span>,
+            <span class="hljs-attr">"total_tokens"</span>: <span class="hljs-number">65536</span>
+        },
+        <span class="hljs-attr">"provider_request_id"</span>: <span class="hljs-string">""</span>
+    }
+}
+</code></div></pre>
+<h3><a id="_190"></a>错误响应</h3>
+<p>code说明</p>
+<table>
+<thead>
+<tr>
+<th>http状态码</th>
+<th>code</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>200</td>
+<td>1001</td>
+<td>请求参数错误，请检查url和body参数是否符合要求</td>
+</tr>
+<tr>
+<td>200</td>
+<td>1002</td>
+<td>没有权限</td>
+</tr>
+<tr>
+<td>200</td>
+<td>1003</td>
+<td>触发限流，提交任务过于频繁，超出限流阈值</td>
+</tr>
+<tr>
+<td>200</td>
+<td>1004</td>
+<td>输入/输出内容审核不通过</td>
+</tr>
+<tr>
+<td>200</td>
+<td>3001</td>
+<td>接口响应异常</td>
+</tr>
+<tr>
+<td>500</td>
+<td>5001</td>
+<td>未知错误</td>
+</tr>
+<tr>
+<td>500</td>
+<td>5002</td>
+<td>系统错误</td>
+</tr>
+</tbody>
+</table>
+<p>错误响应示例</p>
+<p>1.触发限流</p>
+<pre><div class="hljs"><code class="lang-json">{
+    <span class="hljs-attr">"code"</span>: <span class="hljs-number">1003</span>,
+    <span class="hljs-attr">"message"</span>: <span class="hljs-string">"Rate limit exceeded for model Doubao-Seedream-4.5"</span>,
+    <span class="hljs-attr">"trace_id"</span>: <span class="hljs-string">"893fc939-26e4-4494-9772-282a414260b2"</span>,
+    <span class="hljs-attr">"data"</span>: {
+        <span class="hljs-attr">"rate_limit"</span>: {
+            <span class="hljs-attr">"allowed"</span>: <span class="hljs-literal">false</span>,
+            <span class="hljs-attr">"app_id"</span>: <span class="hljs-string">"2026899407"</span>,
+            <span class="hljs-attr">"category"</span>: <span class="hljs-string">"image"</span>,
+            <span class="hljs-attr">"total_limit"</span>: <span class="hljs-number">300</span>,       # 总的任务提交次数限制
+            <span class="hljs-attr">"total_used"</span>: <span class="hljs-number">11</span>,         # 已提交的任务次数
+            <span class="hljs-attr">"total_remaining"</span>: <span class="hljs-number">289</span>,   # 剩余可提交的任务次数
+            <span class="hljs-attr">"daily_limit"</span>: <span class="hljs-number">10</span>,        # 今日可提交的任务次数
+            <span class="hljs-attr">"daily_used"</span>: <span class="hljs-number">10</span>,         # 今日已提交的任务次数
+            <span class="hljs-attr">"daily_remaining"</span>: <span class="hljs-number">0</span>      # 今日剩余可提交的任务次数
+        }
+    }
+}
+</code></div></pre>
+<p>2.权限缺失</p>
+<p>出现这个问题请在用户群联系小助手</p>
+<pre><div class="hljs"><code class="lang-bash">{
+  <span class="hljs-string">"code"</span>: 1002,
+  <span class="hljs-string">"message"</span>: <span class="hljs-string">"app_id not have model permission"</span>,
+  <span class="hljs-string">"trace_id"</span>: <span class="hljs-string">"5bebe957-4c05-410b-abff-c30ddd0d4c2f"</span>,
+  <span class="hljs-string">"data"</span>: null,
+}
+</code></div></pre>
+<h3><a id="_246"></a>使用须知</h3>
+<p>1、生成图片耗时</p>
+<p>一般情况下生成一张图片需要10-30秒左右，图片越高清生成耗时则越高，如果生成多张图片，则生成耗时可能增加翻几倍，接口请求超时时间建议最少设置为60秒。</p>
+</div>

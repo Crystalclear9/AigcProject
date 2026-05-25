@@ -5,7 +5,10 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.AnalyzeResult
 import com.suishouban.app.data.repository.AppSettings
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -49,12 +52,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun analyzeImage(uri: Uri, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
+            val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
+            val cloudResult = runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull()
+            if (cloudResult != null) {
+                applyAnalyzeResult(cloudResult)
+                onDone()
+                return@launch
+            }
+
             val text = runCatching { ocr.recognize(getApplication(), uri) }
                 .getOrElse { error ->
                     _uiState.update { it.copy(loading = false, error = "图片识别失败：${error.message ?: "请换一张截图"}") }
                     return@launch
                 }
-            analyzeTextInternal(text, onDone)
+            analyzeTextInternal(text, onDone, screenshotTime = screenshotTime, enginePrefix = "mlkit")
         }
     }
 
@@ -65,16 +76,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun analyzeTextInternal(text: String, onDone: () -> Unit) {
+    private suspend fun analyzeTextInternal(
+        text: String,
+        onDone: () -> Unit,
+        screenshotTime: String? = null,
+        enginePrefix: String? = null,
+    ) {
         if (text.isBlank()) {
             _uiState.update { it.copy(loading = false, error = "没有识别到可分析的文字") }
             return
         }
-        val result = runCatching { repository.analyzeText(text) }
+        val result = runCatching { repository.analyzeText(text, screenshotTime, enginePrefix) }
             .getOrElse { error ->
                 _uiState.update { it.copy(loading = false, error = "行动卡生成失败：${error.message ?: "未知错误"}") }
                 return
             }
+        applyAnalyzeResult(result)
+        onDone()
+    }
+
+    private fun applyAnalyzeResult(result: AnalyzeResult) {
         _uiState.update {
             it.copy(
                 loading = false,
@@ -84,7 +105,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 engine = result.engine,
             )
         }
-        onDone()
     }
 
     fun updateDraft(card: ActionCard) {

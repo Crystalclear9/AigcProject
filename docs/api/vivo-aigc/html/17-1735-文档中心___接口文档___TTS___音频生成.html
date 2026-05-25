@@ -1,0 +1,775 @@
+<link rel="stylesheet" type="text/css" href="https://vstack.vmic.xyz/static/css/md.css?v=1776852081915"></link><div id="mark-down" class="markdown-body"><h3><a id="_0"></a>服务介绍</h3>
+<p>自动文本转语音（TTS）功能，可将上传的单句文本转成播报音频</p>
+<h3><a id="_4"></a>接口介绍</h3>
+<p>语音合成流式接口将文字信息转化为声音信息，该语音能力是通过Websocket API的方式提供一个通用的接口。Websocket API具备流式传输能力，适用于需要流式数据传输的API服务场景。相较于SDK，API具有轻量、跨语言的特点；相较于HTTP API，Websocket API协议有原生支持跨域的优势。</p>
+<h3><a id="_10"></a>接口要求</h3>
+<p>集成在线语音合成流式API时，需按照以下要求。</p>
+<table>
+<thead>
+<tr>
+<th><strong>内容</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>请求协议</td>
+<td>wss</td>
+</tr>
+<tr>
+<td>域名地址</td>
+<td>wss://api-ai.vivo.com.cn</td>
+</tr>
+<tr>
+<td>请求行</td>
+<td>GET /tts HTTP/1.1</td>
+</tr>
+<tr>
+<td>接口鉴权</td>
+<td>签名机制，详情请参照下方</td>
+</tr>
+<tr>
+<td>字符编码</td>
+<td>UTF8</td>
+</tr>
+<tr>
+<td>响应格式</td>
+<td>统一采用JSON格式</td>
+</tr>
+<tr>
+<td>开发语言</td>
+<td>任意，只要可以发起Websocket请求的均可</td>
+</tr>
+<tr>
+<td>操作系统</td>
+<td>任意</td>
+</tr>
+<tr>
+<td>音频属性</td>
+<td>采样率24KHz, 16bit,单通道</td>
+</tr>
+<tr>
+<td>音频格式</td>
+<td>pcm</td>
+</tr>
+<tr>
+<td>文本长度</td>
+<td>无限制</td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_30"></a>请求接口</h3>
+<p>接口地址：wss://api-ai.vivo.com.cn/tts</p>
+<p><strong>合成流程简介</strong></p>
+<ul>
+<li>客户端通过websocket与服务端建立连接</li>
+<li>客户端发送合成文本相关信息</li>
+<li>服务端每隔100ms左右会返回pcm相关数据</li>
+<li>一次文本合成结束，如果客户端继续合成，流程跳转到</li>
+<li>关闭websocket协议</li>
+</ul>
+<p><strong>接口鉴权</strong></p>
+<p><strong>接口协议字段</strong></p>
+<p>Header</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>是否必须</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authorization</td>
+<td>String</td>
+<td>是</td>
+<td>Bearer AppKey</td>
+</tr>
+<tr>
+<td>X-AI-GATEWAY-SIGNATURE</td>
+<td>String</td>
+<td>是</td>
+<td>developers-aigc</td>
+</tr>
+</tbody>
+</table>
+<p>URL参数</p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名称</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必须</strong></th>
+<th><strong>是否需要urlencode</strong></th>
+<th><strong>说明</strong></th>
+<th>默认值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>engineid</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>短音频合成：short_audio_synthesis_jovi <br>长音频合成：long_audio_synthesis_screen<br>超拟人音色：tts_humanoid_lam</td>
+<td></td>
+</tr>
+<tr>
+<td>system_time</td>
+<td>int</td>
+<td>是</td>
+<td>是</td>
+<td>当前时间戳，精确到秒</td>
+<td></td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>用户id（32位字符串，包括数字和小写字母）</td>
+<td></td>
+</tr>
+<tr>
+<td>model</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>手机外部型号</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>product</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>内部机型名</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>package</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>应用包名</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>client_version</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>应用版本号</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>system_version</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>手机系统版本号</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>sdk_version</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>sdk版本号</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>android_version</td>
+<td>string</td>
+<td>是</td>
+<td>是</td>
+<td>android系统版本号</td>
+<td>可写默认值“unknown”</td>
+</tr>
+<tr>
+<td>requestId</td>
+<td>uuid</td>
+<td>是</td>
+<td>是</td>
+<td>uuid</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>engineid：通过该值选择不同的语音合成能力，短音频合成适用于对话合成，比如语音助手的应用场景；长音频合成适用于长文本合成场音，比如小说阅读，屏幕朗读</p>
+<p>URL示例：<code>wss://api-ai.vivo.com.cn/tts?engineid=short_audio_synthesis_jovi&amp;system_time=1653908720&amp;user_id=123&amp;model=V1809A&amp;product=PD1809&amp;package=com.vivo.agent&amp;client_version=47405&amp;system_version=PD1809_A_7.6.22&amp;sdk_version=1.1.2.1&amp;android_version=9</code></p>
+<p><strong>握手结果</strong><br />
+如果握手成功，表示协议升级成功；如果握手失败，则根据不同错误类型返回不同Code状态码，同时携带错误描述信息，详细错误说明如下</p>
+<table>
+<thead>
+<tr>
+<th><strong>error code</strong></th>
+<th><strong>说明</strong></th>
+<th><strong>错误描述信息</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>成功（ws返回数据,收到此消息后，就可以发送文本数据了）</td>
+<td>{“error_code”:0, “error_msg”:“connect success”}</td>
+</tr>
+<tr>
+<td>10000</td>
+<td>缺少请求参数或者签名错误 （http协议返回，status=400）</td>
+<td>{“error_code”:10000, “error_msg”:“package not exist”}</td>
+</tr>
+<tr>
+<td>10001</td>
+<td>升级到websocket协议失败（http协议返回，status=400）</td>
+<td>{“error_code”:10001, “error_msg”:“failed to upgrade ws”}</td>
+</tr>
+</tbody>
+</table>
+<p><strong>文本合成请求</strong></p>
+<p><strong>请求参数说明，请求都为json字符串</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>是否必传</strong></th>
+<th><strong>描述</strong></th>
+<th><strong>示例</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>aue</td>
+<td>int</td>
+<td>是</td>
+<td>音频的格式：0：pcm 1: opus压缩</td>
+<td>“aue” : 0</td>
+</tr>
+<tr>
+<td>auf</td>
+<td>string</td>
+<td>是</td>
+<td>音频采样率，audio/L16;rate=24000：合成24K 的音频</td>
+<td>“auf” :   “audio/L16;rate=24000”</td>
+</tr>
+<tr>
+<td>vcn</td>
+<td>string</td>
+<td>是</td>
+<td>角色发音人，可选值：<br><br>当engineid为short_audio_synthesis_jovi时支持音色如下：<br>vivoHelper：奕雯 <br>yunye ： 云野-温柔<br>wanqing：婉清-御姐 <br>xiaofu：晓芙-少女<br>yige_child：小萌-女童 <br>yige：依格<br>yiyi：依依<br>xiaoming：小茗<br><br>当engineid为long_audio_synthesis_screen时支持音色如下：<br>x2_vivoHelper：奕雯<br>x2_yige：依格-甜美<br>x2_yige_news：依格-稳重<br>x2_yunye：云野-温柔<br>x2_yunye_news：云野-稳重<br>x2_M02：怀斌-浑厚<br>x2_M05：兆坤-成熟<br>x2_M10：亚恒-磁性<br>x2_F163：晓云-稳重<br>x2_F25：倩倩-清甜<br>x2_F22：海蔚-大气<br>x2_F82：英文女声<br><br>当engineid为tts_humanoid_lam时支持大模型音色如下：<br/>F245_natural：知性柔美<br/>M24：俊朗男声<br/>M193：理性男声<br/>GAME_GIR_YG：游戏少女<br/>GAME_GIR_MB：游戏萌宝<br/>GAME_GIR_YJ：游戏御姐<br/>GAME_GIR_LTY：电台主播<br/>YIGEXIAOV：依格<br/>FY_CANTONESE：粤语<br/>FY_SICHUANHUA：四川话<br/>FY_MIAOYU：苗语<br/></td>
+<td>“vcn”  :  “yige”</td>
+</tr>
+<tr>
+<td>speed</td>
+<td>int</td>
+<td>否</td>
+<td>语速，可选值：[0-100]，默认为50</td>
+<td>“speed”: 50</td>
+</tr>
+<tr>
+<td>volume</td>
+<td>int</td>
+<td>否</td>
+<td>音量，可选值：[1-100]，默认为50</td>
+<td>“volume”: 50</td>
+</tr>
+<tr>
+<td>text</td>
+<td>string</td>
+<td>是</td>
+<td>文本内容，需进行base64编码；   base64编码前最大长度2048字节</td>
+<td></td>
+</tr>
+<tr>
+<td>encoding</td>
+<td>string</td>
+<td>是</td>
+<td>文本的编码格式，一律采用utf8</td>
+<td>“encoding”:“utf8”</td>
+</tr>
+<tr>
+<td>reqId</td>
+<td>long</td>
+<td>是</td>
+<td>请求ID</td>
+<td>“reqId”: 513722013</td>
+</tr>
+</tbody>
+</table>
+<p><strong>返回参数说明：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>描述</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>error_code</td>
+<td>int</td>
+<td>返回码，0表示成功，其它表示异常，详情请参考错误码。</td>
+</tr>
+<tr>
+<td>error_msg</td>
+<td>string</td>
+<td>描述信息</td>
+</tr>
+<tr>
+<td>sid</td>
+<td>string</td>
+<td>每段文本的id，只在第一帧请求时返回</td>
+</tr>
+<tr>
+<td>ver</td>
+<td>string</td>
+<td>引擎版本号，1(项目)21(年份)01(前端)02(后端)03(发音人个数)，如221010103</td>
+</tr>
+<tr>
+<td>data</td>
+<td>object</td>
+<td></td>
+</tr>
+<tr>
+<td>data.audio</td>
+<td>string</td>
+<td>合成后的音频片段，采用base64编码</td>
+</tr>
+<tr>
+<td>data.status</td>
+<td>int</td>
+<td>当前音频流状态，0表示开始合成（返回的第一帧数据），1表示合成中，2表示合成结束(返回的最后一帧数据）</td>
+</tr>
+<tr>
+<td>data.progress</td>
+<td>int</td>
+<td>合成进度，指当前合成文本的字节数-总的字节数  <em>注</em>：请注意合成是以句为单位切割的，若文本只有一句话，则每次返回结果的ced是相同的。</td>
+</tr>
+<tr>
+<td>data.slice</td>
+<td>int</td>
+<td>返回的第几帧数据</td>
+</tr>
+</tbody>
+</table>
+<p>返回参数示例</p>
+<pre><div class="hljs"><code class="lang-json">{
+  <span class="hljs-attr">"ver"</span>: <span class="hljs-string">"121101005"</span>,
+  <span class="hljs-attr">"error_msg"</span>: <span class="hljs-string">"success"</span>,
+  <span class="hljs-attr">"req_id"</span>: <span class="hljs-number">0</span>,
+  <span class="hljs-attr">"error_code"</span>: <span class="hljs-number">0</span>,
+  <span class="hljs-attr">"sid"</span>: <span class="hljs-string">"e2122ae692f9862e58ba065d3394bd9b"</span>,
+  <span class="hljs-attr">"data"</span>: {
+    <span class="hljs-attr">"status"</span>: <span class="hljs-number">2</span>,
+    <span class="hljs-attr">"progress"</span>: <span class="hljs-string">"2-2"</span>,
+    <span class="hljs-attr">"hit"</span>: <span class="hljs-number">0</span>,
+    <span class="hljs-attr">"audio"</span>: <span class="hljs-string">"DF3RDSF35SDA=="</span>,
+    <span class="hljs-attr">"slice"</span>: <span class="hljs-number">1</span>
+  }
+}
+</code></div></pre>
+<h3><a id="_140"></a>错误码</h3>
+<table>
+<thead>
+<tr>
+<th><strong>错误码</strong></th>
+<th><strong>错误描述说明</strong></th>
+<th><strong>处理方式</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10010</td>
+<td>发送数据不是json格式</td>
+<td>以json格式发送数据</td>
+</tr>
+<tr>
+<td>10011</td>
+<td>发送文本时，缺少必要的参数</td>
+<td>确认参数</td>
+</tr>
+<tr>
+<td>10012</td>
+<td>发送文本时，签名错误</td>
+<td>签名算法是否正确</td>
+</tr>
+<tr>
+<td></td>
+<td>以下是逻辑层服务器错误</td>
+<td></td>
+</tr>
+<tr>
+<td>10030</td>
+<td>发送文本到引擎时错误</td>
+<td>发送文本时，和引擎服务器连接出错</td>
+</tr>
+<tr>
+<td>10031</td>
+<td>获取audio数据发生错误</td>
+<td>获取数据时，和引擎服务器连接出错</td>
+</tr>
+<tr>
+<td>10032</td>
+<td>无可用的引擎服务器</td>
+<td>检查配置文件，查看引擎服务器是否在运行</td>
+</tr>
+<tr>
+<td></td>
+<td>以下是引擎层服务器错误</td>
+<td></td>
+</tr>
+<tr>
+<td>11001</td>
+<td>负载过大，拒绝新的请求</td>
+<td></td>
+</tr>
+<tr>
+<td>11002</td>
+<td>请求头协议错误</td>
+<td></td>
+</tr>
+<tr>
+<td>11003</td>
+<td>设置合成文本的请求参数错误</td>
+<td></td>
+</tr>
+<tr>
+<td>11004</td>
+<td>获取andio数据的请求参数错误</td>
+<td></td>
+</tr>
+<tr>
+<td>11005</td>
+<td>session重复了</td>
+<td></td>
+</tr>
+<tr>
+<td>11006</td>
+<td>获取数据时，找到不到session</td>
+<td></td>
+</tr>
+<tr>
+<td>11007</td>
+<td>创建引擎错误</td>
+<td></td>
+</tr>
+<tr>
+<td>11008</td>
+<td>向算法引擎获取数据时出错</td>
+<td></td>
+</tr>
+<tr>
+<td>11009</td>
+<td>opus压缩出现问题</td>
+<td></td>
+</tr>
+<tr>
+<td>11010</td>
+<td>输入的合成文本不合法</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3><a id="_165"></a>运行示例</h3>
+<p><strong>1.安装环境</strong><br />
+如果使用conda创建环境，则如下初始环境：</p>
+<pre><code class="lang-">conda create -n tts_py38 python=3.8
+
+conda activate tts_py38
+
+pip --no-cache-dir install -i https://pypi.tuna.tsinghua.edu.cn/simple  -r ./requirements.txt
+</code></pre>
+<p>如果在linux下有docker的环境，可以直接在build目录下通过makefile构建环境镜像,会自动从阿里云下载基础镜像:</p>
+<pre><code class="lang-">cd build
+
+make #构建基础镜像
+
+make run #启动镜像实例,由于命令中加了--rm,实例退出导致实例会被删除
+
+make stop #退出实例，退出后实例将被自动删除
+
+make debug #进入实例
+
+make clean #清除镜像，必须实例退出并删除才可清除镜像
+
+</code></pre>
+<p><strong>2.运行TTS合成</strong><br />
+使用环境变量设置app_id与app_key<br />
+linux:</p>
+<pre><code class="lang-">export APP_ID=你的APPID
+export APP_KEY=你的APPKEY
+</code></pre>
+<p>windows:</p>
+<pre><code class="lang-">参考https://zhuanlan.zhihu.com/p/231668109设置
+</code></pre>
+<p>或直接tts_examples.py最开头加上如下代码指定环境</p>
+<pre><code class="lang-">os.environ['APP_ID']=你的APPID
+os.environ['APP_KEY']=你的APPKEY
+</code></pre>
+<p>运行代码</p>
+<pre><code class="lang-">python audio_decode.py
+</code></pre>
+<h3><a id="_223"></a>调用示例</h3>
+<p><strong>调用接口获取音频数据</strong></p>
+<p>备注：鉴权文档<a href="https://aigc.vivo.com/#/document/index?id=1677" target="_blank">鉴权方式-AppKey获取</a></p>
+<pre><div class="hljs"><code class="lang-python"><span class="hljs-comment"># -*- coding: utf-8 -*-</span>
+<span class="hljs-keyword">import</span> uuid
+
+<span class="hljs-keyword">from</span> websocket <span class="hljs-keyword">import</span> create_connection, ABNF
+<span class="hljs-keyword">import</span> time
+<span class="hljs-keyword">import</span> base64
+<span class="hljs-keyword">import</span> json
+<span class="hljs-keyword">import</span> os
+<span class="hljs-keyword">from</span> enum <span class="hljs-keyword">import</span> IntEnum
+
+
+<span class="hljs-comment"># os.environ['APP_ID']=your_app_id</span>
+<span class="hljs-comment"># os.environ['APP_KEY']=your_app_key</span>
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">AueType</span><span class="hljs-params">(IntEnum)</span>:</span>
+    PCM = <span class="hljs-number">0</span>
+    OPUS = <span class="hljs-number">1</span>
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">TTS</span><span class="hljs-params">(object)</span>:</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">__init__</span><span class="hljs-params">(self, app_id=None, app_key=None, engineid=<span class="hljs-string">'short_audio_synthesis_jovi'</span>, *args, **argskw)</span>:</span>
+        self._appid = app_id <span class="hljs-keyword">or</span> os.getenv(<span class="hljs-string">'APP_ID'</span>)
+        self._app_key = app_key <span class="hljs-keyword">or</span> os.getenv(<span class="hljs-string">'APP_KEY'</span>)
+        <span class="hljs-keyword">if</span> isinstance(self._app_key, str):
+            self._app_key = self._app_key
+        self._engineid = engineid
+        self._ws = <span class="hljs-keyword">None</span>
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">open</span><span class="hljs-params">(self, domain=<span class="hljs-string">"wss://api-ai.vivo.com.cn"</span>)</span>:</span>
+        uri = <span class="hljs-string">"/tts"</span>
+        system_time = str(int(time.time()))
+        user_id = <span class="hljs-string">'userX'</span>
+        model = <span class="hljs-string">'modelX'</span>
+        product = <span class="hljs-string">'productX'</span>
+        package = <span class="hljs-string">'packageX'</span>
+        client_version = <span class="hljs-string">'0'</span>
+        system_version = <span class="hljs-string">'0'</span>
+        sdk_version = <span class="hljs-string">'0'</span>
+        android_version = <span class="hljs-string">'9'</span>
+        requestId = str(uuid.uuid4())
+        params = {<span class="hljs-string">"engineid"</span>: self._engineid, <span class="hljs-string">"system_time"</span>: system_time, <span class="hljs-string">"user_id"</span>: user_id, <span class="hljs-string">"model"</span>: model,
+                  <span class="hljs-string">"product"</span>: product, <span class="hljs-string">"client_version"</span>: client_version, <span class="hljs-string">"system_version"</span>: system_version,
+                  <span class="hljs-string">"package"</span>: package, <span class="hljs-string">"sdk_version"</span>: sdk_version, <span class="hljs-string">"android_version"</span>: android_version,
+                  <span class="hljs-string">"requestId"</span>: requestId}
+        headers = {
+            <span class="hljs-string">"Authorization"</span>: <span class="hljs-string">f"Bearer <span class="hljs-subst">{self._app_key}</span>"</span>
+        }
+        headers[<span class="hljs-string">"vaid"</span>] = <span class="hljs-string">"123456789"</span>
+        param_str = <span class="hljs-string">'?'</span>
+        seq = <span class="hljs-string">''</span>
+        <span class="hljs-keyword">for</span> key, value <span class="hljs-keyword">in</span> params.items():
+            param_str = param_str + seq + key + <span class="hljs-string">'='</span> + value
+            seq = <span class="hljs-string">'&amp;'</span>
+        url = domain + uri + param_str
+        print(url)
+        <span class="hljs-keyword">try</span>:
+            self._ws = create_connection(url, header=headers)
+        <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+            print(<span class="hljs-string">"print err:"</span>, repr(e))
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">None</span>
+        <span class="hljs-comment"># get first handshake data</span>
+        code, data = self._ws.recv_data(<span class="hljs-keyword">True</span>)
+        <span class="hljs-keyword">return</span> self._ws
+
+    <span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">gen_radio</span><span class="hljs-params">(self, text=<span class="hljs-string">'你好'</span>, vcn=<span class="hljs-string">'xiaofu'</span>, aue=AueType.PCM, extra={})</span>:</span>
+        <span class="hljs-keyword">if</span> self._ws <span class="hljs-keyword">is</span> <span class="hljs-keyword">None</span>:
+            <span class="hljs-keyword">return</span> <span class="hljs-keyword">None</span>
+        obj = {}
+        obj[<span class="hljs-string">"speed"</span>] = <span class="hljs-number">60</span>
+        obj[<span class="hljs-string">"text"</span>] = base64.b64encode(text.encode(<span class="hljs-string">'utf-8'</span>)).decode(<span class="hljs-string">'utf-8'</span>)
+        obj[<span class="hljs-string">"auf"</span>] = <span class="hljs-string">'audio/L16;rate=24000'</span>
+        obj[<span class="hljs-string">"vcn"</span>] = vcn
+        obj[<span class="hljs-string">"volume"</span>] = <span class="hljs-number">30</span>
+        obj[<span class="hljs-string">"aue"</span>] = aue
+        obj[<span class="hljs-string">"sfl"</span>] = <span class="hljs-number">1</span>
+        obj[<span class="hljs-string">"reqId"</span>] = int(round(time.time() * <span class="hljs-number">1000</span>))  <span class="hljs-comment"># int(t.ident)</span>
+        obj.update(extra)
+        self._ws.send(json.dumps(obj))
+        print(<span class="hljs-string">"finish_send_text"</span>, json.dumps(obj))
+        audio_buff = <span class="hljs-string">b''</span>
+        <span class="hljs-keyword">while</span> <span class="hljs-keyword">True</span>:
+            code, data = self._ws.recv_data(<span class="hljs-keyword">True</span>)
+            <span class="hljs-keyword">if</span> code == ABNF.OPCODE_PONG:
+                <span class="hljs-comment"># recv pong</span>
+                <span class="hljs-keyword">pass</span>
+            <span class="hljs-keyword">elif</span> code == ABNF.OPCODE_CLOSE:
+                <span class="hljs-comment"># recv close</span>
+                print(<span class="hljs-string">'close'</span>)
+                <span class="hljs-keyword">return</span> <span class="hljs-keyword">None</span>
+            <span class="hljs-keyword">elif</span> code == ABNF.OPCODE_TEXT:
+                <span class="hljs-comment"># recv text</span>
+                jre = json.loads(data)
+                <span class="hljs-keyword">if</span> jre[<span class="hljs-string">"error_code"</span>] != <span class="hljs-number">0</span>:
+                    print(<span class="hljs-string">f"error_code is not zero. data:<span class="hljs-subst">{data}</span>"</span>)
+                    <span class="hljs-keyword">return</span> <span class="hljs-keyword">None</span>
+                <span class="hljs-keyword">else</span>:
+                    <span class="hljs-keyword">if</span> <span class="hljs-string">'data'</span> <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> jre:
+                        print(jre)
+                        <span class="hljs-keyword">continue</span>
+                    audio = base64.b64decode(jre[<span class="hljs-string">"data"</span>][<span class="hljs-string">"audio"</span>])
+                    audio_buff += audio
+                    <span class="hljs-keyword">if</span> jre[<span class="hljs-string">"data"</span>][<span class="hljs-string">"status"</span>] == <span class="hljs-number">0</span>:
+                        print(<span class="hljs-string">'the first data'</span>)
+                    <span class="hljs-keyword">elif</span> jre[<span class="hljs-string">"data"</span>][<span class="hljs-string">"status"</span>] == <span class="hljs-number">2</span>:
+                        print(<span class="hljs-string">"complete ~"</span>)
+                        <span class="hljs-keyword">break</span>
+                    jre[<span class="hljs-string">"data"</span>][<span class="hljs-string">"audio"</span>] = <span class="hljs-string">''</span>
+                    print(jre)
+            <span class="hljs-keyword">else</span>:
+                print(<span class="hljs-string">"error,recv type:"</span>, code)
+                <span class="hljs-keyword">break</span>
+        <span class="hljs-keyword">return</span> audio_buff
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    input_params = {
+        <span class="hljs-comment"># 注意替换AppId、AppKey</span>
+        <span class="hljs-string">'app_id'</span>: <span class="hljs-string">'your_AppId'</span>,
+        <span class="hljs-string">'app_key'</span>: <span class="hljs-string">'your_AppKey'</span>,
+        <span class="hljs-string">'engineid'</span>: <span class="hljs-string">'long_audio_synthesis_screen'</span>
+    }
+    tts = TTS(**input_params)
+    tts.open()
+    audio_buffer = tts.gen_radio(vcn=<span class="hljs-string">'x2_F82'</span>)
+    print(len(audio_buffer))
+
+</code></div></pre>
+<p><strong>解码音频数据</strong></p>
+<pre><div class="hljs"><code class="lang-python"><span class="hljs-comment"># -*- coding: utf-8 -*-</span>
+<span class="hljs-keyword">import</span> wave
+<span class="hljs-keyword">import</span> io
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">ShortTTS</span><span class="hljs-params">(object)</span>:</span>
+    vivoHelper = <span class="hljs-string">"vivoHelper"</span>
+    yunye = <span class="hljs-string">"yunye"</span>
+    wanqing = <span class="hljs-string">"wanqing"</span>
+    xiaofu = <span class="hljs-string">"xiaofu"</span>
+    yige_child = <span class="hljs-string">"yige_child"</span>
+    yige = <span class="hljs-string">"yige"</span>
+    yiyi = <span class="hljs-string">"yiyi"</span>
+    xiaoming = <span class="hljs-string">"xiaoming"</span>
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">LongTTS</span><span class="hljs-params">(object)</span>:</span>
+    x2_vivoHelper = <span class="hljs-string">"vivoHelper"</span>
+    x2_yige = <span class="hljs-string">"x2_yige"</span>
+    x2_yige_news = <span class="hljs-string">"x2_yige_news"</span>
+    x2_yunye = <span class="hljs-string">"x2_yunye"</span>
+    x2_yunye_news = <span class="hljs-string">"x2_yunye_news"</span>
+    x2_M02 = <span class="hljs-string">"x2_M02"</span>
+    x2_M05 = <span class="hljs-string">"x2_M05"</span>
+    x2_M10 = <span class="hljs-string">"x2_M10"</span>
+    x2_F163 = <span class="hljs-string">"x2_F163"</span>
+    x2_F25 = <span class="hljs-string">"x2_F25"</span>
+    x2_F22 = <span class="hljs-string">"x2_F22"</span>
+    x2_F82 = <span class="hljs-string">"x2_F82"</span>
+
+
+<span class="hljs-class"><span class="hljs-keyword">class</span> <span class="hljs-title">Humanoid</span><span class="hljs-params">(object)</span>:</span>
+    F245_natural = <span class="hljs-string">"F245_natural"</span>  <span class="hljs-comment"># 知性柔美</span>
+    M24 = <span class="hljs-string">"M24"</span>  <span class="hljs-comment"># 俊朗男声</span>
+    M193 = <span class="hljs-string">"M193"</span>  <span class="hljs-comment"># 理性男声</span>
+    GAME_GIR_YG = <span class="hljs-string">"GAME_GIR_YG"</span>  <span class="hljs-comment"># 游戏少女</span>
+    GAME_GIR_MB = <span class="hljs-string">"GAME_GIR_MB"</span>  <span class="hljs-comment"># 游戏萌宝</span>
+    GAME_GIR_YJ = <span class="hljs-string">"GAME_GIR_YJ"</span>  <span class="hljs-comment"># 游戏御姐</span>
+    GAME_GIR_YJ = <span class="hljs-string">"GAME_GIR_LTY"</span>  <span class="hljs-comment"># 电台主播</span>
+    YIGEXIAOV = <span class="hljs-string">"YIGEXIAOV"</span>  <span class="hljs-comment"># 依格</span>
+    FY_CANTONESE = <span class="hljs-string">"FY_CANTONESE"</span>  <span class="hljs-comment"># 粤语</span>
+    FY_SICHUANHUA = <span class="hljs-string">"FY_SICHUANHUA"</span>  <span class="hljs-comment"># 四川话</span>
+    FY_MIAOYU = <span class="hljs-string">"FY_MIAOYU"</span>  <span class="hljs-comment"># 苗语</span>
+
+
+<span class="hljs-string">'''
+input:
+    pcmdata: pcm audio data
+output:
+    wav file-like object
+'''</span>
+
+
+<span class="hljs-function"><span class="hljs-keyword">def</span> <span class="hljs-title">pcm2wav</span><span class="hljs-params">(pcmdata: bytes, channels=<span class="hljs-number">1</span>, bits=<span class="hljs-number">16</span>, sample_rate=<span class="hljs-number">24000</span>)</span>:</span>
+    <span class="hljs-keyword">if</span> bits % <span class="hljs-number">8</span> != <span class="hljs-number">0</span>:
+        <span class="hljs-keyword">raise</span> ValueError(<span class="hljs-string">"bits % 8 must == 0. now bits:"</span> + str(bits))
+    io_fd = io.BytesIO()
+    wavfile = wave.open(io_fd, <span class="hljs-string">'wb'</span>)
+    wavfile.setnchannels(channels)
+    wavfile.setsampwidth(bits // <span class="hljs-number">8</span>)
+    wavfile.setframerate(sample_rate)
+    wavfile.writeframes(pcmdata)
+    wavfile.close()
+    io_fd.seek(<span class="hljs-number">0</span>)
+    <span class="hljs-keyword">return</span> io_fd
+
+
+<span class="hljs-keyword">if</span> __name__ == <span class="hljs-string">'__main__'</span>:
+    <span class="hljs-keyword">from</span> tts_examples <span class="hljs-keyword">import</span> TTS, AueType
+
+    <span class="hljs-keyword">for</span> k, v <span class="hljs-keyword">in</span> ShortTTS.__dict__.items():
+        <span class="hljs-keyword">if</span> k.find(<span class="hljs-string">'__'</span>) != <span class="hljs-number">-1</span>:
+            <span class="hljs-keyword">continue</span>
+        print(k, v)
+        input_params = {
+            <span class="hljs-comment"># 修改为你的app_id 和 app_key</span>
+            <span class="hljs-string">'app_id'</span>: <span class="hljs-string">'your_app_id'</span>,
+            <span class="hljs-string">'app_key'</span>: <span class="hljs-string">'your_app_key'</span>,
+            <span class="hljs-string">'engineid'</span>: <span class="hljs-string">'short_audio_synthesis_jovi'</span>
+        }
+        tts = TTS(**input_params)
+        tts.open()
+        <span class="hljs-comment"># pcm</span>
+        pcm_buffer = tts.gen_radio(aue=AueType.PCM, vcn=k, text=<span class="hljs-string">'你好呀'</span>)
+        wav_io = pcm2wav(pcm_buffer)
+        <span class="hljs-keyword">with</span> open(<span class="hljs-string">f'<span class="hljs-subst">{k}</span>_pcm.wav'</span>, <span class="hljs-string">'wb'</span>) <span class="hljs-keyword">as</span> fd:
+            fd.write(wav_io.read())
+        <span class="hljs-keyword">break</span>
+
+    <span class="hljs-keyword">for</span> k, v <span class="hljs-keyword">in</span> LongTTS.__dict__.items():
+        <span class="hljs-keyword">if</span> k.find(<span class="hljs-string">'__'</span>) != <span class="hljs-number">-1</span>:
+            <span class="hljs-keyword">continue</span>
+        print(k, v)
+        input_params = {
+            <span class="hljs-comment"># 注意替换AppId、AppKey</span>
+            <span class="hljs-string">'app_id'</span>: <span class="hljs-string">'your_AppId'</span>,
+            <span class="hljs-string">'app_key'</span>: <span class="hljs-string">'your_AppKey'</span>,
+            <span class="hljs-string">'engineid'</span>: <span class="hljs-string">'long_audio_synthesis_screen'</span>
+        }
+        tts = TTS(**input_params)
+        tts.open()
+        <span class="hljs-comment"># pcm</span>
+        pcm_buffer = tts.gen_radio(aue=AueType.PCM, vcn=k, text=<span class="hljs-string">'你好呀'</span>)
+        wav_io = pcm2wav(pcm_buffer)
+        <span class="hljs-keyword">with</span> open(<span class="hljs-string">f'<span class="hljs-subst">{k}</span>_pcm.wav'</span>, <span class="hljs-string">'wb'</span>) <span class="hljs-keyword">as</span> fd:
+            fd.write(wav_io.read())
+        <span class="hljs-keyword">break</span>
+
+    <span class="hljs-keyword">for</span> k, v <span class="hljs-keyword">in</span> Humanoid.__dict__.items():
+        <span class="hljs-keyword">if</span> k.find(<span class="hljs-string">'__'</span>) != <span class="hljs-number">-1</span>:
+            <span class="hljs-keyword">continue</span>
+        print(k, v)
+        input_params = {
+            <span class="hljs-comment"># 注意替换AppId、AppKey</span>
+            <span class="hljs-string">'app_id'</span>: <span class="hljs-string">'your_AppId'</span>,
+            <span class="hljs-string">'app_key'</span>: <span class="hljs-string">'your_AppKey'</span>,
+            <span class="hljs-string">'engineid'</span>: <span class="hljs-string">'tts_humanoid_lam'</span>
+        }
+        tts = TTS(**input_params)
+        tts.open()
+        <span class="hljs-comment"># pcm</span>
+        pcm_buffer = tts.gen_radio(aue=AueType.PCM, vcn=k, text=<span class="hljs-string">'你好呀'</span>)
+        wav_io = pcm2wav(pcm_buffer)
+        <span class="hljs-keyword">with</span> open(<span class="hljs-string">f'<span class="hljs-subst">{k}</span>_pcm.wav'</span>, <span class="hljs-string">'wb'</span>) <span class="hljs-keyword">as</span> fd:
+            fd.write(wav_io.read())
+        <span class="hljs-keyword">break</span>
+</code></div></pre>
+</div>

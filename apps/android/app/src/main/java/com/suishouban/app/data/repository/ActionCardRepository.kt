@@ -1,5 +1,8 @@
 package com.suishouban.app.data.repository
 
+import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.content.Context
 import com.suishouban.app.data.local.AppDatabase
 import com.suishouban.app.data.local.toDomain
@@ -14,11 +17,16 @@ import com.suishouban.app.data.remote.toDto
 import com.suishouban.app.domain.LocalActionExtractor
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayOutputStream
 
 class ActionCardRepository(
     context: Context,
     private val settingsRepository: AppSettingsRepository,
 ) {
+    private val appContext = context.applicationContext
     private val dao = AppDatabase.get(context).cardDao()
     private val extractor = LocalActionExtractor()
 
@@ -36,22 +44,93 @@ class ActionCardRepository(
 
     fun observeAll(): Flow<List<ActionCard>> = dao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
-    suspend fun analyzeText(text: String): AnalyzeResult {
+    suspend fun analyzeImage(uri: Uri, screenshotTime: String? = null): AnalyzeResult? {
+        val settings = settingsRepository.settings.value
+        if (!settings.preferCloudModel) return null
+
+        return runCatching {
+            val api = ApiFactory.create(settings.apiBaseUrl)
+            val imagePart = buildImagePart(uri)
+            val timePart = screenshotTime?.toRequestBody("text/plain".toMediaType())
+            val response = api.analyzeScreenshotImage(imagePart, timePart)
+            AnalyzeResult(
+                ocrText = response.ocrText,
+                cards = response.cards.map { it.toDomain() },
+                previewActions = response.previewActions,
+                engine = response.engine,
+            )
+        }.getOrNull()
+    }
+
+    suspend fun analyzeText(text: String, screenshotTime: String? = null, enginePrefix: String? = null): AnalyzeResult {
         val settings = settingsRepository.settings.value
         if (settings.preferCloudModel) {
             val remoteResult = runCatching {
                 val api = ApiFactory.create(settings.apiBaseUrl)
-                val response = api.analyzeScreenshotText(AnalyzeScreenshotTextRequest(text))
+                val response = api.analyzeScreenshotText(AnalyzeScreenshotTextRequest(text, screenshotTime))
                 AnalyzeResult(
                     ocrText = response.ocrText,
                     cards = response.cards.map { it.toDomain() },
                     previewActions = response.previewActions,
-                    engine = response.engine,
+                    engine = prefixEngine(response.engine, enginePrefix),
                 )
             }.getOrNull()
             if (remoteResult != null) return remoteResult
         }
-        return extractor.extract(text)
+        val localResult = extractor.extract(text)
+        return localResult.copy(engine = prefixEngine(localResult.engine, enginePrefix))
+    }
+
+    private fun prefixEngine(engine: String, prefix: String?): String {
+        return EngineLabels.withPrefix(engine, prefix)
+    }
+
+    private fun buildImagePart(uri: Uri): MultipartBody.Part {
+        val bytes = readCompressedJpeg(uri)
+        val body = bytes.toRequestBody("image/jpeg".toMediaType())
+        return MultipartBody.Part.createFormData("image", "screenshot.jpg", body)
+    }
+
+    private fun readCompressedJpeg(uri: Uri): ByteArray {
+        val resolver = appContext.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+
+        val sampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, MAX_UPLOAD_EDGE)
+        val bitmapOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bitmapOptions) }
+            ?: error("无法读取图片")
+
+        return bitmap.useAndCompress()
+    }
+
+    private fun calculateSampleSize(width: Int, height: Int, maxEdge: Int): Int {
+        var sample = 1
+        var currentWidth = width
+        var currentHeight = height
+        while (currentWidth > maxEdge || currentHeight > maxEdge) {
+            sample *= 2
+            currentWidth /= 2
+            currentHeight /= 2
+        }
+        return sample.coerceAtLeast(1)
+    }
+
+    private fun Bitmap.useAndCompress(): ByteArray {
+        try {
+            var quality = 88
+            var bytes: ByteArray
+            do {
+                val output = ByteArrayOutputStream()
+                // vivo OCR accepts jpg/png/bmp; JPEG keeps uploads small and strips app-side metadata.
+                compress(Bitmap.CompressFormat.JPEG, quality, output)
+                bytes = output.toByteArray()
+                quality -= 10
+            } while (bytes.size > MAX_UPLOAD_BYTES && quality >= 48)
+            return bytes
+        } finally {
+            recycle()
+        }
     }
 
     suspend fun saveConfirmed(card: ActionCard): ActionCard {
@@ -92,5 +171,10 @@ class ActionCardRepository(
                 .map { it.toDomain().toEntity() }
             dao.upsertAll(cards)
         }
+    }
+
+    companion object {
+        private const val MAX_UPLOAD_EDGE = 1800
+        private const val MAX_UPLOAD_BYTES = 5 * 1024 * 1024
     }
 }

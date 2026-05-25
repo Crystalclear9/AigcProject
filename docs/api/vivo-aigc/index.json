@@ -1,0 +1,222 @@
+[
+  {
+    "order": 1,
+    "doc_id": 1746,
+    "title": "使用指引",
+    "path": "文档中心 / 使用指引",
+    "update_time": "2026-04-13 23:16:04",
+    "markdown": "docs/api/vivo-aigc/markdown/01-1746-文档中心___使用指引.md",
+    "html": "docs/api/vivo-aigc/html/01-1746-文档中心___使用指引.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1746"
+  },
+  {
+    "order": 2,
+    "doc_id": 1677,
+    "title": "鉴权方式",
+    "path": "文档中心 / 鉴权方式",
+    "update_time": "2026-03-16 16:10:23",
+    "markdown": "docs/api/vivo-aigc/markdown/02-1677-文档中心___鉴权方式.md",
+    "html": "docs/api/vivo-aigc/html/02-1677-文档中心___鉴权方式.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1677"
+  },
+  {
+    "order": 3,
+    "doc_id": 1745,
+    "title": "大模型",
+    "path": "文档中心 / 接口文档 / 文本生成 / 大模型",
+    "update_time": "2026-04-15 16:53:29",
+    "markdown": "docs/api/vivo-aigc/markdown/03-1745-文档中心___接口文档___文本生成___大模型.md",
+    "html": "docs/api/vivo-aigc/html/03-1745-文档中心___接口文档___文本生成___大模型.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1745"
+  },
+  {
+    "order": 4,
+    "doc_id": 1805,
+    "title": "Function calling",
+    "path": "文档中心 / 接口文档 / 文本生成 / Function calling",
+    "update_time": "2026-03-16 19:52:35",
+    "markdown": "docs/api/vivo-aigc/markdown/04-1805-文档中心___接口文档___文本生成___Function_calling.md",
+    "html": "docs/api/vivo-aigc/html/04-1805-文档中心___接口文档___文本生成___Function_calling.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1805"
+  },
+  {
+    "order": 5,
+    "doc_id": 1732,
+    "title": "图片生成",
+    "path": "文档中心 / 接口文档 / 图片生成 / 图片生成",
+    "update_time": "2026-04-29 15:47:04",
+    "markdown": "docs/api/vivo-aigc/markdown/05-1732-文档中心___接口文档___图片生成___图片生成.md",
+    "html": "docs/api/vivo-aigc/html/05-1732-文档中心___接口文档___图片生成___图片生成.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1732"
+  },
+  {
+    "order": 6,
+    "doc_id": 2201,
+    "title": "视频生成",
+    "path": "文档中心 / 接口文档 / 视频生成 / 视频生成",
+    "update_time": "2026-04-15 16:54:24",
+    "markdown": "docs/api/vivo-aigc/markdown/06-2201-文档中心___接口文档___视频生成___视频生成.md",
+    "html": "docs/api/vivo-aigc/html/06-2201-文档中心___接口文档___视频生成___视频生成.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=2201"
+  },
+  {
+    "order": 7,
+    "doc_id": 1737,
+    "title": "通用OCR",
+    "path": "文档中心 / 接口文档 / 视觉技术 / 通用OCR",
+    "update_time": "2026-03-13 08:58:51",
+    "markdown": "docs/api/vivo-aigc/markdown/07-1737-文档中心___接口文档___视觉技术___通用OCR.md",
+    "html": "docs/api/vivo-aigc/html/07-1737-文档中心___接口文档___视觉技术___通用OCR.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1737"
+  },
+  {
+    "order": 8,
+    "doc_id": 1733,
+    "title": "文本翻译",
+    "path": "文档中心 / 接口文档 / 自然语言处理 / 文本翻译",
+    "update_time": "2026-03-13 09:23:46",
+    "markdown": "docs/api/vivo-aigc/markdown/08-1733-文档中心___接口文档___自然语言处理___文本翻译.md",
+    "html": "docs/api/vivo-aigc/html/08-1733-文档中心___接口文档___自然语言处理___文本翻译.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1733"
+  },
+  {
+    "order": 9,
+    "doc_id": 1734,
+    "title": "文本向量",
+    "path": "文档中心 / 接口文档 / 自然语言处理 / 文本向量",
+    "update_time": "2026-04-15 16:54:55",
+    "markdown": "docs/api/vivo-aigc/markdown/09-1734-文档中心___接口文档___自然语言处理___文本向量.md",
+    "html": "docs/api/vivo-aigc/html/09-1734-文档中心___接口文档___自然语言处理___文本向量.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1734"
+  },
+  {
+    "order": 10,
+    "doc_id": 2060,
+    "title": "文本相似度",
+    "path": "文档中心 / 接口文档 / 自然语言处理 / 文本相似度",
+    "update_time": "2026-03-13 09:24:52",
+    "markdown": "docs/api/vivo-aigc/markdown/10-2060-文档中心___接口文档___自然语言处理___文本相似度.md",
+    "html": "docs/api/vivo-aigc/html/10-2060-文档中心___接口文档___自然语言处理___文本相似度.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=2060"
+  },
+  {
+    "order": 11,
+    "doc_id": 2061,
+    "title": "查询改写",
+    "path": "文档中心 / 接口文档 / 自然语言处理 / 查询改写",
+    "update_time": "2026-03-13 09:25:25",
+    "markdown": "docs/api/vivo-aigc/markdown/11-2061-文档中心___接口文档___自然语言处理___查询改写.md",
+    "html": "docs/api/vivo-aigc/html/11-2061-文档中心___接口文档___自然语言处理___查询改写.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=2061"
+  },
+  {
+    "order": 12,
+    "doc_id": 1738,
+    "title": "实时短语音识别",
+    "path": "文档中心 / 接口文档 / ASR / 实时短语音识别",
+    "update_time": "2026-03-13 10:48:12",
+    "markdown": "docs/api/vivo-aigc/markdown/12-1738-文档中心___接口文档___ASR___实时短语音识别.md",
+    "html": "docs/api/vivo-aigc/html/12-1738-文档中心___接口文档___ASR___实时短语音识别.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1738"
+  },
+  {
+    "order": 13,
+    "doc_id": 1740,
+    "title": "长语音听写",
+    "path": "文档中心 / 接口文档 / ASR / 长语音听写",
+    "update_time": "2026-03-13 10:43:17",
+    "markdown": "docs/api/vivo-aigc/markdown/13-1740-文档中心___接口文档___ASR___长语音听写.md",
+    "html": "docs/api/vivo-aigc/html/13-1740-文档中心___接口文档___ASR___长语音听写.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1740"
+  },
+  {
+    "order": 14,
+    "doc_id": 1739,
+    "title": "长语音转写",
+    "path": "文档中心 / 接口文档 / ASR / 长语音转写",
+    "update_time": "2026-03-13 10:38:53",
+    "markdown": "docs/api/vivo-aigc/markdown/14-1739-文档中心___接口文档___ASR___长语音转写.md",
+    "html": "docs/api/vivo-aigc/html/14-1739-文档中心___接口文档___ASR___长语音转写.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1739"
+  },
+  {
+    "order": 15,
+    "doc_id": 2065,
+    "title": "方言自由说",
+    "path": "文档中心 / 接口文档 / ASR / 方言自由说",
+    "update_time": "2026-03-13 10:31:23",
+    "markdown": "docs/api/vivo-aigc/markdown/15-2065-文档中心___接口文档___ASR___方言自由说.md",
+    "html": "docs/api/vivo-aigc/html/15-2065-文档中心___接口文档___ASR___方言自由说.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=2065"
+  },
+  {
+    "order": 16,
+    "doc_id": 2068,
+    "title": "同声音传译",
+    "path": "文档中心 / 接口文档 / ASR / 同声音传译",
+    "update_time": "2026-03-13 10:00:23",
+    "markdown": "docs/api/vivo-aigc/markdown/16-2068-文档中心___接口文档___ASR___同声音传译.md",
+    "html": "docs/api/vivo-aigc/html/16-2068-文档中心___接口文档___ASR___同声音传译.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=2068"
+  },
+  {
+    "order": 17,
+    "doc_id": 1735,
+    "title": "音频生成",
+    "path": "文档中心 / 接口文档 / TTS / 音频生成",
+    "update_time": "2026-04-22 18:01:19",
+    "markdown": "docs/api/vivo-aigc/markdown/17-1735-文档中心___接口文档___TTS___音频生成.md",
+    "html": "docs/api/vivo-aigc/html/17-1735-文档中心___接口文档___TTS___音频生成.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1735"
+  },
+  {
+    "order": 18,
+    "doc_id": 2062,
+    "title": "声音复刻",
+    "path": "文档中心 / 接口文档 / TTS / 声音复刻",
+    "update_time": "2026-04-22 18:06:08",
+    "markdown": "docs/api/vivo-aigc/markdown/18-2062-文档中心___接口文档___TTS___声音复刻.md",
+    "html": "docs/api/vivo-aigc/html/18-2062-文档中心___接口文档___TTS___声音复刻.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=2062"
+  },
+  {
+    "order": 19,
+    "doc_id": 1736,
+    "title": "地理编码(POI搜索)",
+    "path": "文档中心 / 接口文档 / LBS / 地理编码(POI搜索)",
+    "update_time": "2026-03-13 09:31:38",
+    "markdown": "docs/api/vivo-aigc/markdown/19-1736-文档中心___接口文档___LBS___地理编码(POI搜索).md",
+    "html": "docs/api/vivo-aigc/html/19-1736-文档中心___接口文档___LBS___地理编码(POI搜索).html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1736"
+  },
+  {
+    "order": 20,
+    "doc_id": 1802,
+    "title": "端侧3B大模型",
+    "path": "文档中心 / 接口文档 / 端侧文本生成 / 端侧3B大模型",
+    "update_time": "2026-05-21 17:07:28",
+    "markdown": "docs/api/vivo-aigc/markdown/20-1802-文档中心___接口文档___端侧文本生成___端侧3B大模型.md",
+    "html": "docs/api/vivo-aigc/html/20-1802-文档中心___接口文档___端侧文本生成___端侧3B大模型.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1802"
+  },
+  {
+    "order": 21,
+    "doc_id": 1804,
+    "title": "端侧文本审核",
+    "path": "文档中心 / 接口文档 / 端侧文本生成 / 端侧文本审核",
+    "update_time": "2024-05-28 17:53:45",
+    "markdown": "docs/api/vivo-aigc/markdown/21-1804-文档中心___接口文档___端侧文本生成___端侧文本审核.md",
+    "html": "docs/api/vivo-aigc/html/21-1804-文档中心___接口文档___端侧文本生成___端侧文本审核.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1804"
+  },
+  {
+    "order": 22,
+    "doc_id": 1803,
+    "title": "端侧能力相关文件",
+    "path": "文档中心 / 接口文档 / 端侧文本生成 / 端侧能力相关文件",
+    "update_time": "2026-05-21 17:04:56",
+    "markdown": "docs/api/vivo-aigc/markdown/22-1803-文档中心___接口文档___端侧文本生成___端侧能力相关文件.md",
+    "html": "docs/api/vivo-aigc/html/22-1803-文档中心___接口文档___端侧文本生成___端侧能力相关文件.html",
+    "source_url": "https://aigc.vivo.com.cn/#/document/index?id=1803"
+  }
+]
