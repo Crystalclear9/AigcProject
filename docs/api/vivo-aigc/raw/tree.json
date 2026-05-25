@@ -1,0 +1,413 @@
+{
+  "retcode": 0,
+  "msg": "success",
+  "data": [
+    {
+      "id": 1676,
+      "name": "文档中心",
+      "parentId": 0,
+      "level": 1,
+      "dataType": 1,
+      "children": [
+        {
+          "id": 1746,
+          "name": "使用指引",
+          "parentId": 1676,
+          "level": 2,
+          "dataType": 2,
+          "children": [],
+          "maxLevel": 2,
+          "addFlag": true,
+          "displayStatus": 0,
+          "displayConfig": "{}"
+        },
+        {
+          "id": 1677,
+          "name": "鉴权方式",
+          "parentId": 1676,
+          "level": 2,
+          "dataType": 2,
+          "children": [],
+          "maxLevel": 2,
+          "addFlag": true,
+          "displayStatus": 0,
+          "displayConfig": "{}"
+        },
+        {
+          "id": 1720,
+          "name": "接口文档",
+          "parentId": 1676,
+          "level": 2,
+          "dataType": 1,
+          "children": [
+            {
+              "id": 1744,
+              "name": "文本生成",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1745,
+                  "name": "大模型",
+                  "parentId": 1744,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 1805,
+                  "name": "Function calling",
+                  "parentId": 1744,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1724,
+              "name": "图片生成",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1732,
+                  "name": "图片生成",
+                  "parentId": 1724,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 2200,
+              "name": "视频生成",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 2201,
+                  "name": "视频生成",
+                  "parentId": 2200,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1727,
+              "name": "视觉技术",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1737,
+                  "name": "通用OCR",
+                  "parentId": 1727,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1728,
+              "name": "自然语言处理",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1733,
+                  "name": "文本翻译",
+                  "parentId": 1728,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 1734,
+                  "name": "文本向量",
+                  "parentId": 1728,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 2060,
+                  "name": "文本相似度",
+                  "parentId": 1728,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 2061,
+                  "name": "查询改写",
+                  "parentId": 1728,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1725,
+              "name": "ASR",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1738,
+                  "name": "实时短语音识别",
+                  "parentId": 1725,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 1740,
+                  "name": "长语音听写",
+                  "parentId": 1725,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 1739,
+                  "name": "长语音转写",
+                  "parentId": 1725,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 2065,
+                  "name": "方言自由说",
+                  "parentId": 1725,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 2068,
+                  "name": "同声音传译",
+                  "parentId": 1725,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1726,
+              "name": "TTS",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1735,
+                  "name": "音频生成",
+                  "parentId": 1726,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 2062,
+                  "name": "声音复刻",
+                  "parentId": 1726,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1729,
+              "name": "LBS",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1736,
+                  "name": "地理编码(POI搜索)",
+                  "parentId": 1729,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            },
+            {
+              "id": 1801,
+              "name": "端侧文本生成",
+              "parentId": 1720,
+              "level": 3,
+              "dataType": 1,
+              "children": [
+                {
+                  "id": 1802,
+                  "name": "端侧3B大模型",
+                  "parentId": 1801,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 1804,
+                  "name": "端侧文本审核",
+                  "parentId": 1801,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                },
+                {
+                  "id": 1803,
+                  "name": "端侧能力相关文件",
+                  "parentId": 1801,
+                  "level": 4,
+                  "dataType": 2,
+                  "children": [],
+                  "maxLevel": 4,
+                  "addFlag": true,
+                  "displayStatus": 0,
+                  "displayConfig": "{}"
+                }
+              ],
+              "maxLevel": 4,
+              "addFlag": true,
+              "displayStatus": 0,
+              "displayConfig": "{}"
+            }
+          ],
+          "maxLevel": 4,
+          "addFlag": true,
+          "displayStatus": 0,
+          "displayConfig": "{}"
+        }
+      ],
+      "maxLevel": 4,
+      "addFlag": true,
+      "displayStatus": 0,
+      "displayConfig": "{}"
+    }
+  ]
+}
