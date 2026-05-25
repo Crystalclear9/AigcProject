@@ -64,4 +64,4 @@ class AnalyzeScreenshotTextResponse(BaseModel):
     ocr_text: str
     cards: list[ActionCard]
     preview_actions: list[str]
-    engine: Literal["lanxin", "rules"]
+    engine: str
