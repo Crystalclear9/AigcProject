@@ -72,6 +72,21 @@ fun PreviewScreen(
                 ) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("即将执行", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (state.engine.isNotBlank()) {
+                                NeutralPill(text = "引擎 ${state.engine}", selected = true)
+                            }
+                            if (state.traceId.isNotBlank()) {
+                                NeutralPill(text = "Trace ${state.traceId.take(8)}")
+                            }
+                        }
+                        if (state.fallbackReason != null || state.warnings.isNotEmpty()) {
+                            Text(
+                                (state.warnings + listOfNotNull(state.fallbackReason)).distinct().joinToString("；"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         state.previewActions.forEach { action ->
                             Row {
                                 Icon(Icons.Outlined.EventAvailable, contentDescription = null, tint = BrandBlue)

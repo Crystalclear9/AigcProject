@@ -48,6 +48,9 @@ data class AnalyzeResult(
     val cards: List<ActionCard>,
     val previewActions: List<String>,
     val engine: String,
+    val traceId: String = "",
+    val fallbackReason: String? = null,
+    val warnings: List<String> = emptyList(),
 )
 
 fun ActionCard.isTimed(): Boolean = deadline != null || startTime != null

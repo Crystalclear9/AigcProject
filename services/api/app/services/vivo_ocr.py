@@ -34,6 +34,27 @@ class VivoOcrError(RuntimeError):
     pass
 
 
+def _format_http_error(error: httpx.HTTPStatusError) -> str:
+    body = error.response.text.strip()
+    suffix = f": {body}" if body else ""
+    return f"vivo OCR HTTP {error.response.status_code}{suffix}"
+
+
+def _format_request_error(error: httpx.HTTPError) -> str:
+    return f"vivo OCR request failed: {error}"
+
+
+def parse_successful_vivo_ocr_body(body: dict[str, Any]) -> list[OcrLine]:
+    if body.get("error_code") != 0:
+        error_code = body.get("error_code")
+        error_msg = body.get("error_msg") or "vivo OCR failed"
+        raise VivoOcrError(f"vivo OCR error_code={error_code}: {error_msg}")
+    lines = parse_vivo_ocr_lines(body)
+    if not lines:
+        raise VivoOcrError("vivo OCR returned no text lines")
+    return lines
+
+
 class VivoOcrClient:
     async def recognize(self, image_bytes: bytes) -> list[OcrLine]:
         if not settings.has_vivo_ocr_config:
@@ -53,13 +74,12 @@ class VivoOcrClient:
             async with httpx.AsyncClient(timeout=settings.vivo_ocr_timeout_seconds) as client:
                 response = await client.post(VIVO_OCR_URL, data=payload, params=params, headers=headers)
                 response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise VivoOcrError(_format_http_error(error)) from error
         except httpx.HTTPError as error:
-            raise VivoOcrError(f"vivo OCR request failed: {error}") from error
+            raise VivoOcrError(_format_request_error(error)) from error
 
-        body = response.json()
-        if body.get("error_code") != 0:
-            raise VivoOcrError(body.get("error_msg") or "vivo OCR failed")
-        return parse_vivo_ocr_lines(body)
+        return parse_successful_vivo_ocr_body(response.json())
 
 
 def parse_vivo_ocr_lines(body: dict[str, Any]) -> list[OcrLine]:
