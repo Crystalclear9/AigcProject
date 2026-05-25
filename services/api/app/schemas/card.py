@@ -65,3 +65,6 @@ class AnalyzeScreenshotTextResponse(BaseModel):
     cards: list[ActionCard]
     preview_actions: list[str]
     engine: str
+    trace_id: str
+    fallback_reason: str | None = None
+    warnings: list[str] = Field(default_factory=list)

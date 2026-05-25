@@ -78,6 +78,21 @@ fun ImportScreen(
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text("选择截图", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    if (state.engine.isNotBlank()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            NeutralPill(text = "引擎 ${state.engine}", selected = true)
+                            if (state.traceId.isNotBlank()) {
+                                NeutralPill(text = "Trace ${state.traceId.take(8)}")
+                            }
+                        }
+                    }
+                    if (state.warnings.isNotEmpty()) {
+                        Text(
+                            state.warnings.distinct().joinToString("；"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = { launcher.launch("image/*") },

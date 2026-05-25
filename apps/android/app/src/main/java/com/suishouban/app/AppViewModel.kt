@@ -20,6 +20,9 @@ data class AppUiState(
     val previewActions: List<String> = emptyList(),
     val ocrText: String = "",
     val engine: String = "",
+    val traceId: String = "",
+    val fallbackReason: String? = null,
+    val warnings: List<String> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
     val settings: AppSettings = AppSettings(),
@@ -59,13 +62,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onDone()
                 return@launch
             }
+            _uiState.update {
+                it.copy(
+                    error = "云端图片识别不可用，已切换到本地 OCR",
+                )
+            }
 
             val text = runCatching { ocr.recognize(getApplication(), uri) }
                 .getOrElse { error ->
                     _uiState.update { it.copy(loading = false, error = "图片识别失败：${error.message ?: "请换一张截图"}") }
                     return@launch
                 }
-            analyzeTextInternal(text, onDone, screenshotTime = screenshotTime, enginePrefix = "mlkit")
+            analyzeTextInternal(
+                text = text,
+                onDone = onDone,
+                screenshotTime = screenshotTime,
+                enginePrefix = "mlkit",
+                extraWarnings = listOf("云端图片识别不可用，已切换到 ML Kit 本地 OCR"),
+            )
         }
     }
 
@@ -81,6 +95,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         onDone: () -> Unit,
         screenshotTime: String? = null,
         enginePrefix: String? = null,
+        extraWarnings: List<String> = emptyList(),
     ) {
         if (text.isBlank()) {
             _uiState.update { it.copy(loading = false, error = "没有识别到可分析的文字") }
@@ -91,7 +106,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(loading = false, error = "行动卡生成失败：${error.message ?: "未知错误"}") }
                 return
             }
-        applyAnalyzeResult(result)
+        applyAnalyzeResult(result.copy(warnings = extraWarnings + result.warnings))
         onDone()
     }
 
@@ -103,6 +118,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 draftCards = result.cards,
                 previewActions = result.previewActions,
                 engine = result.engine,
+                traceId = result.traceId,
+                fallbackReason = result.fallbackReason,
+                warnings = result.warnings,
             )
         }
     }
@@ -133,7 +151,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     calendarSyncer.insertIfPermitted(saved)
                 }
             }
-            _uiState.update { it.copy(draftCards = emptyList(), previewActions = emptyList(), ocrText = "", engine = "") }
+            _uiState.update {
+                it.copy(
+                    draftCards = emptyList(),
+                    previewActions = emptyList(),
+                    ocrText = "",
+                    engine = "",
+                    traceId = "",
+                    fallbackReason = null,
+                    warnings = emptyList(),
+                )
+            }
             onDone()
         }
     }

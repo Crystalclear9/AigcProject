@@ -13,6 +13,9 @@ data class AnalyzeScreenshotTextResponse(
     val cards: List<ActionCardDto>,
     @SerializedName("preview_actions") val previewActions: List<String>,
     val engine: String,
+    @SerializedName("trace_id") val traceId: String = "",
+    @SerializedName("fallback_reason") val fallbackReason: String? = null,
+    val warnings: List<String> = emptyList(),
 )
 
 data class ActionCardDto(

@@ -58,6 +58,9 @@ class ActionCardRepository(
                 cards = response.cards.map { it.toDomain() },
                 previewActions = response.previewActions,
                 engine = response.engine,
+                traceId = response.traceId,
+                fallbackReason = response.fallbackReason,
+                warnings = response.warnings,
             )
         }.getOrNull()
     }
@@ -73,6 +76,9 @@ class ActionCardRepository(
                     cards = response.cards.map { it.toDomain() },
                     previewActions = response.previewActions,
                     engine = prefixEngine(response.engine, enginePrefix),
+                    traceId = response.traceId,
+                    fallbackReason = response.fallbackReason,
+                    warnings = response.warnings,
                 )
             }.getOrNull()
             if (remoteResult != null) return remoteResult
