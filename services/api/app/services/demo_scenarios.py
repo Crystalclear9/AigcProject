@@ -58,11 +58,32 @@ DEMO_SCENARIOS = [
         expected_keywords=["对比", "方案"],
     ),
     DemoScenario(
-        id="useful_collection",
-        name="收藏信息识别",
+        id="non_action_info",
+        name="非行动信息过滤",
         text="图书馆总服务台电话 010-12345678，地址：主校区图书馆一层大厅。",
-        expected_types=["collection"],
-        expected_keywords=["图书馆", "电话"],
+        expected_types=[],
+        expected_keywords=[],
+    ),
+    DemoScenario(
+        id="signup_and_event",
+        name="报名截止与活动时间拆分",
+        text="校园创新赛报名截止 5 月 15 日 23:59，需提交报名表和作品说明书；决赛路演 5 月 20 日下午 2 点在大学生活动中心举行。",
+        expected_types=["task", "event"],
+        expected_keywords=["报名表", "大学生活动中心"],
+    ),
+    DemoScenario(
+        id="long_multi_task_notice",
+        name="长通知多任务识别",
+        text="课程通知：请本周五 22:00 前提交实验报告至学习通；另请下周一上午 9 点前把项目 PPT 发送至指定邮箱。",
+        expected_types=["task", "task"],
+        expected_keywords=["实验报告", "PPT", "学习通", "邮箱"],
+    ),
+    DemoScenario(
+        id="fuzzy_time_notice",
+        name="模糊时间待确认",
+        text="请各组在本月底前完成项目材料整理，并提交商业计划书和团队信息表。",
+        expected_types=["task"],
+        expected_keywords=["商业计划书", "团队信息表"],
     ),
 ]
 
@@ -99,7 +120,7 @@ def evaluate_demo_scenarios() -> dict[str, object]:
             )
             for card in cards
         )
-        type_ok = all(expected in actual_types for expected in scenario.expected_types)
+        type_ok = all(actual_types.count(expected) >= scenario.expected_types.count(expected) for expected in set(scenario.expected_types))
         keyword_ok = all(keyword in combined_text for keyword in scenario.expected_keywords)
         passed = type_ok and keyword_ok
         if passed:

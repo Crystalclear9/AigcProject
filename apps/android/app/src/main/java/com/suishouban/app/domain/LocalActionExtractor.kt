@@ -12,12 +12,16 @@ import java.util.UUID
 class LocalActionExtractor {
     fun extract(text: String): AnalyzeResult {
         val normalized = text.replace(Regex("\\s+"), " ").trim()
-        val cards = when {
-            hasMeetingPreparation(normalized) -> listOf(
+        val cards = if (!isActionableText(normalized)) {
+            emptyList()
+        } else if (hasMeetingPreparation(normalized)) {
+            listOf(
                 buildCard(normalized, CardTypes.EVENT, title = if ("组会" in normalized) "参加组会" else "参加会议"),
                 buildCard(normalized, CardTypes.TASK, title = if ("汇报" in normalized) "准备进展汇报" else "准备会议材料"),
             )
-            else -> listOf(buildCard(normalized, classify(normalized)))
+        } else {
+            val cardType = classify(normalized)
+            if (cardType == null) emptyList() else listOf(buildCard(normalized, cardType))
         }
         return AnalyzeResult(
             ocrText = normalized,
@@ -27,20 +31,50 @@ class LocalActionExtractor {
         )
     }
 
+    private fun isActionableText(text: String): Boolean {
+        if (text.length < 4) return false
+        val hasActionSignal = taskWords.any { it in text } ||
+            eventWords.any { it in text } ||
+            promiseWords.any { it in text } ||
+            comparisonWords.any { it in text }
+        return hasActionSignal && hasKeySignal(text)
+    }
+
+    private fun hasKeySignal(text: String): Boolean {
+        // 平衡策略：行动词必须搭配一个时间、地点、提交物、平台、对象或对比选项锚点。
+        return hasTimeSignal(text) ||
+            extractMaterials(text).isNotEmpty() ||
+            extractLocation(text) != null ||
+            extractSubmitMethod(text) != null ||
+            objectWords.any { it in text } ||
+            Regex("(A|B|方案|选项|¥|￥|\\d+\\s*元)").containsMatchIn(text)
+    }
+
+    private fun hasTimeSignal(text: String): Boolean {
+        return listOf(
+            Regex("\\d{1,2}\\s*月\\s*\\d{1,2}\\s*[日号]?"),
+            Regex("(本周|这周|下周|周|星期)[一二三四五六日天]"),
+            Regex("(今天|明天|后天|今晚|上午|早上|中午|下午|晚上)"),
+            Regex("\\d{1,2}[:：]\\d{2}"),
+            Regex("\\d{1,2}\\s*点"),
+            Regex("本月底|月底|近期|近日|\\d{1,2}\\s*月\\s*(上旬|中旬|下旬)"),
+        ).any { it.containsMatchIn(text) }
+    }
+
     private fun hasMeetingPreparation(text: String): Boolean {
         return listOf("组会", "开会", "会议").any { it in text } && listOf("准备", "汇报").any { it in text }
     }
 
-    private fun classify(text: String): String = when {
+    private fun classify(text: String): String? = when {
         isComparisonText(text) -> CardTypes.COMPARISON
-        listOf("帮我", "答应", "可以，我", "承诺").any { it in text } -> CardTypes.PROMISE
-        listOf("开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试").any { it in text } -> CardTypes.EVENT
-        listOf("提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送").any { it in text } -> CardTypes.TASK
-        else -> CardTypes.COLLECTION
+        promiseWords.any { it in text } -> CardTypes.PROMISE
+        eventWords.any { it in text } -> CardTypes.EVENT
+        taskWords.any { it in text } -> CardTypes.TASK
+        else -> null
     }
 
     private fun isComparisonText(text: String): Boolean {
-        val hasComparisonWord = listOf("对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS").any { it in text }
+        val hasComparisonWord = comparisonWords.any { it in text }
         val hasOptionOrPrice = Regex("(A|B|方案|选项|¥|￥|\\d+\\s*元)").containsMatchIn(text)
         return hasComparisonWord && hasOptionOrPrice
     }
@@ -87,7 +121,6 @@ class LocalActionExtractor {
         "提交" in text -> "提交材料"
         "开会" in text || "会议" in text -> "参加会议"
         cardType == CardTypes.COMPARISON -> "整理对比信息"
-        cardType == CardTypes.COLLECTION -> "收藏截图信息"
         else -> "处理截图事项"
     }
 
@@ -110,7 +143,6 @@ class LocalActionExtractor {
                     CardTypes.EVENT -> "日程"
                     CardTypes.PROMISE -> "承诺"
                     CardTypes.COMPARISON -> "对比"
-                    CardTypes.COLLECTION -> "收藏"
                     else -> "任务"
                 }
             )
@@ -150,7 +182,6 @@ class LocalActionExtractor {
                     CardTypes.EVENT -> "创建日历事件：${card.title}"
                     CardTypes.PROMISE -> "创建承诺提醒：${card.title}"
                     CardTypes.COMPARISON -> "生成对比卡：${card.title}"
-                    CardTypes.COLLECTION -> "保存收藏卡：${card.title}"
                     else -> "创建待办任务：${card.title}"
                 }
             )
@@ -230,5 +261,13 @@ class LocalActionExtractor {
             "晚上" in text || "今晚" in text -> HourGuess(20, 0, true)
             else -> HourGuess(9, 0, true)
         }
+    }
+
+    private companion object {
+        val taskWords = listOf("提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "准备", "完成", "整理")
+        val eventWords = listOf("开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加")
+        val promiseWords = listOf("帮我", "帮你", "答应", "可以，我", "我来", "没问题", "承诺", "说好了")
+        val comparisonWords = listOf("对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS")
+        val objectWords = listOf("老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件")
     }
 }

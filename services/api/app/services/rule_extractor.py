@@ -6,9 +6,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from app.schemas.card import ActionCard
+from app.services.extraction_context import build_summary, detect_hints
 from app.services.reminders import recommend_reminders
 
 CN_TZ = timezone(timedelta(hours=8))
+
+TASK_WORDS = ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "准备", "完成", "整理"]
+EVENT_WORDS = ["开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加"]
+PROMISE_WORDS = ["帮我", "帮你", "答应", "可以，我", "我来", "没问题", "承诺", "说好了"]
+COMPARISON_WORDS = ["对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS"]
+OBJECT_WORDS = ["老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件"]
 
 
 @dataclass
@@ -135,8 +142,60 @@ def extract_time(text: str, screenshot_time: str | None = None) -> TimeGuess:
 
 
 def _extract_materials(text: str) -> list[str]:
-    candidates = ["报名表", "作品说明书", "实验报告", "进展汇报", "表格", "材料", "证件", "文件"]
+    candidates = ["报名表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件"]
     return [item for item in candidates if item in text]
+
+
+def _has_time_signal(text: str) -> bool:
+    time_patterns = [
+        r"\d{1,2}\s*(?:月|[.．])\s*\d{1,2}\s*[日号]?",
+        r"(?:本周|这周|下周|周|星期)[一二三四五六日天]",
+        r"(?:今天|明天|后天|今晚|上午|早上|中午|下午|晚上)",
+        r"\d{1,2}[:：]\d{2}",
+        r"\d{1,2}\s*点",
+        r"本月底|月底|近期|近日|\d{1,2}\s*月\s*(?:上旬|中旬|下旬)",
+    ]
+    return any(re.search(pattern, text) for pattern in time_patterns)
+
+
+def _has_key_signal(text: str) -> bool:
+    # 平衡策略：不要求字段完整，但必须能看到时间、地点、提交物、平台、对象或对比选项等锚点。
+    return any(
+        [
+            _has_time_signal(text),
+            bool(_extract_materials(text)),
+            _extract_location(text) is not None,
+            _extract_submit_method(text) is not None,
+            any(word in text for word in OBJECT_WORDS),
+            re.search(r"(A|B|方案|选项|¥|￥|\d+\s*元)", text) is not None,
+        ]
+    )
+
+
+def is_actionable_text(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) < 4:
+        return False
+    has_action_signal = any(
+        [
+            any(word in normalized for word in TASK_WORDS),
+            any(word in normalized for word in EVENT_WORDS),
+            any(word in normalized for word in PROMISE_WORDS),
+            any(word in normalized for word in COMPARISON_WORDS),
+        ]
+    )
+    return has_action_signal and _has_key_signal(normalized)
+
+
+def filter_action_cards(cards: list[ActionCard], source_text: str) -> list[ActionCard]:
+    result: list[ActionCard] = []
+    for card in cards:
+        if card.card_type == "collection":
+            continue
+        # 用单卡 source_text 复核，避免 LLM 从无关截图里硬编任务卡。
+        if is_actionable_text(card.source_text or source_text):
+            result.append(card)
+    return result
 
 
 def _extract_location(text: str) -> str | None:
@@ -167,9 +226,8 @@ def _extract_submit_method(text: str) -> str | None:
 
 
 def _is_comparison_text(text: str) -> bool:
-    comparison_words = ["对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS"]
     price_or_option = re.search(r"(A|B|方案|选项|¥|￥|\d+\s*元)", text) is not None
-    return any(word in text for word in comparison_words) and price_or_option
+    return any(word in text for word in COMPARISON_WORDS) and price_or_option
 
 
 def _title_for(text: str, card_type: str) -> str:
@@ -191,6 +249,10 @@ def _title_for(text: str, card_type: str) -> str:
         return "社团活动集合"
     if "表格" in text and "老师" in text:
         return "帮同学把表格发给老师"
+    if "PPT" in text:
+        return "发送项目 PPT"
+    if "商业计划书" in text or "团队信息表" in text:
+        return "提交项目材料"
     if "提交" in text:
         return "提交材料"
     if "开会" in text or "会议" in text:
@@ -198,16 +260,16 @@ def _title_for(text: str, card_type: str) -> str:
     return "处理截图事项"
 
 
-def _classify(text: str) -> str:
+def _classify(text: str) -> str | None:
     if _is_comparison_text(text):
         return "comparison"
-    if any(word in text for word in ["帮我", "答应", "可以，我", "承诺"]):
+    if any(word in text for word in PROMISE_WORDS):
         return "promise"
-    if any(word in text for word in ["开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试"]):
+    if any(word in text for word in EVENT_WORDS):
         return "event"
-    if any(word in text for word in ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送"]):
+    if any(word in text for word in TASK_WORDS):
         return "task"
-    return "collection"
+    return None
 
 
 def _tags(text: str, card_type: str) -> list[str]:
@@ -240,7 +302,7 @@ def _tags(text: str, card_type: str) -> list[str]:
 
 def _need_confirm(text: str, time_guess: TimeGuess, location: str | None, submit_method: str | None) -> list[str]:
     fields: list[str] = []
-    if time_guess.fuzzy:
+    if time_guess.fuzzy or any(word in text for word in ["本月底", "月底", "近期", "近日", "中旬", "上旬", "下旬"]):
         fields.append("时间")
     if any(word in text for word in ["指定邮箱", "指定平台"]) and submit_method:
         fields.append("提交方式")
@@ -262,12 +324,24 @@ def build_card(text: str, card_type: str, screenshot_time: str | None = None, ti
     start_time = time_guess.value if card_type == "event" else None
     need_confirm = _need_confirm(text, time_guess, location, submit_method)
     reminders = recommend_reminders(card_type, priority, has_time)
+    card_title = title or _title_for(text, card_type)
+    hints = detect_hints(text, screenshot_time)
 
     return ActionCard(
         id=str(uuid.uuid4()),
         card_type=card_type,
-        title=title or _title_for(text, card_type),
-        summary=text[:120],
+        title=card_title,
+        summary=build_summary(
+            card_type=card_type,
+            text=text,
+            title=card_title,
+            deadline=deadline,
+            start_time=start_time,
+            location=location,
+            materials=materials,
+            submit_method=submit_method,
+            hints=hints,
+        ),
         deadline=deadline,
         start_time=start_time,
         end_time=None,
@@ -288,18 +362,47 @@ def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> l
     normalized = re.sub(r"\s+", " ", text).strip()
     cards: list[ActionCard] = []
 
+    if not is_actionable_text(normalized):
+        return []
+
     if any(word in normalized for word in ["组会", "开会", "会议"]) and any(word in normalized for word in ["准备", "汇报"]):
         cards.append(build_card(normalized, "event", screenshot_time, title="参加组会" if "组会" in normalized else "参加会议"))
         cards.append(build_card(normalized, "task", screenshot_time, title="准备进展汇报" if "汇报" in normalized else "准备会议材料"))
         return cards
 
+    if "报名" in normalized and "截止" in normalized and any(word in normalized for word in ["举行", "路演", "活动时间"]):
+        cards.append(build_card(normalized, "task", screenshot_time, title=_title_for(normalized, "task")))
+        cards.append(build_card(normalized, "event", screenshot_time, title="参加比赛活动"))
+        return cards
+
     if "比赛" in normalized and "报名" in normalized and any(word in normalized for word in ["提交材料", "作品说明书", "报名表"]):
         cards.append(build_card(normalized, "task", screenshot_time, title=_title_for(normalized, "task")))
+        if any(word in normalized for word in ["举行", "路演", "活动时间"]) and any(word in normalized for word in ["活动中心", "地点", "在"]):
+            cards.append(build_card(normalized, "event", screenshot_time, title="参加比赛活动"))
+        return cards
+
+    task_segments = _split_task_segments(normalized)
+    if len(task_segments) > 1:
+        for segment in task_segments:
+            cards.append(build_card(segment, "task", screenshot_time, title=_title_for(segment, "task")))
         return cards
 
     card_type = _classify(normalized)
+    if card_type is None:
+        return []
     cards.append(build_card(normalized, card_type, screenshot_time))
     return cards
+
+
+def _split_task_segments(text: str) -> list[str]:
+    pieces = [piece.strip(" ，,。；;") for piece in re.split(r"[；;。]", text) if piece.strip()]
+    task_pieces = [
+        piece
+        for piece in pieces
+        if any(word in piece for word in ["提交", "发送", "上传", "填写", "截止", "前"])
+        and any(word in piece for word in ["报告", "PPT", "材料", "表格", "计划书", "信息表"])
+    ]
+    return task_pieces if len(task_pieces) > 1 else []
 
 
 def preview_actions_for(cards: list[ActionCard]) -> list[str]:

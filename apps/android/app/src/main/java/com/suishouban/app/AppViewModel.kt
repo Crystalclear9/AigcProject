@@ -49,14 +49,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun analyzeImage(uri: Uri, onDone: () -> Unit = {}) {
+    fun analyzeImage(
+        uri: Uri,
+        notifyWhenEmpty: Boolean = true,
+        onDone: (Boolean) -> Unit = {},
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
             val cloudResult = runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull()
             if (cloudResult != null) {
-                applyAnalyzeResult(cloudResult)
-                onDone()
+                val hasCards = applyAnalyzeResult(cloudResult, notifyWhenEmpty)
+                onDone(hasCards)
                 return@launch
             }
 
@@ -65,22 +69,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { it.copy(loading = false, error = "图片识别失败：${error.message ?: "请换一张截图"}") }
                     return@launch
                 }
-            analyzeTextInternal(text, onDone, screenshotTime = screenshotTime, enginePrefix = "mlkit")
+            analyzeTextInternal(
+                text = text,
+                onDone = onDone,
+                screenshotTime = screenshotTime,
+                enginePrefix = "mlkit",
+                notifyWhenEmpty = notifyWhenEmpty,
+            )
         }
     }
 
-    fun analyzeText(text: String, onDone: () -> Unit = {}) {
+    fun analyzeText(text: String, onDone: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
-            analyzeTextInternal(text, onDone)
+            analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
         }
     }
 
     private suspend fun analyzeTextInternal(
         text: String,
-        onDone: () -> Unit,
+        onDone: (Boolean) -> Unit,
         screenshotTime: String? = null,
         enginePrefix: String? = null,
+        notifyWhenEmpty: Boolean,
     ) {
         if (text.isBlank()) {
             _uiState.update { it.copy(loading = false, error = "没有识别到可分析的文字") }
@@ -91,11 +102,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(loading = false, error = "行动卡生成失败：${error.message ?: "未知错误"}") }
                 return
             }
-        applyAnalyzeResult(result)
-        onDone()
+        val hasCards = applyAnalyzeResult(result, notifyWhenEmpty = notifyWhenEmpty)
+        onDone(hasCards)
     }
 
-    private fun applyAnalyzeResult(result: AnalyzeResult) {
+    private fun applyAnalyzeResult(result: AnalyzeResult, notifyWhenEmpty: Boolean): Boolean {
+        val hasCards = result.cards.isNotEmpty()
         _uiState.update {
             it.copy(
                 loading = false,
@@ -103,8 +115,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 draftCards = result.cards,
                 previewActions = result.previewActions,
                 engine = result.engine,
+                error = if (!hasCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
             )
         }
+        return hasCards
     }
 
     fun updateDraft(card: ActionCard) {

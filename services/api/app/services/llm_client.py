@@ -10,15 +10,38 @@ import httpx
 
 from app.core.config import settings
 from app.schemas.card import ActionCard
+from app.services.rule_extractor import filter_action_cards
+from app.services.extraction_context import (
+    build_llm_context,
+    build_summary,
+    dedupe_cards,
+    enrich_need_confirm,
+    repair_title,
+    should_rewrite_summary,
+)
 
 
 SYSTEM_PROMPT = """
-你是“随手办”的行动信息抽取引擎。请把截图 OCR 文本抽取为 JSON 数组。
-只输出 JSON，不要输出解释。每个对象字段必须包含：
+你是“随手办”的行动信息抽取引擎，任务是把截图 OCR 文本转成可编辑行动卡。
+请严格按以下流程思考，但最终只输出 JSON，不要输出解释：
+1. 判断截图场景：课程/比赛/活动/会议/聊天承诺/对比决策。
+2. 先拆分行动单元。同一截图中有多个 DDL、报名截止+活动时间、会议+准备事项、多项材料任务时，必须输出多张卡。
+3. 对每个行动单元分类：task/event/promise/comparison/collection。
+4. 抽取字段并生成卡片摘要。
+
+输出必须是 JSON 数组或 {"cards": [...]}。每个对象必须包含：
 card_type, title, summary, deadline, start_time, end_time, location, materials,
 submit_method, priority, tags, reminders, need_confirm, status, source_text。
-card_type 只能是 task/event/promise/comparison/collection；status 固定 draft。
-时间请尽量输出 ISO-8601 字符串；不确定的字段放进 need_confirm。
+
+字段规则：
+- card_type 只能是 task/event/promise/comparison/collection；status 固定 draft。
+- task 用 deadline；event 用 start_time/end_time；promise 有明确时间时用 deadline。
+- comparison 通常不设置提醒，不自动日历化。
+- 不要为了兜底输出 collection。没有明确行动、事件、承诺或对比决策时输出空数组 []。
+- 时间尽量输出 ISO-8601 字符串；如果只有“本月底、下周三、5月中旬”等模糊表达，把字段放进 need_confirm。
+- 不要把 OCR 原文整段复制到 summary。summary 必须是 20-60 字中文短摘要，包含“主体 + 关键信息 + 行动/价值”。
+- 低置信度、推断字段、缺失关键字段必须放入 need_confirm，例如：时间、地点、提交方式、对比选项。
+- source_text 填该卡对应的原文片段，不要填无关噪声。
 """
 
 
@@ -47,7 +70,13 @@ def _normalize_choice(value: Any, allowed: set[str], default: str, aliases: dict
     return text if text in allowed else default
 
 
-def _normalize_card_payload(item: dict[str, Any], text: str, card_id: str, now: datetime) -> dict[str, Any]:
+def _normalize_card_payload(
+    item: dict[str, Any],
+    text: str,
+    card_id: str,
+    now: datetime,
+    hints: dict[str, Any],
+) -> dict[str, Any]:
     normalized = dict(item)
     normalized["id"] = normalized.get("id") or card_id
     normalized.setdefault("created_at", now)
@@ -79,6 +108,30 @@ def _normalize_card_payload(item: dict[str, Any], text: str, card_id: str, now: 
     for field in ("materials", "tags", "reminders", "need_confirm"):
         normalized[field] = _coerce_list(normalized.get(field))
 
+    card_type = normalized["card_type"]
+    normalized["title"] = repair_title(card_type, normalized.get("title"), text, hints)
+    if should_rewrite_summary(normalized.get("summary"), text):
+        normalized["summary"] = build_summary(
+            card_type=card_type,
+            text=normalized.get("source_text") or text,
+            title=normalized.get("title"),
+            deadline=normalized.get("deadline"),
+            start_time=normalized.get("start_time"),
+            location=normalized.get("location"),
+            materials=normalized.get("materials"),
+            submit_method=normalized.get("submit_method"),
+            hints=hints,
+        )
+    normalized["need_confirm"] = enrich_need_confirm(
+        card_type=card_type,
+        need_confirm=normalized["need_confirm"],
+        deadline=normalized.get("deadline"),
+        start_time=normalized.get("start_time"),
+        location=normalized.get("location"),
+        submit_method=normalized.get("submit_method"),
+        hints=hints,
+    )
+
     return normalized
 
 
@@ -87,11 +140,7 @@ async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = Non
         raise RuntimeError("LANXIN_API_KEY or LANXIN_BASE_URL is missing")
 
     url = settings.lanxin_base_url.rstrip("/") + "/chat/completions"
-    user_prompt = {
-        "ocr_text": text,
-        "screenshot_time": screenshot_time,
-        "current_time": datetime.now(timezone.utc).isoformat(),
-    }
+    user_prompt = build_llm_context(text, screenshot_time)
     payload = {
         "model": settings.lanxin_model,
         "messages": [
@@ -123,6 +172,8 @@ async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = Non
     cards: list[ActionCard] = []
     now = datetime.now(timezone.utc)
     for item in raw_cards:
+        if not isinstance(item, dict):
+            continue
         card_id = f"llm-{len(cards) + 1}-{int(now.timestamp())}"
-        cards.append(ActionCard(**_normalize_card_payload(item, text, card_id, now)))
-    return cards
+        cards.append(ActionCard(**_normalize_card_payload(item, text, card_id, now, user_prompt["detected_hints"])))
+    return filter_action_cards(dedupe_cards(cards), text)

@@ -80,13 +80,19 @@ class RuleExtractorNoiseTest(unittest.TestCase):
         self.assertEqual(card.card_type, "comparison")
         self.assertIn("对比", card.tags)
 
-    def test_fallback_text_generates_collection_card(self) -> None:
+    def test_non_action_info_does_not_generate_collection_card(self) -> None:
         text = "图书馆总服务台电话 010-12345678，地址：主校区图书馆一层大厅。"
 
-        card = extract_cards_with_rules(text)[0]
+        cards = extract_cards_with_rules(text)
 
-        self.assertEqual(card.card_type, "collection")
-        self.assertIn("收藏", card.tags)
+        self.assertEqual(cards, [])
+
+    def test_random_chat_does_not_generate_card(self) -> None:
+        text = "哈哈哈这个截图挺有意思，等会儿再说。"
+
+        cards = extract_cards_with_rules(text)
+
+        self.assertEqual(cards, [])
 
 
 if __name__ == "__main__":
