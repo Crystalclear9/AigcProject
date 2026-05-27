@@ -17,7 +17,7 @@ SYSTEM_PROMPT = """
 只输出 JSON，不要输出解释。每个对象字段必须包含：
 card_type, title, summary, deadline, start_time, end_time, location, materials,
 submit_method, priority, tags, reminders, need_confirm, status, source_text。
-card_type 只能是 task/event/promise/note；status 固定 draft。
+card_type 只能是 task/event/promise/comparison/collection；status 固定 draft。
 时间请尽量输出 ISO-8601 字符串；不确定的字段放进 need_confirm。
 """
 
@@ -61,9 +61,18 @@ def _normalize_card_payload(item: dict[str, Any], text: str, card_id: str, now: 
     )
     normalized["card_type"] = _normalize_choice(
         normalized.get("card_type"),
-        {"task", "event", "promise", "note"},
+        {"task", "event", "promise", "comparison", "collection"},
         "task",
-        {"任务": "task", "事件": "event", "承诺": "promise", "资料": "note", "笔记": "note"},
+        {
+            "任务": "task",
+            "事件": "event",
+            "承诺": "promise",
+            "对比": "comparison",
+            "收藏": "collection",
+            "资料": "collection",
+            "笔记": "collection",
+            "note": "collection",
+        },
     )
 
     # LLMs often return a single string for list fields; normalize before Pydantic validation.

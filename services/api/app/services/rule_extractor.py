@@ -166,7 +166,17 @@ def _extract_submit_method(text: str) -> str | None:
     return None
 
 
+def _is_comparison_text(text: str) -> bool:
+    comparison_words = ["对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS"]
+    price_or_option = re.search(r"(A|B|方案|选项|¥|￥|\d+\s*元)", text) is not None
+    return any(word in text for word in comparison_words) and price_or_option
+
+
 def _title_for(text: str, card_type: str) -> str:
+    if card_type == "comparison":
+        return "整理对比信息"
+    if card_type == "collection":
+        return "收藏截图信息"
     if "实验报告" in text:
         return "提交实验报告"
     if "报名" in text and "比赛" in text:
@@ -185,17 +195,19 @@ def _title_for(text: str, card_type: str) -> str:
         return "提交材料"
     if "开会" in text or "会议" in text:
         return "参加会议"
-    return "整理截图信息" if card_type == "note" else "处理截图事项"
+    return "处理截图事项"
 
 
 def _classify(text: str) -> str:
+    if _is_comparison_text(text):
+        return "comparison"
     if any(word in text for word in ["帮我", "答应", "可以，我", "承诺"]):
         return "promise"
     if any(word in text for word in ["开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试"]):
         return "event"
     if any(word in text for word in ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送"]):
         return "task"
-    return "note"
+    return "collection"
 
 
 def _tags(text: str, card_type: str) -> list[str]:
@@ -214,7 +226,15 @@ def _tags(text: str, card_type: str) -> list[str]:
         if keyword in text and tag not in tags:
             tags.append(tag)
     if not tags:
-        tags.append({"task": "任务", "event": "日程", "promise": "承诺", "note": "资料"}[card_type])
+        tags.append(
+            {
+                "task": "任务",
+                "event": "日程",
+                "promise": "承诺",
+                "comparison": "对比",
+                "collection": "收藏",
+            }[card_type]
+        )
     return tags
 
 
@@ -291,8 +311,10 @@ def preview_actions_for(cards: list[ActionCard]) -> list[str]:
             actions.append(f"创建待办任务：{card.title}")
         elif card.card_type == "promise":
             actions.append(f"创建承诺提醒：{card.title}")
+        elif card.card_type == "comparison":
+            actions.append(f"生成对比卡：{card.title}")
         else:
-            actions.append(f"保存资料卡：{card.title}")
+            actions.append(f"保存收藏卡：{card.title}")
         if card.reminders:
             actions.append(f"设置提醒：{'、'.join(card.reminders)}")
         if card.need_confirm:

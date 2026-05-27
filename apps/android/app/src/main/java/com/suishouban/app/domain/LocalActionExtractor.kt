@@ -32,10 +32,17 @@ class LocalActionExtractor {
     }
 
     private fun classify(text: String): String = when {
+        isComparisonText(text) -> CardTypes.COMPARISON
         listOf("帮我", "答应", "可以，我", "承诺").any { it in text } -> CardTypes.PROMISE
         listOf("开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试").any { it in text } -> CardTypes.EVENT
         listOf("提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送").any { it in text } -> CardTypes.TASK
-        else -> CardTypes.NOTE
+        else -> CardTypes.COLLECTION
+    }
+
+    private fun isComparisonText(text: String): Boolean {
+        val hasComparisonWord = listOf("对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS").any { it in text }
+        val hasOptionOrPrice = Regex("(A|B|方案|选项|¥|￥|\\d+\\s*元)").containsMatchIn(text)
+        return hasComparisonWord && hasOptionOrPrice
     }
 
     private fun buildCard(text: String, cardType: String, title: String? = null): ActionCard {
@@ -79,7 +86,8 @@ class LocalActionExtractor {
         "表格" in text && "老师" in text -> "帮同学把表格发给老师"
         "提交" in text -> "提交材料"
         "开会" in text || "会议" in text -> "参加会议"
-        cardType == CardTypes.NOTE -> "保存截图资料"
+        cardType == CardTypes.COMPARISON -> "整理对比信息"
+        cardType == CardTypes.COLLECTION -> "收藏截图信息"
         else -> "处理截图事项"
     }
 
@@ -101,7 +109,8 @@ class LocalActionExtractor {
                 when (cardType) {
                     CardTypes.EVENT -> "日程"
                     CardTypes.PROMISE -> "承诺"
-                    CardTypes.NOTE -> "资料"
+                    CardTypes.COMPARISON -> "对比"
+                    CardTypes.COLLECTION -> "收藏"
                     else -> "任务"
                 }
             )
@@ -140,7 +149,8 @@ class LocalActionExtractor {
                 when (card.cardType) {
                     CardTypes.EVENT -> "创建日历事件：${card.title}"
                     CardTypes.PROMISE -> "创建承诺提醒：${card.title}"
-                    CardTypes.NOTE -> "保存资料卡：${card.title}"
+                    CardTypes.COMPARISON -> "生成对比卡：${card.title}"
+                    CardTypes.COLLECTION -> "保存收藏卡：${card.title}"
                     else -> "创建待办任务：${card.title}"
                 }
             )

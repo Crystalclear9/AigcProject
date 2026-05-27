@@ -13,7 +13,8 @@ data class CardVisual(
 fun visualForCardType(type: String): CardVisual = when (type) {
     CardTypes.EVENT -> CardVisual("事件", EventBlue, Color(0xFFEAF2FF))
     CardTypes.PROMISE -> CardVisual("承诺", PromiseOrange, Color(0xFFFFF0E6))
-    CardTypes.NOTE -> CardVisual("资料", NoteGreen, Color(0xFFEAF8F1))
+    CardTypes.COMPARISON -> CardVisual("对比", ComparisonGray, Color(0xFFF0F2F5))
+    CardTypes.COLLECTION -> CardVisual("收藏", CollectionBrown, Color(0xFFFFF7E6))
     else -> CardVisual("任务", TaskRed, Color(0xFFFFECEC))
 }
 

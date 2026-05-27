@@ -2,6 +2,7 @@ package com.suishouban.app.data.remote
 
 import com.google.gson.annotations.SerializedName
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.CardTypes
 
 data class AnalyzeScreenshotTextRequest(
     val text: String,
@@ -37,7 +38,7 @@ data class ActionCardDto(
 
 fun ActionCardDto.toDomain(): ActionCard = ActionCard(
     id = id,
-    cardType = cardType,
+    cardType = normalizeCardType(cardType),
     title = title,
     summary = summary,
     deadline = deadline,
@@ -57,7 +58,7 @@ fun ActionCardDto.toDomain(): ActionCard = ActionCard(
 
 fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
     id = id,
-    cardType = cardType,
+    cardType = normalizeCardType(cardType),
     title = title,
     summary = summary,
     deadline = deadline,
@@ -74,3 +75,8 @@ fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
     sourceText = sourceText,
     createdAt = createdAt,
 )
+
+// Accept legacy backend responses while the stored data migrates from "note" to "collection".
+private fun normalizeCardType(value: String): String {
+    return if (value == "note") CardTypes.COLLECTION else value
+}

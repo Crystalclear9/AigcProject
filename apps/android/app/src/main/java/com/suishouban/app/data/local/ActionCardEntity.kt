@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.CardTypes
 
 @Entity(tableName = "cards")
 data class ActionCardEntity(
@@ -28,7 +29,7 @@ data class ActionCardEntity(
 
 fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
     id = id,
-    cardType = cardType,
+    cardType = normalizeCardType(cardType),
     title = title,
     summary = summary,
     deadline = deadline,
@@ -48,7 +49,7 @@ fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
 
 fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
     id = id,
-    cardType = cardType,
+    cardType = normalizeCardType(cardType),
     title = title,
     summary = summary,
     deadline = deadline,
@@ -65,3 +66,8 @@ fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
     sourceText = sourceText,
     createdAt = createdAt,
 )
+
+// Older prototype builds stored fallback cards as "note"; keep them readable after the 5-type migration.
+private fun normalizeCardType(value: String): String {
+    return if (value == "note") CardTypes.COLLECTION else value
+}

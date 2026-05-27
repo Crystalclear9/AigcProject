@@ -42,9 +42,9 @@ import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.components.brandGradient
 import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.CollectionBrown
 import com.suishouban.app.ui.theme.EventBlue
 import com.suishouban.app.ui.theme.Line
-import com.suishouban.app.ui.theme.NoteGreen
 import com.suishouban.app.ui.theme.PromiseOrange
 import com.suishouban.app.ui.theme.TaskRed
 
@@ -191,7 +191,7 @@ private fun ImpactDashboard(
                 Pill("OCR", color = BrandBlue)
                 Pill("抽取", color = TaskRed, soft = Color(0xFFFFECEC))
                 Pill("预览", color = PromiseOrange, soft = Color(0xFFFFF0E6))
-                Pill("提醒", color = NoteGreen, soft = Color(0xFFEAF8F1))
+                Pill("收藏", color = CollectionBrown, soft = Color(0xFFFFF7E6))
             }
             Text("引擎：$engine", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

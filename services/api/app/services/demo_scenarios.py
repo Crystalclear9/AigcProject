@@ -50,6 +50,20 @@ DEMO_SCENARIOS = [
         expected_types=["event", "task"],
         expected_keywords=["组会", "进展汇报"],
     ),
+    DemoScenario(
+        id="option_comparison",
+        name="选项对比识别",
+        text="方案 A 价格 399 元，续航 8 小时；方案 B 价格 459 元，续航 12 小时，帮我对比一下选哪个。",
+        expected_types=["comparison"],
+        expected_keywords=["对比", "方案"],
+    ),
+    DemoScenario(
+        id="useful_collection",
+        name="收藏信息识别",
+        text="图书馆总服务台电话 010-12345678，地址：主校区图书馆一层大厅。",
+        expected_types=["collection"],
+        expected_keywords=["图书馆", "电话"],
+    ),
 ]
 
 

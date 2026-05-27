@@ -72,6 +72,22 @@ class RuleExtractorNoiseTest(unittest.TestCase):
         self.assertIn("南四楼党旗领航教育基地", card.location or "")
         self.assertNotEqual(card.start_time, "2026-05-25T10:54:00+08:00")
 
+    def test_comparison_text_generates_comparison_card(self) -> None:
+        text = "方案 A 价格 399 元，续航 8 小时；方案 B 价格 459 元，续航 12 小时，帮我对比一下选哪个。"
+
+        card = extract_cards_with_rules(text)[0]
+
+        self.assertEqual(card.card_type, "comparison")
+        self.assertIn("对比", card.tags)
+
+    def test_fallback_text_generates_collection_card(self) -> None:
+        text = "图书馆总服务台电话 010-12345678，地址：主校区图书馆一层大厅。"
+
+        card = extract_cards_with_rules(text)[0]
+
+        self.assertEqual(card.card_type, "collection")
+        self.assertIn("收藏", card.tags)
+
 
 if __name__ == "__main__":
     unittest.main()
