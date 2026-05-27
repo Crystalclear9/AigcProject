@@ -119,3 +119,4 @@ Invoke-RestMethod http://127.0.0.1:8000/api/metrics/summary
 ## 文档
 
 - [全国赛演示脚本](docs/COMPETITION_DEMO.md)
+- [Android 真机 ADB 调试教程](docs/ADB_DEBUGGING.md)

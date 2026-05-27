@@ -17,6 +17,7 @@
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@drawable/ic_launcher_foreground"
         android:label="随手办"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@drawable/ic_launcher_foreground"
         android:supportsRtl="true"
         android:theme="@style/Theme.SuiShouBan">

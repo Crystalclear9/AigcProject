@@ -139,7 +139,9 @@ async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = Non
     if not settings.has_llm_config:
         raise RuntimeError("LANXIN_API_KEY or LANXIN_BASE_URL is missing")
 
-    url = settings.lanxin_base_url.rstrip("/") + "/chat/completions"
+    # Accept either the API root ending in /v1 or the full chat completions endpoint.
+    base_url = settings.lanxin_base_url.rstrip("/")
+    url = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
     user_prompt = build_llm_context(text, screenshot_time)
     payload = {
         "model": settings.lanxin_model,
