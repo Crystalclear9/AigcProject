@@ -18,6 +18,7 @@ class Settings:
     lanxin_base_url: str = os.getenv("LANXIN_BASE_URL", "")
     lanxin_model: str = os.getenv("LANXIN_MODEL", "lanxin-pro")
     request_timeout_seconds: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
+    llm_fast_timeout_seconds: float = float(os.getenv("LLM_FAST_TIMEOUT_SECONDS", "6"))
     vivo_ocr_app_id: str = os.getenv("VIVO_OCR_APP_ID", "")
     vivo_ocr_app_key: str = os.getenv("VIVO_OCR_APP_KEY", "")
     vivo_ocr_business_profile: str = os.getenv("VIVO_OCR_BUSINESS_PROFILE", "rotatable")

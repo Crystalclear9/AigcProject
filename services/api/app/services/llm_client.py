@@ -160,7 +160,8 @@ async def extract_cards_with_lanxin(text: str, screenshot_time: str | None = Non
     # vivo API requires a per-request UUID in the query string.
     params = {"request_id": str(uuid.uuid4())}
 
-    async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+    # LLM 只负责增强抽卡；短超时失败后由规则抽取接管，避免拖慢截图弹窗。
+    async with httpx.AsyncClient(timeout=settings.llm_fast_timeout_seconds) as client:
         response = await client.post(url, params=params, json=payload, headers=headers)
         response.raise_for_status()
         body = response.json()
