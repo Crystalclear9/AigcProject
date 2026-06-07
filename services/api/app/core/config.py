@@ -33,6 +33,16 @@ class Settings:
     expert_model_timeout_seconds: float = float(os.getenv("EXPERT_MODEL_TIMEOUT_SECONDS", "12"))
     provider_max_concurrency: int = int(os.getenv("PROVIDER_MAX_CONCURRENCY", "8"))
     workflow_max_concurrency: int = int(os.getenv("WORKFLOW_MAX_CONCURRENCY", "20"))
+    workflow_agent_max_tasks: int = int(os.getenv("WORKFLOW_AGENT_MAX_TASKS", "8"))
+    workflow_agent_max_replans: int = int(os.getenv("WORKFLOW_AGENT_MAX_REPLANS", "2"))
+    workflow_agent_deadline_seconds: float = float(os.getenv("WORKFLOW_AGENT_DEADLINE_SECONDS", "15"))
+    workflow_tool_max_concurrency: int = int(os.getenv("WORKFLOW_TOOL_MAX_CONCURRENCY", "8"))
+    web_retrieval_enabled: bool = os.getenv("WEB_RETRIEVAL_ENABLED", "true").lower() in {"1", "true", "yes"}
+    web_retrieval_timeout_seconds: float = float(os.getenv("WEB_RETRIEVAL_TIMEOUT_SECONDS", "3"))
+    web_retrieval_base_url: str = os.getenv(
+        "WEB_RETRIEVAL_BASE_URL",
+        "https://en.wikipedia.org/w/api.php",
+    )
     workflow_cache_ttl_seconds: int = int(os.getenv("WORKFLOW_CACHE_TTL_SECONDS", str(7 * 24 * 3600)))
     legacy_sync_wait_seconds: float = float(os.getenv("LEGACY_SYNC_WAIT_SECONDS", "1.5"))
     vivo_ocr_app_id: str = os.getenv("VIVO_OCR_APP_ID", "")

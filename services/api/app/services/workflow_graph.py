@@ -12,7 +12,14 @@ from langgraph.types import Send
 from app.core.config import settings
 from app.repositories.workflows import WorkflowRepository
 from app.schemas.action_graph import ActionGraph
+from app.schemas.agent_workflow import AgentPlan, AgentResult, AgentTask, BudgetUsage
 from app.schemas.card import ActionCard
+from app.services.autonomous_agents import (
+    create_plan,
+    create_plan_with_model,
+    execute_task,
+    verify_results,
+)
 from app.services.rule_extractor import extract_cards_with_rules, preview_actions_for
 from app.services.vivo_ocr import VivoOcrClient, clean_ocr_lines
 from app.services.workflow_agents import (
@@ -70,6 +77,15 @@ class WorkflowState(TypedDict, total=False):
     expert_round: int
     has_fast_model: bool
     has_expert_model: bool
+    agent_plan: dict[str, Any]
+    agent_task: dict[str, Any]
+    agent_task_results: Annotated[list[dict[str, Any]], operator.add]
+    budget_usage: dict[str, Any]
+    verification_summary: dict[str, Any]
+    unresolved_evidence: list[str]
+    retrieval_sources: list[dict[str, Any]]
+    replan_count: int
+    workflow_deadline_at: float
 
 
 def _trace(node: str, started: float, status: str = "completed", **extra: Any) -> dict[str, Any]:
@@ -257,16 +273,56 @@ async def create_rule_draft(state: WorkflowState) -> dict[str, Any]:
 
 def choose_route(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
-    agents, reasons = plan_agents(state)
+    plan = create_plan(state)
+    agents = [task.tool for task in plan.tasks]
+    reasons = plan.reasons
+    budget = BudgetUsage(
+        task_limit=plan.max_tasks,
+        tasks_scheduled=len(plan.tasks),
+        replan_limit=plan.max_replans,
+        deadline_ms=plan.deadline_ms,
+    )
     return {
         "route": "supervisor_agents" if agents else "rules",
         "active_agents": agents,
         "decision_reasons": reasons or ["high-confidence deterministic extraction"],
+        "agent_plan": plan.model_dump(mode="json"),
+        "budget_usage": budget.model_dump(mode="json"),
+        "workflow_deadline_at": float(state.get("started_at", time.time())) + plan.deadline_ms / 1000,
         "node_trace": [
             _trace(
-                "supervisor",
+                "planner",
                 started,
-                engine="deterministic-supervisor",
+                engine="autonomous-task-planner",
+                detail=",".join(agents) if agents else "rules-only",
+            )
+        ],
+    }
+
+
+async def plan_workflow(state: WorkflowState) -> dict[str, Any]:
+    started = time.perf_counter()
+    plan = await create_plan_with_model(state)
+    agents = [task.tool for task in plan.tasks]
+    budget = BudgetUsage(
+        task_limit=plan.max_tasks,
+        tasks_scheduled=len(plan.tasks),
+        replan_limit=plan.max_replans,
+        deadline_ms=plan.deadline_ms,
+        fast_model_calls=1 if plan.created_by == "fast_model" else 0,
+    )
+    return {
+        "route": "supervisor_agents" if agents else "rules",
+        "active_agents": agents,
+        "decision_reasons": plan.reasons,
+        "agent_plan": plan.model_dump(mode="json"),
+        "budget_usage": budget.model_dump(mode="json"),
+        "workflow_deadline_at": float(state.get("started_at", time.time())) + plan.deadline_ms / 1000,
+        "node_trace": [
+            _trace(
+                "planner",
+                started,
+                engine=plan.created_by,
                 detail=",".join(agents) if agents else "rules-only",
             )
         ],
@@ -293,6 +349,149 @@ def dispatch_experts(state: WorkflowState) -> list[Send] | str:
         )
     }
     return [Send("run_expert", {**common, "expert_name": agent}) for agent in agents]
+
+
+def dispatch_ready_tasks(state: WorkflowState) -> list[Send] | str:
+    plan = AgentPlan(**state.get("agent_plan", {}))
+    results = [AgentResult(**item) for item in state.get("agent_task_results", [])]
+    completed = {
+        result.task_id
+        for result in results
+        if result.status in {"completed", "degraded", "failed", "skipped"}
+    }
+    pending = [task for task in plan.tasks if task.id not in completed]
+    ready = [
+        task for task in pending
+        if set(task.depends_on).issubset(completed)
+    ]
+    if not ready:
+        if not plan.tasks and state.get("route") == "rules":
+            return "finalize_rules_fast"
+        return "build_action_graph"
+    common = {
+        key: state.get(key)
+        for key in (
+            "run_id",
+            "ocr_text",
+            "ocr_candidates",
+            "rule_cards",
+            "cards",
+            "screenshot_time",
+            "overall_confidence",
+            "complexity_reasons",
+            "validation_errors",
+            "has_fast_model",
+            "has_expert_model",
+            "agent_task_results",
+            "started_at",
+            "workflow_deadline_at",
+        )
+    }
+    return [
+        Send("run_agent_task", {**common, "agent_task": task.model_dump(mode="json")})
+        for task in ready
+    ]
+
+
+def _result_to_expert_output(result: AgentResult) -> dict[str, Any]:
+    evidence = []
+    for claim in result.claims:
+        if claim.claim_type not in {"field", "constraint", "entity", "retrieval"}:
+            continue
+        evidence.append(
+            {
+                "id": claim.id,
+                "source": result.tool,
+                "action_id": claim.action_id,
+                "field": claim.field,
+                "value": claim.value,
+                "text": claim.source_text,
+                "start": claim.start,
+                "end": claim.end,
+                "confidence": claim.confidence,
+                "engine": result.tool,
+                "correlation_group": claim.correlation_group,
+                "derived_from": claim.derived_from,
+                "citation_url": claim.citation_url,
+                "citation_title": claim.citation_title,
+                "reliability": claim.confidence,
+            }
+        )
+    return {
+        "agent": result.tool,
+        "evidence": evidence,
+        "cards": result.cards,
+        "findings": result.findings,
+        "claims": [claim.model_dump(mode="json") for claim in result.claims],
+        "risk_level": result.risk_level,
+        "retrieval_sources": [source.model_dump(mode="json") for source in result.retrieval_sources],
+    }
+
+
+async def execute_agent_task(state: WorkflowState) -> dict[str, Any]:
+    started = time.perf_counter()
+    task = state["agent_task"]
+    deadline = float(state.get("workflow_deadline_at", time.time() + 1))
+    if time.time() >= deadline:
+        result = AgentResult(
+            task_id=str(task["id"]),
+            tool=task["tool"],
+            status="skipped",
+            findings=["workflow_budget_exhausted"],
+            failure_type="budget",
+            idempotency_key=str(task["idempotency_key"]),
+            model_tier=task.get("model_tier", "none"),
+        )
+    else:
+        result = await execute_task(
+            AgentTask(**task),
+            state,
+        )
+    output = _result_to_expert_output(result)
+    return {
+        "agent_task_results": [result.model_dump(mode="json")],
+        "expert_outputs": [output],
+        "warnings": (
+            [f"{result.tool} degraded: {result.failure_type}"]
+            if result.status == "failed"
+            else []
+        ),
+        "node_trace": [
+            _trace(
+                result.tool,
+                started,
+                status="degraded" if result.status in {"failed", "degraded", "skipped"} else "completed",
+                engine=result.model_tier if result.model_tier != "none" else result.tool,
+                detail=result.status,
+            )
+        ],
+    }
+
+
+def task_barrier(state: WorkflowState) -> dict[str, Any]:
+    results = state.get("agent_task_results", [])
+    usage = dict(state.get("budget_usage", {}))
+    usage["tasks_completed"] = sum(
+        result.get("status") in {"completed", "degraded", "skipped"} for result in results
+    )
+    usage["tasks_failed"] = sum(result.get("status") == "failed" for result in results)
+    usage["fast_model_calls"] = (
+        1 if state.get("agent_plan", {}).get("created_by") == "fast_model" else 0
+    ) + sum(
+        result.get("model_tier") == "fast_model" for result in results
+    )
+    usage["expert_model_calls"] = sum(
+        result.get("model_tier") == "expert_model" for result in results
+    )
+    usage["web_requests"] = sum(result.get("tool") == "web_retriever" for result in results)
+    usage["elapsed_ms"] = round(
+        (time.time() - float(state.get("started_at", time.time()))) * 1000,
+        2,
+    )
+    if time.time() >= float(state.get("workflow_deadline_at", time.time() + 1)):
+        usage["exhausted"] = True
+        usage["exhaustion_reason"] = "deadline"
+    return {"budget_usage": usage}
 
 
 async def execute_expert(state: WorkflowState) -> dict[str, Any]:
@@ -323,7 +522,43 @@ def build_action_graph(state: WorkflowState) -> dict[str, Any]:
     )
     return {
         "action_graph": graph.model_dump(mode="json"),
+        "retrieval_sources": [
+            source
+            for result in state.get("agent_task_results", [])
+            for source in result.get("retrieval_sources", [])
+        ],
         "node_trace": [_trace("build_action_graph", started, engine="evidence-graph")],
+    }
+
+
+def finalize_rules_fast(state: WorkflowState) -> dict[str, Any]:
+    started = time.perf_counter()
+    graph = create_action_graph(
+        state.get("rule_cards", []),
+        [],
+        state.get("ocr_text", ""),
+        state.get("ocr_candidates", []),
+    )
+    cards = [ActionCard(**card) for card in state.get("cards", [])]
+    final_ms = round((time.time() - float(state["started_at"])) * 1000, 2)
+    return {
+        "action_graph": graph.model_dump(mode="json"),
+        "preview_actions": preview_actions_for(cards),
+        "workflow_status": "awaiting_review",
+        "pending_action": "confirm",
+        "result_stage": "enhanced",
+        "revision": int(state.get("revision", 1)) + 1,
+        "time_to_final_ms": final_ms,
+        "verification_summary": {
+            "passed": True,
+            "evidence_coverage": 1.0,
+            "constraint_errors": [],
+            "unresolved_evidence": [],
+            "recommended_tasks": [],
+            "requires_review": False,
+            "reason": "high-confidence deterministic evidence passed the fast-path gate",
+        },
+        "node_trace": [_trace("finalize_rules_fast", started, engine="rules-fast-path")],
     }
 
 
@@ -370,9 +605,79 @@ def adjudicate_evidence(state: WorkflowState) -> dict[str, Any]:
 
 
 def route_after_adjudication(state: WorkflowState) -> str:
-    if state.get("needs_additional_review"):
-        return "additional_review"
+    return "verify"
+
+
+def verify_workflow(state: WorkflowState) -> dict[str, Any]:
+    started = time.perf_counter()
+    summary = verify_results(state)
+    budget = dict(state.get("budget_usage", {}))
+    elapsed = round((time.time() - float(state.get("started_at", time.time()))) * 1000, 2)
+    budget["elapsed_ms"] = elapsed
+    deadline_hit = time.time() >= float(state.get("workflow_deadline_at", time.time() + 1))
+    if deadline_hit:
+        budget["exhausted"] = True
+        budget["exhaustion_reason"] = "deadline"
+    return {
+        "verification_summary": summary.model_dump(mode="json"),
+        "unresolved_evidence": summary.unresolved_evidence,
+        "review_requested": bool(
+            state.get("review_requested") or summary.requires_review or budget.get("exhausted")
+        ),
+        "budget_usage": budget,
+        "node_trace": [
+            _trace(
+                "verify_workflow",
+                started,
+                status="completed" if summary.passed else "degraded",
+                engine="evidence-verifier",
+                detail=summary.reason,
+            )
+        ],
+    }
+
+
+def route_after_verification(state: WorkflowState) -> str:
+    summary = state.get("verification_summary", {})
+    budget = state.get("budget_usage", {})
+    can_replan = (
+        not summary.get("passed")
+        and bool(summary.get("recommended_tasks"))
+        and int(state.get("replan_count", 0)) < settings.workflow_agent_max_replans
+        and not budget.get("exhausted")
+    )
+    if can_replan:
+        return "replan"
     return "review" if state.get("review_requested") else "project"
+
+
+def replan_workflow(state: WorkflowState) -> dict[str, Any]:
+    started = time.perf_counter()
+    replan_count = int(state.get("replan_count", 0)) + 1
+    planning_state = dict(state)
+    planning_state["replan_count"] = replan_count
+    plan = create_plan(
+        planning_state,
+        list(state.get("verification_summary", {}).get("recommended_tasks", [])),
+    )
+    usage = dict(state.get("budget_usage", {}))
+    remaining = max(0, settings.workflow_agent_max_tasks - int(usage.get("tasks_scheduled", 0)))
+    plan.tasks = plan.tasks[:remaining]
+    usage["tasks_scheduled"] = int(usage.get("tasks_scheduled", 0)) + len(plan.tasks)
+    usage["replans_used"] = replan_count
+    if not plan.tasks:
+        usage["exhausted"] = True
+        usage["exhaustion_reason"] = "task_limit"
+    return {
+        "agent_plan": plan.model_dump(mode="json"),
+        "active_agents": [task.tool for task in plan.tasks],
+        "decision_reasons": list(state.get("decision_reasons", [])) + [
+            f"replan {replan_count}: {state.get('verification_summary', {}).get('reason', '')}"
+        ],
+        "budget_usage": usage,
+        "replan_count": replan_count,
+        "node_trace": [_trace("replan", started, engine="bounded-task-planner")],
+    }
 
 
 async def additional_review(state: WorkflowState) -> dict[str, Any]:
@@ -433,10 +738,15 @@ def build_workflow_graph(checkpointer=None):
     graph.add_node("prepare_text", prepare_text)
     graph.add_node("recognize_image", recognize_image)
     graph.add_node("create_rule_draft", create_rule_draft)
-    graph.add_node("supervisor", choose_route)
+    graph.add_node("supervisor", plan_workflow)
+    graph.add_node("run_agent_task", execute_agent_task)
+    graph.add_node("task_barrier", task_barrier)
     graph.add_node("run_expert", execute_expert)
     graph.add_node("build_action_graph", build_action_graph)
+    graph.add_node("finalize_rules_fast", finalize_rules_fast)
     graph.add_node("adjudicate_evidence", adjudicate_evidence)
+    graph.add_node("verify_workflow", verify_workflow)
+    graph.add_node("replan", replan_workflow)
     graph.add_node("additional_review", additional_review)
     graph.add_node("project_cards", project_cards)
     graph.add_node("require_review", require_review)
@@ -449,19 +759,30 @@ def build_workflow_graph(checkpointer=None):
     graph.add_edge("prepare_text", "create_rule_draft")
     graph.add_edge("recognize_image", "create_rule_draft")
     graph.add_edge("create_rule_draft", "supervisor")
-    graph.add_conditional_edges("supervisor", dispatch_experts)
+    graph.add_conditional_edges("supervisor", dispatch_ready_tasks)
+    graph.add_edge("run_agent_task", "task_barrier")
+    graph.add_conditional_edges("task_barrier", dispatch_ready_tasks)
     graph.add_edge("run_expert", "build_action_graph")
     graph.add_edge("build_action_graph", "adjudicate_evidence")
     graph.add_conditional_edges(
         "adjudicate_evidence",
         route_after_adjudication,
         {
-            "additional_review": "additional_review",
+            "verify": "verify_workflow",
+        },
+    )
+    graph.add_conditional_edges(
+        "verify_workflow",
+        route_after_verification,
+        {
+            "replan": "replan",
             "review": "require_review",
             "project": "project_cards",
         },
     )
+    graph.add_conditional_edges("replan", dispatch_ready_tasks)
     graph.add_edge("additional_review", "build_action_graph")
+    graph.add_edge("finalize_rules_fast", END)
     graph.add_edge("require_review", END)
     graph.add_edge("project_cards", END)
     return graph.compile(checkpointer=checkpointer or MemorySaver())

@@ -272,6 +272,60 @@ async def extract_cards_with_model(
     return filter_action_cards(dedupe_cards(cards), text)
 
 
+async def structured_completion(
+    role: Literal["fast_model", "expert_model"],
+    *,
+    system_prompt: str,
+    input_payload: dict[str, Any],
+    schema_name: str,
+    schema: dict[str, Any],
+    max_tokens: int = 1200,
+) -> dict[str, Any]:
+    profile = model_profile(role)
+    if not profile.configured:
+        raise RuntimeError(f"{role} is not configured")
+    if not runtime.allow(role):
+        raise RuntimeError(f"{role} circuit is open")
+    payload = {
+        "model": profile.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(input_payload, ensure_ascii=False)},
+        ],
+        "temperature": 0.0,
+        "max_tokens": max_tokens,
+        "stream": False,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "strict": True,
+                "schema": schema,
+            },
+        },
+    }
+    headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
+    try:
+        async with runtime.semaphores[role]:
+            response = await runtime.client.post(
+                profile.base_url.rstrip("/") + "/chat/completions",
+                params={"request_id": str(uuid.uuid4())},
+                json=payload,
+                headers=headers,
+                timeout=profile.timeout,
+            )
+            response.raise_for_status()
+    except httpx.HTTPError:
+        runtime.failure(role)
+        raise
+    runtime.success(role)
+    content = response.json()["choices"][0]["message"]["content"]
+    parsed = _extract_json(content)
+    if not isinstance(parsed, dict):
+        raise ValueError("structured model response must be an object")
+    return parsed
+
+
 async def extract_cards_with_lanxin(
     text: str,
     screenshot_time: str | None = None,

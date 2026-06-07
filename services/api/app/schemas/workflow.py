@@ -7,6 +7,13 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.action_graph import ActionGraph, ActionDependency, RiskLevel
 from app.schemas.card import ActionCard
+from app.schemas.agent_workflow import (
+    AgentPlan,
+    AgentResult,
+    BudgetUsage,
+    RetrievalSource,
+    VerificationSummary,
+)
 
 WorkflowStatus = Literal[
     "queued",
@@ -115,6 +122,13 @@ class WorkflowRunResponse(BaseModel):
     risk_level: RiskLevel = "low"
     field_versions: dict[str, dict[str, int]] = Field(default_factory=dict)
     field_conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    agent_plan: AgentPlan | None = None
+    agent_tasks: list[AgentResult] = Field(default_factory=list)
+    unresolved_evidence: list[str] = Field(default_factory=list)
+    budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
+    retrieval_sources: list[RetrievalSource] = Field(default_factory=list)
+    verification_summary: VerificationSummary = Field(default_factory=VerificationSummary)
+    replan_count: int = 0
 
 
 class WorkflowEvent(BaseModel):
@@ -133,6 +147,14 @@ class WorkflowEvent(BaseModel):
         "field_conflict",
         "suggestion_added",
         "decision_made",
+        "plan_created",
+        "task_scheduled",
+        "tool_started",
+        "tool_completed",
+        "retrieval_source_added",
+        "verification_failed",
+        "plan_revised",
+        "budget_exhausted",
         "completed",
         "failed",
     ]

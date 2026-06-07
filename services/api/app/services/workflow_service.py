@@ -96,6 +96,11 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
                         "project_cards",
                         "require_review",
                         "additional_review",
+                        "run_agent_task",
+                        "task_barrier",
+                        "verify_workflow",
+                        "replan",
+                        "finalize_rules_fast",
                     }
                     if node == "supervisor" and runtime_state.get("active_agents"):
                         should_persist = True
@@ -160,7 +165,7 @@ def _merge_locked_cards(
 
 def _merge_runtime_state(state: dict[str, Any], updates: dict[str, Any]) -> None:
     for key, value in updates.items():
-        if key in {"warnings", "node_trace", "expert_outputs"}:
+        if key in {"warnings", "node_trace", "expert_outputs", "agent_task_results"}:
             state[key] = list(state.get(key, [])) + list(value)
         else:
             state[key] = value
@@ -226,14 +231,79 @@ def _commit_node_update(
             )
         )
     elif node == "supervisor":
-        for agent in state.get("active_agents", []):
+        plan = state.get("agent_plan", {})
+        events.append(
+            (
+                "plan_created",
+                {
+                    "plan_id": plan.get("id"),
+                    "round": plan.get("round", 0),
+                    "tasks": len(plan.get("tasks", [])),
+                    "reasons": plan.get("reasons", []),
+                },
+                f"plan:{plan.get('id')}",
+            )
+        )
+        for task in plan.get("tasks", []):
+            events.append(
+                (
+                    "task_scheduled",
+                    {
+                        "task_id": task.get("id"),
+                        "tool": task.get("tool"),
+                        "depends_on": task.get("depends_on", []),
+                        "model_tier": task.get("model_tier"),
+                    },
+                    f"task-scheduled:{task.get('id')}",
+                )
+            )
             events.append(
                 (
                     "agent_dispatched",
-                    {"agent": agent, "reasons": state.get("decision_reasons", [])},
-                    f"agent:{revision}:{agent}",
+                    {"agent": task.get("tool"), "reasons": state.get("decision_reasons", [])},
+                    f"agent:{task.get('id')}",
                 )
             )
+    elif node == "run_agent_task":
+        for result in updates.get("agent_task_results", []):
+            task = next(
+                (
+                    dict(item)
+                    for item in state.get("agent_plan", {}).get("tasks", [])
+                    if item.get("id") == result.get("task_id")
+                ),
+                dict(state.get("agent_task", {})),
+            )
+            repository.save_agent_task(run_id, task, result)
+            events.append(
+                (
+                    "tool_started",
+                    {"task_id": result.get("task_id"), "tool": result.get("tool")},
+                    f"tool-started:{result.get('task_id')}:{result.get('attempt', 1)}",
+                )
+            )
+            events.append(
+                (
+                    "tool_completed",
+                    {
+                        "task_id": result.get("task_id"),
+                        "tool": result.get("tool"),
+                        "status": result.get("status"),
+                        "duration_ms": result.get("duration_ms"),
+                        "claim_count": len(result.get("claims", [])),
+                        "failure_type": result.get("failure_type"),
+                    },
+                    f"tool-completed:{result.get('task_id')}:{result.get('attempt', 1)}",
+                )
+            )
+            for source in result.get("retrieval_sources", []):
+                events.append(
+                    (
+                        "retrieval_source_added",
+                        source,
+                        f"retrieval:{result.get('task_id')}:{hashlib.sha1(str(source.get('url')).encode()).hexdigest()[:16]}",
+                    )
+                )
     elif node in {"run_expert", "additional_review"}:
         latest = updates.get("expert_outputs", [])
         for output in latest:
@@ -273,7 +343,69 @@ def _commit_node_update(
                 f"decision:{revision}:{state.get('expert_round', 0)}",
             )
         )
-    elif node in {"project_cards", "require_review"}:
+    elif node == "verify_workflow":
+        summary = state.get("verification_summary", {})
+        if not summary.get("passed"):
+            events.append(
+                (
+                    "verification_failed",
+                    {
+                        "unresolved_evidence": summary.get("unresolved_evidence", []),
+                        "recommended_tasks": summary.get("recommended_tasks", []),
+                        "reason": summary.get("reason"),
+                    },
+                    f"verification:{state.get('replan_count', 0)}:{revision}",
+                )
+            )
+        if state.get("budget_usage", {}).get("exhausted"):
+            events.append(
+                (
+                    "budget_exhausted",
+                    state.get("budget_usage", {}),
+                    f"budget:{run_id}",
+                )
+            )
+    elif node == "replan":
+        plan = state.get("agent_plan", {})
+        events.append(
+            (
+                "plan_revised",
+                {
+                    "plan_id": plan.get("id"),
+                    "round": plan.get("round"),
+                    "tasks": len(plan.get("tasks", [])),
+                    "replan_count": state.get("replan_count", 0),
+                },
+                f"replan:{plan.get('id')}",
+            )
+        )
+        for task in plan.get("tasks", []):
+            events.append(
+                (
+                    "task_scheduled",
+                    {
+                        "task_id": task.get("id"),
+                        "tool": task.get("tool"),
+                        "depends_on": task.get("depends_on", []),
+                        "model_tier": task.get("model_tier"),
+                    },
+                    f"task-scheduled:{task.get('id')}",
+                )
+            )
+    elif node in {"project_cards", "require_review", "finalize_rules_fast"}:
+        if node == "finalize_rules_fast":
+            graph = state.get("action_graph", {})
+            events.append(
+                (
+                    "action_graph_updated",
+                    {
+                        "version": graph.get("version", 1),
+                        "actions": len(graph.get("actions", [])),
+                        "dependencies": len(graph.get("dependencies", [])),
+                    },
+                    f"graph:{revision}:{graph.get('version', 1)}:fast",
+                )
+            )
         events.append(
             (
                 "decision_made",
@@ -355,6 +487,27 @@ def _initial_state(
         "risk_level": "low",
         "expert_outputs": [],
         "expert_round": 0,
+        "agent_plan": None,
+        "agent_task_results": [],
+        "budget_usage": {
+            "task_limit": settings.workflow_agent_max_tasks,
+            "tasks_scheduled": 0,
+            "tasks_completed": 0,
+            "tasks_failed": 0,
+            "replan_limit": settings.workflow_agent_max_replans,
+            "replans_used": 0,
+            "deadline_ms": int(settings.workflow_agent_deadline_seconds * 1000),
+            "elapsed_ms": 0,
+            "exhausted": False,
+            "exhaustion_reason": None,
+            "fast_model_calls": 0,
+            "expert_model_calls": 0,
+            "web_requests": 0,
+        },
+        "verification_summary": {},
+        "unresolved_evidence": [],
+        "retrieval_sources": [],
+        "replan_count": 0,
         "has_fast_model": settings.has_fast_model_config,
         "has_expert_model": settings.has_expert_model_config,
     }
@@ -494,6 +647,7 @@ def patch_draft(run_id: str, request: DraftPatchRequest) -> WorkflowRunResponse:
     state["user_locked"] = locked
     state["field_versions"] = versions
     state["field_conflicts"] = []
+    state["user_reviewed"] = True
     _revalidate_user_draft(state)
     state["revision"] = revision + 1
     state["result_stage"] = "enhanced" if state.get("workflow_status") == "running" else state.get("result_stage", "provisional")
@@ -554,6 +708,8 @@ def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRu
     _revalidate_user_draft(state)
     if state.get("validation_errors"):
         raise ValueError(f"draft validation failed: {state['validation_errors']}")
+    if not state.get("cards"):
+        raise ValueError("draft validation failed: at least one action card is required")
     unresolved_high = [
         conflict
         for conflict in state.get("action_graph", {}).get("conflicts", [])
@@ -561,6 +717,33 @@ def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRu
     ]
     if unresolved_high:
         raise ValueError(f"unresolved high-risk conflicts: {unresolved_high}")
+    failed_constraints = [
+        constraint
+        for constraint in state.get("action_graph", {}).get("constraints", [])
+        if not constraint.get("satisfied", True)
+    ]
+    if failed_constraints:
+        raise ValueError(f"action graph constraints failed: {failed_constraints}")
+    verification = state.get("verification_summary", {})
+    if verification.get("requires_review") and not any(state.get("user_locked", {}).values()):
+        raise ValueError(
+            "workflow verification requires a reviewed draft before confirmation"
+        )
+    low_critical_fields = []
+    critical_fields = {"title", "deadline", "start_time", "end_time", "location"}
+    for card in state.get("cards", []):
+        card_id = str(card.get("id"))
+        locked = set(state.get("user_locked", {}).get(card_id, []))
+        for field, score in state.get("confidence", {}).get(card_id, {}).items():
+            if (
+                field in critical_fields
+                and card.get(field) not in (None, "", [])
+                and float(score) < 0.6
+                and field not in locked
+            ):
+                low_critical_fields.append(f"{card_id}:{field}")
+    if low_critical_fields and not state.get("user_reviewed"):
+        raise ValueError(f"critical fields require review: {low_critical_fields}")
     if not state.get("action_graph", {}).get("actions") and state.get("cards"):
         state["action_graph"] = create_action_graph(
             state.get("cards", []),

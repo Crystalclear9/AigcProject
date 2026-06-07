@@ -78,6 +78,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             input_path TEXT,
             environment TEXT NOT NULL DEFAULT 'development'
         );
+        CREATE TABLE IF NOT EXISTS workflow_agent_tasks (
+            run_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            tool TEXT NOT NULL,
+            status TEXT NOT NULL,
+            attempt INTEGER NOT NULL DEFAULT 1,
+            task_json TEXT NOT NULL DEFAULT '{}',
+            result_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, task_id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_agent_task_idempotency
+            ON workflow_agent_tasks(run_id, idempotency_key);
         """
     )
     event_columns = {row[1] for row in conn.execute("PRAGMA table_info(workflow_events)").fetchall()}
@@ -295,6 +309,38 @@ class WorkflowRepository:
             ).fetchone()
             return int(row["id"]) if row else 0
 
+    def save_agent_task(
+        self,
+        run_id: str,
+        task: dict[str, Any],
+        result: dict[str, Any],
+    ) -> None:
+        with _connection_lock, _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_agent_tasks
+                    (run_id, task_id, idempotency_key, tool, status, attempt,
+                     task_json, result_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, task_id) DO UPDATE SET
+                    status=excluded.status,
+                    attempt=excluded.attempt,
+                    result_json=excluded.result_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    run_id,
+                    result.get("task_id") or task.get("id"),
+                    result.get("idempotency_key") or task.get("idempotency_key"),
+                    result.get("tool") or task.get("tool"),
+                    result.get("status", "failed"),
+                    int(result.get("attempt", 1)),
+                    json.dumps(task, ensure_ascii=False, default=str),
+                    json.dumps(result, ensure_ascii=False, default=str),
+                    _now().isoformat(),
+                ),
+            )
+
     def wait_for_events(self, timeout: float = 15.0) -> None:
         with _event_condition:
             _event_condition.wait(timeout=timeout)
@@ -432,6 +478,13 @@ class WorkflowRepository:
             risk_level=state.get("risk_level", "low"),
             field_versions=state.get("field_versions", {}),
             field_conflicts=state.get("field_conflicts", []),
+            agent_plan=state.get("agent_plan"),
+            agent_tasks=state.get("agent_task_results", []),
+            unresolved_evidence=state.get("unresolved_evidence", []),
+            budget_usage=state.get("budget_usage", {}),
+            retrieval_sources=state.get("retrieval_sources", []),
+            verification_summary=state.get("verification_summary", {}),
+            replan_count=int(state.get("replan_count", 0)),
         )
 
     def get_cache(self, key: str) -> dict[str, Any] | None:
