@@ -106,6 +106,14 @@ CORS_ORIGINS=*
 ```http
 POST /api/analyze/screenshot-text
 POST /api/analyze/screenshot-image
+POST /api/workflows/screenshot-text
+POST /api/workflows/screenshot-image
+GET  /api/workflows/{run_id}
+GET  /api/workflows/{run_id}/events
+POST /api/workflows/{run_id}/ocr-candidates
+PATCH /api/workflows/{run_id}/draft
+POST /api/workflows/{run_id}/confirm
+POST /api/workflows/{run_id}/resume
 GET  /api/cards
 POST /api/cards
 PATCH /api/cards/{id}
@@ -113,6 +121,7 @@ POST /api/cards/{id}/complete
 GET  /api/demo/scenarios
 GET  /api/demo/evaluate
 GET  /api/metrics/summary
+GET  /api/metrics/performance
 ```
 
 分析接口响应保留原有字段：

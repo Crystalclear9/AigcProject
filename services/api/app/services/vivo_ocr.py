@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.provider_runtime import runtime
 
 VIVO_OCR_URL = "http://api-ai.vivo.com.cn/ocr/general_recognition"
 
@@ -70,15 +71,26 @@ class VivoOcrClient:
             "Authorization": f"Bearer {settings.vivo_ocr_app_key}",
             "Content-Type": "application/x-www-form-urlencoded",
         }
+        if not runtime.allow("ocr"):
+            raise VivoOcrError("vivo OCR circuit is open")
         try:
-            async with httpx.AsyncClient(timeout=settings.vivo_ocr_timeout_seconds) as client:
-                response = await client.post(VIVO_OCR_URL, data=payload, params=params, headers=headers)
+            async with runtime.semaphores["ocr"]:
+                response = await runtime.client.post(
+                    VIVO_OCR_URL,
+                    data=payload,
+                    params=params,
+                    headers=headers,
+                    timeout=settings.vivo_ocr_timeout_seconds,
+                )
                 response.raise_for_status()
         except httpx.HTTPStatusError as error:
+            runtime.failure("ocr")
             raise VivoOcrError(_format_http_error(error)) from error
         except httpx.HTTPError as error:
+            runtime.failure("ocr")
             raise VivoOcrError(_format_request_error(error)) from error
 
+        runtime.success("ocr")
         return parse_successful_vivo_ocr_body(response.json())
 
 
@@ -117,6 +129,14 @@ def clean_ocr_lines(lines: list[OcrLine]) -> str:
 
     normalized = _normalize_coordinates(lines)
     candidates = [line for line in normalized if not _is_noise_line(line)]
+    if not candidates:
+        candidates = [
+            line
+            for line in normalized
+            if line.text.strip()
+            and not re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|KB/s", line.text, flags=re.I)
+            and not re.fullmatch(r"\d{1,2}:\d{2}", line.text.strip())
+        ]
     action_lines = [line for line in candidates if _has_action_signal(line.text)]
     if action_lines:
         candidates = _expand_nearby_block(candidates, action_lines)

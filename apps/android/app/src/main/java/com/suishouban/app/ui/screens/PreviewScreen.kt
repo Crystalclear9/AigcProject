@@ -79,6 +79,25 @@ fun PreviewScreen(
                             if (state.traceId.isNotBlank()) {
                                 NeutralPill(text = "Trace ${state.traceId.take(8)}")
                             }
+                            if (state.workflowStatus.isNotBlank()) {
+                                NeutralPill(
+                                    text = when (state.workflowStatus) {
+                                        "awaiting_review" -> "等待人工确认"
+                                        "awaiting_client_ocr" -> "等待本地 OCR"
+                                        "completed" -> "工作流完成"
+                                        else -> state.workflowStatus
+                                    }
+                                )
+                            }
+                            if (state.resultStage.isNotBlank()) {
+                                NeutralPill(text = "${state.resultStage} ${(state.overallConfidence * 100).toInt()}%")
+                            }
+                            if (state.activeAgents.isNotEmpty()) {
+                                NeutralPill(text = "Agents ${state.activeAgents.size}")
+                            }
+                            if (state.riskLevel != "low") {
+                                NeutralPill(text = "Risk ${state.riskLevel}")
+                            }
                         }
                         if (state.fallbackReason != null || state.warnings.isNotEmpty()) {
                             Text(
@@ -93,6 +112,29 @@ fun PreviewScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Text(action, style = MaterialTheme.typography.bodyMedium)
                             }
+                        }
+                        if (state.decisionReasons.isNotEmpty()) {
+                            Text(
+                                state.decisionReasons.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (state.nodeTrace.isNotEmpty()) {
+                            Text(
+                                state.nodeTrace.joinToString(" → ") { trace ->
+                                    trace.node.replace("_", " ")
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        state.timeToFirstDraftMs?.let { latency ->
+                            Text(
+                                "First draft ${latency.toInt()} ms · route ${state.route}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }

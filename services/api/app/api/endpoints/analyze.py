@@ -5,7 +5,6 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.schemas.card import AnalyzeScreenshotTextRequest, AnalyzeScreenshotTextResponse
 from app.services.analyzer import analyze_screenshot_image, analyze_screenshot_text
 from app.core.config import settings
-from app.services.vivo_ocr import VivoOcrError
 
 router = APIRouter()
 
@@ -38,9 +37,9 @@ async def analyze_image(
     if len(image_bytes) > settings.max_upload_image_bytes:
         raise HTTPException(status_code=413, detail="图片超过上传大小限制")
 
-    try:
-        return await analyze_screenshot_image(image_bytes, screenshot_time)
-    except VivoOcrError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    response = await analyze_screenshot_image(image_bytes, screenshot_time)
+    if response.pending_action == "provide_ocr_text":
+        # Preserve the legacy contract so older Android clients still trigger
+        # their existing ML Kit fallback path.
+        raise HTTPException(status_code=502, detail=response.fallback_reason or "cloud OCR unavailable")
+    return response

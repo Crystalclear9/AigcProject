@@ -7,12 +7,15 @@ import androidx.lifecycle.viewModelScope
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.AnalyzeResult
 import com.suishouban.app.data.repository.AppSettings
+import com.suishouban.app.data.repository.EngineLabels
+import com.suishouban.app.data.model.NodeTrace
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 
 data class AppUiState(
     val cards: List<ActionCard> = emptyList(),
@@ -23,6 +26,18 @@ data class AppUiState(
     val traceId: String = "",
     val fallbackReason: String? = null,
     val warnings: List<String> = emptyList(),
+    val workflowStatus: String = "",
+    val pendingAction: String? = null,
+    val nodeTrace: List<NodeTrace> = emptyList(),
+    val revision: Int = 0,
+    val resultStage: String = "",
+    val overallConfidence: Double = 0.0,
+    val route: String = "",
+    val timeToFirstDraftMs: Double? = null,
+    val timeToFinalMs: Double? = null,
+    val activeAgents: List<String> = emptyList(),
+    val decisionReasons: List<String> = emptyList(),
+    val riskLevel: String = "low",
     val loading: Boolean = false,
     val error: String? = null,
     val settings: AppSettings = AppSettings(),
@@ -35,6 +50,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val ocr = app.textRecognitionService
     private val scheduler = app.reminderScheduler
     private val calendarSyncer = app.calendarSyncer
+    private val locallyEditedDraftIds = mutableSetOf<String>()
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
     val uiState: StateFlow<AppUiState> = _uiState
@@ -53,11 +69,75 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun analyzeImage(uri: Uri, onDone: () -> Unit = {}) {
+        locallyEditedDraftIds.clear()
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true, error = null) }
+            val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
+            val localOcr = async { runCatching { ocr.recognize(getApplication(), uri) }.getOrNull() }
+            val cloudResult = runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull()
+            if (cloudResult != null) {
+                val candidateSubmit = async {
+                    localOcr.await()?.let { text ->
+                        runCatching { repository.submitOcrCandidate(cloudResult.traceId, text) }
+                    }
+                }
+                var previewOpened = false
+                runCatching {
+                    repository.followWorkflow(cloudResult.traceId) { update ->
+                        applyAnalyzeResult(update)
+                        if (!previewOpened && update.cards.isNotEmpty()) {
+                            previewOpened = true
+                            onDone()
+                        }
+                    }
+                }.onFailure { error ->
+                    _uiState.update {
+                        it.copy(loading = false, error = "Workflow event stream failed: ${error.message ?: "unknown"}")
+                    }
+                }
+                candidateSubmit.await()
+                return@launch
+            }
+            val text = localOcr.await()
+            if (text == null) {
+                _uiState.update { it.copy(loading = false, error = "Image recognition failed") }
+                return@launch
+            }
+            analyzeTextInternal(
+                text = text,
+                onDone = onDone,
+                screenshotTime = screenshotTime,
+                enginePrefix = "mlkit",
+                extraWarnings = listOf("Cloud workflow unavailable; using local OCR"),
+            )
+        }
+    }
+
+    private fun analyzeImageLegacy(uri: Uri, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
             val cloudResult = runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull()
             if (cloudResult != null) {
+                if (cloudResult.pendingAction == "provide_ocr_text") {
+                    val text = runCatching { ocr.recognize(getApplication(), uri) }
+                        .getOrElse { error ->
+                            _uiState.update {
+                                it.copy(loading = false, error = "图片识别失败：${error.message ?: "请换一张截图"}")
+                            }
+                            return@launch
+                        }
+                    val resumed = runCatching { repository.resumeWithOcr(cloudResult.traceId, text) }
+                        .getOrElse { error ->
+                            _uiState.update {
+                                it.copy(loading = false, error = "工作流恢复失败：${error.message ?: "未知错误"}")
+                            }
+                            return@launch
+                        }
+                    applyAnalyzeResult(resumed)
+                    onDone()
+                    return@launch
+                }
                 applyAnalyzeResult(cloudResult)
                 onDone()
                 return@launch
@@ -84,6 +164,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun analyzeText(text: String, onDone: () -> Unit = {}) {
+        locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
             analyzeTextInternal(text, onDone)
@@ -106,26 +187,59 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(loading = false, error = "行动卡生成失败：${error.message ?: "未知错误"}") }
                 return
             }
+        if (result.workflowStatus in setOf("queued", "running") && result.traceId.isNotBlank()) {
+            var previewOpened = false
+            runCatching {
+                repository.followWorkflow(result.traceId) { update ->
+                    val prefixed = update.copy(engine = EngineLabels.withPrefix(update.engine, enginePrefix))
+                    applyAnalyzeResult(prefixed.copy(warnings = extraWarnings + prefixed.warnings))
+                    if (!previewOpened && update.cards.isNotEmpty()) {
+                        previewOpened = true
+                        onDone()
+                    }
+                }
+            }.onFailure { error ->
+                _uiState.update { it.copy(loading = false, error = "Workflow event stream failed: ${error.message}") }
+            }
+            return
+        }
         applyAnalyzeResult(result.copy(warnings = extraWarnings + result.warnings))
         onDone()
     }
 
     private fun applyAnalyzeResult(result: AnalyzeResult) {
         _uiState.update {
+            val localDrafts = it.draftCards.associateBy { card -> card.id }
+            val mergedDrafts = result.cards.map { incoming ->
+                if (incoming.id in locallyEditedDraftIds) localDrafts[incoming.id] ?: incoming else incoming
+            }
             it.copy(
                 loading = false,
                 ocrText = result.ocrText,
-                draftCards = result.cards,
+                draftCards = mergedDrafts,
                 previewActions = result.previewActions,
                 engine = result.engine,
                 traceId = result.traceId,
                 fallbackReason = result.fallbackReason,
                 warnings = result.warnings,
+                workflowStatus = result.workflowStatus,
+                pendingAction = result.pendingAction,
+                nodeTrace = result.nodeTrace,
+                revision = result.revision,
+                resultStage = result.resultStage,
+                overallConfidence = result.overallConfidence,
+                route = result.route,
+                timeToFirstDraftMs = result.timeToFirstDraftMs,
+                timeToFinalMs = result.timeToFinalMs,
+                activeAgents = result.activeAgents,
+                decisionReasons = result.decisionReasons,
+                riskLevel = result.riskLevel,
             )
         }
     }
 
     fun updateDraft(card: ActionCard) {
+        locallyEditedDraftIds += card.id
         _uiState.update { state ->
             state.copy(draftCards = state.draftCards.map { if (it.id == card.id) card else it })
         }
@@ -144,7 +258,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(error = "没有需要确认的行动卡") }
                 return@launch
             }
-            drafts.forEach { card ->
+            val cardsToSave = if (
+                _uiState.value.workflowStatus in setOf("queued", "running", "awaiting_review") &&
+                _uiState.value.traceId.isNotBlank()
+            ) {
+                val resumed = runCatching {
+                    repository.resumeWithReview(_uiState.value.traceId, drafts)
+                }.getOrElse { error ->
+                    _uiState.update {
+                        it.copy(loading = false, error = "审核提交失败：${error.message ?: "未知错误"}")
+                    }
+                    return@launch
+                }
+                applyAnalyzeResult(resumed)
+                if (resumed.workflowStatus != "completed") {
+                    _uiState.update { it.copy(error = "仍有字段需要确认") }
+                    return@launch
+                }
+                resumed.cards
+            } else {
+                drafts
+            }
+            cardsToSave.forEach { card ->
                 val saved = repository.saveConfirmed(card)
                 scheduler.schedule(saved)
                 if (_uiState.value.settings.calendarSync) {
@@ -160,8 +295,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     traceId = "",
                     fallbackReason = null,
                     warnings = emptyList(),
+                    workflowStatus = "",
+                    pendingAction = null,
+                    nodeTrace = emptyList(),
+                    revision = 0,
+                    resultStage = "",
+                    overallConfidence = 0.0,
+                    route = "",
+                    timeToFirstDraftMs = null,
+                    timeToFinalMs = null,
+                    activeAgents = emptyList(),
+                    decisionReasons = emptyList(),
+                    riskLevel = "low",
                 )
             }
+            locallyEditedDraftIds.clear()
             onDone()
         }
     }

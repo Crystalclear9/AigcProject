@@ -12,6 +12,7 @@ __pycache__/
 venv/
 *.db
 .env
+services/api/workflow_inputs/
 
 # IDE / OS
 .idea/

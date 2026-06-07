@@ -25,6 +25,9 @@ object Priority {
 
 data class ActionCard(
     val id: String = UUID.randomUUID().toString(),
+    val actionId: String? = null,
+    val dependencies: List<String> = emptyList(),
+    val evidenceSummary: List<String> = emptyList(),
     val cardType: String = CardTypes.TASK,
     val title: String,
     val summary: String = "",
@@ -51,6 +54,27 @@ data class AnalyzeResult(
     val traceId: String = "",
     val fallbackReason: String? = null,
     val warnings: List<String> = emptyList(),
+    val workflowStatus: String = "completed",
+    val pendingAction: String? = null,
+    val nodeTrace: List<NodeTrace> = emptyList(),
+    val revision: Int = 0,
+    val resultStage: String = "provisional",
+    val overallConfidence: Double = 0.0,
+    val route: String = "rules",
+    val cacheStatus: String = "bypass",
+    val timeToFirstDraftMs: Double? = null,
+    val timeToFinalMs: Double? = null,
+    val activeAgents: List<String> = emptyList(),
+    val decisionReasons: List<String> = emptyList(),
+    val riskLevel: String = "low",
+)
+
+data class NodeTrace(
+    val node: String,
+    val status: String = "completed",
+    val durationMs: Double = 0.0,
+    val engine: String? = null,
+    val detail: String? = null,
 )
 
 fun ActionCard.isTimed(): Boolean = deadline != null || startTime != null
