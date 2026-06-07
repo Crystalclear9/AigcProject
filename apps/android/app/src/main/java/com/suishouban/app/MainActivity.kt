@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -33,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.ui.components.GradientScreen
@@ -43,6 +46,7 @@ import com.suishouban.app.ui.screens.ImportScreen
 import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
 import com.suishouban.app.ui.theme.SuiShouBanTheme
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
@@ -56,11 +60,36 @@ class MainActivity : ComponentActivity() {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 var current by rememberSaveable { mutableStateOf(Screen.Home.route) }
+                var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
                 val snackbarHostState = remember { SnackbarHostState() }
+                val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                    if (uri != null) {
+                        viewModel.analyzeImage(uri) { hasCards ->
+                            if (hasCards) current = Screen.Preview.route
+                        }
+                    }
+                }
+                val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
+                    val uri = pendingCameraUri
+                    if (captured && uri != null) {
+                        viewModel.analyzeImage(uri) { hasCards ->
+                            if (hasCards) current = Screen.Preview.route
+                        }
+                    }
+                    pendingCameraUri = null
+                }
+                fun launchCameraCapture() {
+                    val uri = createCameraImageUri()
+                    // TakePicture 需要预先给相机一个可写入的 content URI。
+                    pendingCameraUri = uri
+                    cameraLauncher.launch(uri)
+                }
 
                 LaunchedEffect(sharedImageUri) {
                     if (sharedImageUri != null) {
-                        viewModel.analyzeImage(sharedImageUri) { current = Screen.Preview.route }
+                        viewModel.analyzeImage(sharedImageUri, notifyWhenEmpty = false) { hasCards ->
+                            if (hasCards) current = Screen.Preview.route
+                        }
                     }
                 }
                 LaunchedEffect(state.settings.autoDetectScreenshots) {
@@ -100,8 +129,16 @@ class MainActivity : ComponentActivity() {
                         when (current) {
                             Screen.Import.route -> ImportScreen(
                                 state = state,
-                                onPickImage = { uri -> viewModel.analyzeImage(uri) { current = Screen.Preview.route } },
-                                onAnalyzeText = { text -> viewModel.analyzeText(text) { current = Screen.Preview.route } },
+                                onPickImage = { uri ->
+                                    viewModel.analyzeImage(uri) { hasCards ->
+                                        if (hasCards) current = Screen.Preview.route
+                                    }
+                                },
+                                onAnalyzeText = { text ->
+                                    viewModel.analyzeText(text) { hasCards ->
+                                        if (hasCards) current = Screen.Preview.route
+                                    }
+                                },
                                 onPreview = { current = Screen.Preview.route },
                             )
                             Screen.Preview.route -> PreviewScreen(
@@ -129,9 +166,9 @@ class MainActivity : ComponentActivity() {
                             )
                             else -> HomeScreen(
                                 state = state,
-                                onImport = { current = Screen.Import.route },
+                                onImportFromGallery = { galleryLauncher.launch("image/*") },
+                                onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
-                                onCalendar = { current = Screen.Calendar.route },
                                 onComplete = viewModel::completeCard,
                             )
                         }
@@ -164,6 +201,13 @@ class MainActivity : ComponentActivity() {
         if (intent?.action == ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT) return intent.data
         if (intent?.action != Intent.ACTION_SEND) return null
         return intent.getParcelableExtra(Intent.EXTRA_STREAM)
+    }
+
+    private fun createCameraImageUri(): Uri {
+        val imageDir = File(cacheDir, "camera")
+        imageDir.mkdirs()
+        val imageFile = File.createTempFile("capture_", ".jpg", imageDir)
+        return FileProvider.getUriForFile(this, "$packageName.fileprovider", imageFile)
     }
 }
 

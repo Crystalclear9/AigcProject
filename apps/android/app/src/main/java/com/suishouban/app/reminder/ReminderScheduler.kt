@@ -15,7 +15,7 @@ class ReminderScheduler(private val context: Context) {
     fun schedule(card: ActionCard) {
         val time = parseTime(card.primaryTime()) ?: return
         val reminders = if (card.reminders.isEmpty()) listOf(defaultReminder(card.cardType)) else card.reminders
-        reminders.forEach { reminder ->
+        reminders.filter { it.isNotBlank() }.forEach { reminder ->
             val delay = Duration.between(OffsetDateTime.now(), time.minus(offsetFor(reminder)))
             if (!delay.isNegative && !delay.isZero) {
                 val data = Data.Builder()
@@ -38,7 +38,11 @@ class ReminderScheduler(private val context: Context) {
     }
 
     private fun defaultReminder(cardType: String): String {
-        return if (cardType == CardTypes.EVENT) "开始前 30 分钟" else "截止前 1 小时"
+        return when (cardType) {
+            CardTypes.EVENT -> "开始前 30 分钟"
+            CardTypes.COMPARISON, CardTypes.COLLECTION -> ""
+            else -> "截止前 1 小时"
+        }
     }
 
     private fun offsetFor(reminder: String): Duration {
@@ -55,7 +59,8 @@ class ReminderScheduler(private val context: Context) {
         val typeName = when (card.cardType) {
             CardTypes.EVENT -> "日程"
             CardTypes.PROMISE -> "承诺"
-            CardTypes.NOTE -> "资料"
+            CardTypes.COMPARISON -> "对比"
+            CardTypes.COLLECTION -> "收藏"
             else -> "任务"
         }
         return "$typeName「${card.title}」$reminder。${card.summary}"

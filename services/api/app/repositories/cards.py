@@ -29,8 +29,14 @@ def _row_to_card(row: sqlite3.Row) -> ActionCard:
     for field in ARRAY_FIELDS:
         raw = data.get(field) or "[]"
         data[field] = json.loads(raw)
+    data["card_type"] = _normalize_card_type(data["card_type"])
     data["created_at"] = datetime.fromisoformat(data["created_at"])
     return ActionCard(**data)
+
+
+def _normalize_card_type(value: str) -> str:
+    # Older prototype builds stored fallback cards as "note"; expose them as collection cards.
+    return "collection" if value == "note" else value
 
 
 class CardRepository:
@@ -40,6 +46,7 @@ class CardRepository:
         payload = card.model_dump()
         payload["id"] = card_id
         payload["created_at"] = created_at.isoformat()
+        payload["card_type"] = _normalize_card_type(payload["card_type"])
 
         fields = [
             "id",
@@ -106,6 +113,8 @@ class CardRepository:
         values = patch.model_dump(exclude_unset=True)
         if not values:
             return self.get(card_id)
+        if "card_type" in values and values["card_type"] is not None:
+            values["card_type"] = _normalize_card_type(values["card_type"])
         assignments = ", ".join(f"{field} = ?" for field in values)
         encoded = [_encode(value, field) for field, value in values.items()]
         encoded.append(card_id)

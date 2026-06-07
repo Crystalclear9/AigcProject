@@ -68,7 +68,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun analyzeImage(uri: Uri, onDone: () -> Unit = {}) {
+    fun analyzeImage(
+        uri: Uri,
+        notifyWhenEmpty: Boolean = true,
+        onDone: (Boolean) -> Unit = {},
+    ) {
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
@@ -87,7 +91,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         applyAnalyzeResult(update)
                         if (!previewOpened && update.cards.isNotEmpty()) {
                             previewOpened = true
-                            onDone()
+                            onDone(true)
                         }
                     }
                 }.onFailure { error ->
@@ -109,74 +113,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 screenshotTime = screenshotTime,
                 enginePrefix = "mlkit",
                 extraWarnings = listOf("Cloud workflow unavailable; using local OCR"),
+                notifyWhenEmpty = notifyWhenEmpty,
             )
         }
     }
 
-    private fun analyzeImageLegacy(uri: Uri, onDone: () -> Unit = {}) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, error = null) }
-            val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
-            val cloudResult = runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull()
-            if (cloudResult != null) {
-                if (cloudResult.pendingAction == "provide_ocr_text") {
-                    val text = runCatching { ocr.recognize(getApplication(), uri) }
-                        .getOrElse { error ->
-                            _uiState.update {
-                                it.copy(loading = false, error = "图片识别失败：${error.message ?: "请换一张截图"}")
-                            }
-                            return@launch
-                        }
-                    val resumed = runCatching { repository.resumeWithOcr(cloudResult.traceId, text) }
-                        .getOrElse { error ->
-                            _uiState.update {
-                                it.copy(loading = false, error = "工作流恢复失败：${error.message ?: "未知错误"}")
-                            }
-                            return@launch
-                        }
-                    applyAnalyzeResult(resumed)
-                    onDone()
-                    return@launch
-                }
-                applyAnalyzeResult(cloudResult)
-                onDone()
-                return@launch
-            }
-            _uiState.update {
-                it.copy(
-                    error = "云端图片识别不可用，已切换到本地 OCR",
-                )
-            }
-
-            val text = runCatching { ocr.recognize(getApplication(), uri) }
-                .getOrElse { error ->
-                    _uiState.update { it.copy(loading = false, error = "图片识别失败：${error.message ?: "请换一张截图"}") }
-                    return@launch
-                }
-            analyzeTextInternal(
-                text = text,
-                onDone = onDone,
-                screenshotTime = screenshotTime,
-                enginePrefix = "mlkit",
-                extraWarnings = listOf("云端图片识别不可用，已切换到 ML Kit 本地 OCR"),
-            )
-        }
-    }
-
-    fun analyzeText(text: String, onDone: () -> Unit = {}) {
+    fun analyzeText(text: String, onDone: (Boolean) -> Unit = {}) {
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
-            analyzeTextInternal(text, onDone)
+            analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
         }
     }
 
     private suspend fun analyzeTextInternal(
         text: String,
-        onDone: () -> Unit,
+        onDone: (Boolean) -> Unit,
         screenshotTime: String? = null,
         enginePrefix: String? = null,
         extraWarnings: List<String> = emptyList(),
+        notifyWhenEmpty: Boolean,
     ) {
         if (text.isBlank()) {
             _uiState.update { it.copy(loading = false, error = "没有识别到可分析的文字") }
@@ -195,7 +151,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     applyAnalyzeResult(prefixed.copy(warnings = extraWarnings + prefixed.warnings))
                     if (!previewOpened && update.cards.isNotEmpty()) {
                         previewOpened = true
-                        onDone()
+                        onDone(true)
                     }
                 }
             }.onFailure { error ->
@@ -203,11 +159,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
-        applyAnalyzeResult(result.copy(warnings = extraWarnings + result.warnings))
-        onDone()
+        val finalResult = result.copy(warnings = extraWarnings + result.warnings)
+        val hasCards = applyAnalyzeResult(finalResult, notifyWhenEmpty)
+        onDone(hasCards)
     }
 
-    private fun applyAnalyzeResult(result: AnalyzeResult) {
+    private fun applyAnalyzeResult(result: AnalyzeResult, notifyWhenEmpty: Boolean = false): Boolean {
+        val hasCards = result.cards.isNotEmpty()
         _uiState.update {
             val localDrafts = it.draftCards.associateBy { card -> card.id }
             val mergedDrafts = result.cards.map { incoming ->
@@ -234,8 +192,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 activeAgents = result.activeAgents,
                 decisionReasons = result.decisionReasons,
                 riskLevel = result.riskLevel,
+                error = if (!hasCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
             )
         }
+        return hasCards
     }
 
     fun updateDraft(card: ActionCard) {

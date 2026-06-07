@@ -90,7 +90,7 @@ class AnalyzerAndRulesTest(unittest.TestCase):
 
     def test_demo_scenarios_still_pass(self) -> None:
         result = evaluate_demo_scenarios()
-        self.assertEqual(result["passed"], 5)
+        self.assertEqual(result["passed"], result["total"])
         self.assertEqual(result["field_pass_rate"], 1.0)
 
     def test_status_bar_time_does_not_override_action_time(self) -> None:
@@ -100,6 +100,28 @@ class AnalyzerAndRulesTest(unittest.TestCase):
         )
         card = extract_cards_with_rules(text, "2026-05-25T10:54:00+08:00")[0]
         self.assertNotEqual(card.start_time, "2026-05-25T10:54:00+08:00")
+
+    def test_comparison_text_generates_comparison_card(self) -> None:
+        text = "方案 A 价格 399 元，续航 8 小时；方案 B 价格 459 元，续航 12 小时，帮我对比一下选哪个。"
+
+        card = extract_cards_with_rules(text)[0]
+
+        self.assertEqual(card.card_type, "comparison")
+        self.assertIn("对比", card.tags)
+
+    def test_non_action_info_does_not_generate_collection_card(self) -> None:
+        text = "图书馆总服务台电话 010-12345678，地址：主校区图书馆一层大厅。"
+
+        cards = extract_cards_with_rules(text)
+
+        self.assertEqual(cards, [])
+
+    def test_random_chat_does_not_generate_card(self) -> None:
+        text = "哈哈哈这个截图挺有意思，等会儿再说。"
+
+        cards = extract_cards_with_rules(text)
+
+        self.assertEqual(cards, [])
 
 
 if __name__ == "__main__":

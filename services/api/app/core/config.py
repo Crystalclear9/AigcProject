@@ -28,6 +28,7 @@ class Settings:
     expert_model_base_url: str = os.getenv("EXPERT_MODEL_BASE_URL", os.getenv("LANXIN_BASE_URL", "https://api-ai.vivo.com.cn/v1"))
     expert_model_name: str = os.getenv("EXPERT_MODEL_NAME", os.getenv("LANXIN_MODEL", "Doubao-Seed-2.0-mini"))
     request_timeout_seconds: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
+    llm_fast_timeout_seconds: float = float(os.getenv("LLM_FAST_TIMEOUT_SECONDS", "6"))
     fast_model_timeout_seconds: float = float(os.getenv("FAST_MODEL_TIMEOUT_SECONDS", "4"))
     expert_model_timeout_seconds: float = float(os.getenv("EXPERT_MODEL_TIMEOUT_SECONDS", "12"))
     provider_max_concurrency: int = int(os.getenv("PROVIDER_MAX_CONCURRENCY", "8"))

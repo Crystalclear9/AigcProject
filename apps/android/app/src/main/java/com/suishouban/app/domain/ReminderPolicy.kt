@@ -9,6 +9,7 @@ object ReminderPolicy {
         return when {
             cardType == CardTypes.EVENT -> listOf("开始前 1 天", "开始前 30 分钟")
             cardType == CardTypes.PROMISE -> listOf("约定时间前 1 小时")
+            cardType == CardTypes.COMPARISON || cardType == CardTypes.COLLECTION -> emptyList()
             priority == Priority.HIGH -> listOf("截止前 3 天", "截止前 1 天", "截止前 3 小时", "截止前 30 分钟")
             else -> listOf("截止前 1 天", "截止前 3 小时", "截止前 30 分钟")
         }

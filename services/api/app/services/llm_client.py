@@ -12,6 +12,15 @@ import httpx
 from app.core.config import settings
 from app.schemas.card import ActionCard
 from app.services.provider_runtime import runtime
+from app.services.rule_extractor import filter_action_cards
+from app.services.extraction_context import (
+    build_llm_context,
+    build_summary,
+    dedupe_cards,
+    enrich_need_confirm,
+    repair_title,
+    should_rewrite_summary,
+)
 
 SYSTEM_PROMPT = """
 你是“随手办”的行动信息抽取引擎。把截图 OCR 文本转换为行动卡。
@@ -68,7 +77,10 @@ CARD_SCHEMA = {
                 "additionalProperties": True,
                 "required": ["card_type", "title"],
                 "properties": {
-                    "card_type": {"type": "string", "enum": ["task", "event", "promise", "note"]},
+                    "card_type": {
+                        "type": "string",
+                        "enum": ["task", "event", "promise", "comparison", "collection"],
+                    },
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
                     "deadline": {"type": ["string", "null"]},
@@ -109,17 +121,83 @@ def _coerce_list(value: Any) -> list[str]:
     return [str(value)]
 
 
-def _normalize_card(item: dict[str, Any], text: str, index: int) -> ActionCard:
-    now = datetime.now(timezone.utc)
+def _normalize_card_payload(
+    item: dict[str, Any],
+    text: str,
+    card_id: str,
+    now: datetime,
+    hints: dict[str, Any],
+) -> dict[str, Any]:
     payload = dict(item)
-    payload["id"] = payload.get("id") or f"model-{index}-{uuid.uuid4().hex[:8]}"
+    payload["id"] = payload.get("id") or card_id
     payload["created_at"] = payload.get("created_at") or now
     payload["source_text"] = payload.get("source_text") or text
-    payload["status"] = "draft"
-    payload["priority"] = payload.get("priority") if payload.get("priority") in {"low", "normal", "high"} else "normal"
-    payload["card_type"] = payload.get("card_type") if payload.get("card_type") in {"task", "event", "promise", "note"} else "task"
+    payload["status"] = (
+        payload.get("status")
+        if payload.get("status") in {"draft", "confirmed", "done", "archived"}
+        else "draft"
+    )
+    priority_aliases = {"medium": "normal", "中": "normal", "普通": "normal", "低": "low", "高": "high"}
+    priority = priority_aliases.get(str(payload.get("priority", "")).lower(), payload.get("priority"))
+    payload["priority"] = priority if priority in {"low", "normal", "high"} else "normal"
+    type_aliases = {
+        "任务": "task",
+        "事件": "event",
+        "承诺": "promise",
+        "对比": "comparison",
+        "收藏": "collection",
+        "资料": "collection",
+        "笔记": "collection",
+        "note": "collection",
+    }
+    card_type = type_aliases.get(str(payload.get("card_type", "")).lower(), payload.get("card_type"))
+    payload["card_type"] = (
+        card_type
+        if card_type in {"task", "event", "promise", "comparison", "collection"}
+        else "task"
+    )
     for field in ("materials", "tags", "reminders", "need_confirm"):
         payload[field] = _coerce_list(payload.get(field))
+    payload["title"] = repair_title(payload["card_type"], payload.get("title"), text, hints)
+    if should_rewrite_summary(payload.get("summary"), text):
+        payload["summary"] = build_summary(
+            card_type=payload["card_type"],
+            text=payload.get("source_text") or text,
+            title=payload["title"],
+            deadline=payload.get("deadline"),
+            start_time=payload.get("start_time"),
+            location=payload.get("location"),
+            materials=payload.get("materials"),
+            submit_method=payload.get("submit_method"),
+            hints=hints,
+        )
+    payload["need_confirm"] = enrich_need_confirm(
+        card_type=payload["card_type"],
+        need_confirm=payload["need_confirm"],
+        deadline=payload.get("deadline"),
+        start_time=payload.get("start_time"),
+        location=payload.get("location"),
+        submit_method=payload.get("submit_method"),
+        hints=hints,
+    )
+    return payload
+
+
+def _normalize_card(
+    item: dict[str, Any],
+    text: str,
+    index: int,
+    hints: dict[str, Any] | None = None,
+) -> ActionCard:
+    now = datetime.now(timezone.utc)
+    payload = _normalize_card_payload(
+        item,
+        text,
+        f"model-{index}-{uuid.uuid4().hex[:8]}",
+        now,
+        hints or {},
+    )
+    payload["status"] = "draft"
     return ActionCard(**payload)
 
 
@@ -134,6 +212,7 @@ async def extract_cards_with_model(
         raise RuntimeError(f"{role} is not configured")
     if not runtime.allow(role):
         raise RuntimeError(f"{role} circuit is open")
+    context = build_llm_context(text, screenshot_time)
 
     payload = {
         "model": profile.model,
@@ -143,7 +222,7 @@ async def extract_cards_with_model(
                 "role": "user",
                 "content": json.dumps(
                     {
-                        "ocr_text": text,
+                        **context,
                         "screenshot_time": screenshot_time,
                         "current_time": datetime.now(timezone.utc).isoformat(),
                         "validation_errors_to_fix": validation_errors or [],
@@ -185,7 +264,12 @@ async def extract_cards_with_model(
     raw_cards = parsed.get("cards", parsed) if isinstance(parsed, dict) else parsed
     if not isinstance(raw_cards, list):
         raise ValueError("model response must contain a cards array")
-    return [_normalize_card(item, text, index) for index, item in enumerate(raw_cards)]
+    cards = [
+        _normalize_card(item, text, index, context.get("detected_hints", {}))
+        for index, item in enumerate(raw_cards)
+        if isinstance(item, dict)
+    ]
+    return filter_action_cards(dedupe_cards(cards), text)
 
 
 async def extract_cards_with_lanxin(

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-CardType = Literal["task", "event", "promise", "note"]
+CardType = Literal["task", "event", "promise", "comparison", "collection"]
 CardStatus = Literal["draft", "confirmed", "done", "archived"]
 Priority = Literal["low", "normal", "high"]
 

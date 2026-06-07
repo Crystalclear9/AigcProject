@@ -49,9 +49,25 @@ def labeled_corpus() -> list[dict[str, object]]:
     for pattern in promise_patterns:
         for item in promise_objects:
             samples.append({"text": pattern.format(item=item), "type": "promise", "time_field": "deadline"})
-    for pattern in note_patterns:
-        for item in note_objects:
-            samples.append({"text": pattern.format(item=item), "type": "note", "time_field": None})
+    comparison_patterns = [
+        "方案 A 价格 {price_a} 元，方案 B 价格 {price_b} 元，帮我对比选哪个。",
+        "比较 A 和 B 两个选项，预算分别是 {price_a} 元和 {price_b} 元。",
+        "A 款续航 8 小时，B 款续航 12 小时，价格 {price_a} 元和 {price_b} 元，哪个更合适？",
+        "请对比方案 A 与方案 B，费用为 {price_a} 元和 {price_b} 元。",
+        "选项 A 需要 {price_a} 元，选项 B 需要 {price_b} 元，请整理区别。",
+    ]
+    for pattern_index, pattern in enumerate(comparison_patterns):
+        for item_index in range(5):
+            samples.append(
+                {
+                    "text": pattern.format(
+                        price_a=300 + pattern_index * 20 + item_index,
+                        price_b=420 + pattern_index * 20 + item_index,
+                    ),
+                    "type": "comparison",
+                    "time_field": None,
+                }
+            )
     return samples
 
 
