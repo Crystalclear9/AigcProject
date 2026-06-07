@@ -11,6 +11,9 @@ Priority = Literal["low", "normal", "high"]
 
 
 class ActionCardBase(BaseModel):
+    action_id: str | None = None
+    dependencies: list[str] = Field(default_factory=list)
+    evidence_summary: list[str] = Field(default_factory=list)
     card_type: CardType = "task"
     title: str
     summary: str = ""
@@ -33,6 +36,9 @@ class ActionCardCreate(ActionCardBase):
 
 
 class ActionCardUpdate(BaseModel):
+    action_id: str | None = None
+    dependencies: list[str] | None = None
+    evidence_summary: list[str] | None = None
     card_type: CardType | None = None
     title: str | None = None
     summary: str | None = None
@@ -68,3 +74,9 @@ class AnalyzeScreenshotTextResponse(BaseModel):
     trace_id: str
     fallback_reason: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    run_id: str = ""
+    workflow_status: str = "completed"
+    pending_action: str | None = None
+    node_trace: list[dict[str, object]] = Field(default_factory=list)
+    confidence: dict[str, dict[str, float]] = Field(default_factory=dict)
+    provenance: dict[str, dict[str, str]] = Field(default_factory=dict)

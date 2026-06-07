@@ -10,8 +10,49 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okhttp3.ResponseBody
+import retrofit2.http.Header
+import retrofit2.http.Streaming
 
 interface SuiShouBanApi {
+    @POST("api/workflows/screenshot-text")
+    suspend fun startTextWorkflow(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse
+
+    @Multipart
+    @POST("api/workflows/screenshot-image")
+    suspend fun startImageWorkflow(
+        @Part image: MultipartBody.Part,
+        @Part("screenshot_time") screenshotTime: RequestBody? = null,
+    ): AnalyzeScreenshotTextResponse
+
+    @POST("api/workflows/{run_id}/resume")
+    suspend fun resumeWorkflow(
+        @Path("run_id") runId: String,
+        @Body request: WorkflowResumeRequest,
+    ): AnalyzeScreenshotTextResponse
+
+    @GET("api/workflows/{run_id}")
+    suspend fun getWorkflow(@Path("run_id") runId: String): AnalyzeScreenshotTextResponse
+
+    @POST("api/workflows/{run_id}/ocr-candidates")
+    suspend fun submitOcrCandidate(
+        @Path("run_id") runId: String,
+        @Body request: OcrCandidateRequest,
+    ): AnalyzeScreenshotTextResponse
+
+    @POST("api/workflows/{run_id}/confirm")
+    suspend fun confirmWorkflow(
+        @Path("run_id") runId: String,
+        @Body request: ConfirmWorkflowRequest,
+    ): AnalyzeScreenshotTextResponse
+
+    @Streaming
+    @GET("api/workflows/{run_id}/events")
+    suspend fun workflowEvents(
+        @Path("run_id") runId: String,
+        @Header("Last-Event-ID") lastEventId: String? = null,
+    ): ResponseBody
+
     @POST("api/analyze/screenshot-text")
     suspend fun analyzeScreenshotText(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse
 
