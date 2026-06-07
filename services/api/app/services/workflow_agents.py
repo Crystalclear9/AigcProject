@@ -225,15 +225,45 @@ def align_cards(rule_cards: list[dict[str, Any]], agent_outputs: list[dict[str, 
     groups: list[list[tuple[str, dict[str, Any]]]] = [[("rules", dict(card))] for card in rule_cards]
     for output in agent_outputs:
         source = str(output.get("agent", "agent"))
-        for candidate in output.get("cards", []):
-            scores = [
+        candidates = [dict(candidate) for candidate in output.get("cards", [])]
+        if not candidates:
+            continue
+        if not groups:
+            groups.extend([[(source, candidate)] for candidate in candidates])
+            continue
+        scores = [
+            [
                 max(card_similarity(candidate, existing) for _, existing in group)
                 for group in groups
             ]
-            if scores and max(scores) >= 0.58:
-                groups[scores.index(max(scores))].append((source, dict(candidate)))
-            else:
-                groups.append([(source, dict(candidate))])
+            for candidate in candidates
+        ]
+        assignments: list[tuple[int, int]] = []
+        try:
+            from scipy.optimize import linear_sum_assignment
+
+            rows, columns = linear_sum_assignment(
+                [[1.0 - score for score in row] for row in scores]
+            )
+            assignments = list(zip(rows.tolist(), columns.tolist()))
+        except (ImportError, ValueError):
+            remaining = set(range(len(groups)))
+            for row_index, row in enumerate(scores):
+                if not remaining:
+                    break
+                column = max(remaining, key=lambda index: row[index])
+                assignments.append((row_index, column))
+                remaining.remove(column)
+        matched: set[int] = set()
+        for row, column in assignments:
+            if scores[row][column] >= 0.58:
+                groups[column].append((source, candidates[row]))
+                matched.add(row)
+        groups.extend(
+            [(source, candidate)]
+            for index, candidate in enumerate(candidates)
+            if index not in matched
+        )
     return groups
 
 
@@ -262,11 +292,18 @@ def build_action_graph(
     constraints: list[ActionConstraint] = []
     entities: list[EntityNode] = []
     groups = align_cards(rule_cards, agent_outputs)
+    action_aliases: dict[str, str] = {}
     for group in groups:
         _, primary = group[0]
         card_id = str(primary.get("id") or uuid.uuid4())
         action_id = str(primary.get("action_id") or stable_id("action", card_id, primary.get("title")))
         primary["action_id"] = action_id
+        for _, candidate in group:
+            candidate_action_id = str(
+                candidate.get("action_id")
+                or stable_id("action", candidate.get("id"), candidate.get("title"))
+            )
+            action_aliases[candidate_action_id] = action_id
         field_evidence: dict[str, list[str]] = {}
         for item in all_evidence:
             if item.get("action_id") == action_id or item.get("value") in primary.values():
@@ -329,13 +366,84 @@ def build_action_graph(
                             confidence=0.76,
                         )
                     )
+    card_to_action = {action.card_id: action.id for action in actions}
+    for output in agent_outputs:
+        for claim in output.get("claims", []):
+            if claim.get("claim_type") != "dependency":
+                continue
+            value = claim.get("value") or {}
+            source_action = card_to_action.get(str(value.get("source_card_id")))
+            target_action = card_to_action.get(str(value.get("target_card_id")))
+            dependency_type = value.get("dependency_type", "same_matter")
+            if source_action and target_action and dependency_type in {
+                "prerequisite",
+                "subtask",
+                "same_matter",
+                "time_conflict",
+                "resource_dependency",
+            }:
+                dependencies.append(
+                    ActionDependency(
+                        id=stable_id("dependency", source_action, target_action, dependency_type),
+                        source_action_id=source_action,
+                        target_action_id=target_action,
+                        dependency_type=dependency_type,
+                        confidence=float(claim.get("confidence", 0.5)),
+                        evidence_ids=[str(claim.get("id"))],
+                    )
+                )
+    for item in all_evidence:
+        if item.get("action_id") in action_aliases:
+            item["action_id"] = action_aliases[str(item["action_id"])]
+    dependencies = list({dependency.id: dependency for dependency in dependencies}.values())
+    cycle_nodes = _dependency_cycle_nodes(dependencies)
+    conflicts: list[ActionConflict] = []
+    if cycle_nodes:
+        conflicts.append(
+            ActionConflict(
+                id=stable_id("conflict", "dependency_cycle", *sorted(cycle_nodes)),
+                kind="time",
+                severity="high",
+                candidate_values=sorted(cycle_nodes),
+            )
+        )
     return ActionGraph(
         actions=actions,
         entities=list({entity.id: entity for entity in entities}.values()),
         constraints=constraints,
         dependencies=dependencies,
         evidence=[EvidenceItem(**item) for item in {item["id"]: item for item in all_evidence}.values()],
+        conflicts=conflicts,
     )
+
+
+def _dependency_cycle_nodes(dependencies: list[ActionDependency]) -> set[str]:
+    adjacency: dict[str, list[str]] = {}
+    for dependency in dependencies:
+        if dependency.dependency_type not in {"prerequisite", "subtask"}:
+            continue
+        adjacency.setdefault(dependency.source_action_id, []).append(dependency.target_action_id)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    cycle: set[str] = set()
+
+    def visit(node: str) -> None:
+        if node in visiting:
+            cycle.add(node)
+            return
+        if node in visited:
+            return
+        visiting.add(node)
+        for target in adjacency.get(node, []):
+            visit(target)
+            if target in cycle:
+                cycle.add(node)
+        visiting.remove(node)
+        visited.add(node)
+
+    for node in adjacency:
+        visit(node)
+    return cycle
 
 
 def adjudicate(
@@ -407,9 +515,18 @@ def adjudicate(
                 key = json.dumps(item.value, ensure_ascii=False, sort_keys=True, default=str)
                 candidate = candidates.setdefault(
                     key,
-                    {"value": item.value, "score": 0.0, "sources": set(), "evidence_ids": []},
+                    {
+                        "value": item.value,
+                        "score": 0.0,
+                        "sources": set(),
+                        "groups": {},
+                        "evidence_ids": [],
+                    },
                 )
-                candidate["score"] += item.confidence
+                group = item.correlation_group or f"{item.source}:{item.engine}"
+                weighted = item.confidence * item.reliability
+                candidate["groups"][group] = max(candidate["groups"].get(group, 0), weighted)
+                candidate["score"] = sum(candidate["groups"].values())
                 candidate["sources"].add(item.source)
                 candidate["evidence_ids"].append(item.id)
             ranked = sorted(
@@ -418,7 +535,10 @@ def adjudicate(
                 reverse=True,
             )
             if ranked and field not in locked:
-                card[field] = ranked[0]["value"]
+                selected = ranked[0]["value"]
+                if field in {"materials", "tags", "reminders", "need_confirm"} and not isinstance(selected, list):
+                    selected = [selected]
+                card[field] = selected
             relevant = [
                 item for item in field_evidence
                 if item.value == card.get(field)

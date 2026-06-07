@@ -16,6 +16,14 @@ EvidenceSource = Literal[
     "quality_agent",
     "fast_model",
     "expert_model",
+    "semantic_decomposer",
+    "temporal_solver",
+    "entity_linker",
+    "dependency_solver",
+    "history_retriever",
+    "privacy_risk_analyzer",
+    "web_retriever",
+    "quality_verifier",
     "user",
 ]
 DependencyType = Literal[
@@ -40,6 +48,11 @@ class EvidenceItem(BaseModel):
     confidence: float = Field(default=0.5, ge=0, le=1)
     engine: str = ""
     version: int = 1
+    correlation_group: str = ""
+    derived_from: list[str] = Field(default_factory=list)
+    citation_url: str | None = None
+    citation_title: str | None = None
+    reliability: float = Field(default=0.5, ge=0, le=1)
 
 
 class ActionNode(BaseModel):
@@ -49,6 +62,11 @@ class ActionNode(BaseModel):
     title: str
     field_values: dict[str, Any] = Field(default_factory=dict)
     field_evidence: dict[str, list[str]] = Field(default_factory=dict)
+    goal: str = ""
+    participants: list[str] = Field(default_factory=list)
+    alternative_hypotheses: list[dict[str, Any]] = Field(default_factory=list)
+    lifecycle: Literal["proposed", "validated", "confirmed", "executed", "cancelled"] = "proposed"
+    evidence_gaps: list[str] = Field(default_factory=list)
 
 
 class EntityNode(BaseModel):
@@ -61,7 +79,15 @@ class EntityNode(BaseModel):
 class ActionConstraint(BaseModel):
     id: str
     action_id: str
-    constraint_type: Literal["deadline", "start_time", "end_time", "required_field", "policy"]
+    constraint_type: Literal[
+        "deadline",
+        "start_time",
+        "end_time",
+        "required_field",
+        "policy",
+        "temporal_relation",
+        "resource",
+    ]
     value: Any = None
     satisfied: bool = True
     evidence_ids: list[str] = Field(default_factory=list)
@@ -106,4 +132,3 @@ class ActionGraph(BaseModel):
     conflicts: list[ActionConflict] = Field(default_factory=list)
     suggestions: list[ActionSuggestion] = Field(default_factory=list)
     version: int = 1
-

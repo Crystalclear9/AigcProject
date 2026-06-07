@@ -27,6 +27,7 @@ class ProviderRuntime:
             "ocr": asyncio.Semaphore(settings.provider_max_concurrency),
             "fast_model": asyncio.Semaphore(settings.provider_max_concurrency),
             "expert_model": asyncio.Semaphore(max(2, settings.provider_max_concurrency // 2)),
+            "web": asyncio.Semaphore(max(2, settings.workflow_tool_max_concurrency // 2)),
         }
         self.circuits = {name: CircuitState() for name in self.semaphores}
 
