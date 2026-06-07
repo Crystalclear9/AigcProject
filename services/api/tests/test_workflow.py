@@ -93,7 +93,7 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_field_operations_use_independent_versions(self) -> None:
         started = await start_text_workflow(
-            "Please submit the report by June 10 at 22:00.",
+            "请在6月10日22:00前提交实验报告。",
             "2026-06-07T10:00:00+08:00",
         )
         provisional = await wait_for_result(started.run_id, timeout=1, accept_provisional=True)

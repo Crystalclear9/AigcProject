@@ -167,24 +167,12 @@ class ActionCardRepository(
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
 
-        val sampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, MAX_UPLOAD_EDGE)
+        val sampleSize = ImageUploadPolicy.calculateSampleSize(bounds.outWidth, bounds.outHeight)
         val bitmapOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
         val bitmap = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bitmapOptions) }
             ?: error("无法读取图片")
 
         return bitmap.useAndCompress()
-    }
-
-    private fun calculateSampleSize(width: Int, height: Int, maxEdge: Int): Int {
-        var sample = 1
-        var currentWidth = width
-        var currentHeight = height
-        while (currentWidth > maxEdge || currentHeight > maxEdge) {
-            sample *= 2
-            currentWidth /= 2
-            currentHeight /= 2
-        }
-        return sample.coerceAtLeast(1)
     }
 
     private fun Bitmap.useAndCompress(): ByteArray {
@@ -193,11 +181,11 @@ class ActionCardRepository(
             var bytes: ByteArray
             do {
                 val output = ByteArrayOutputStream()
-                // vivo OCR accepts jpg/png/bmp; JPEG keeps uploads small and strips app-side metadata.
+                // 云端 OCR 对超大图的上传耗时敏感；JPEG 在保留文字可读性的同时压低请求体。
                 compress(Bitmap.CompressFormat.JPEG, quality, output)
                 bytes = output.toByteArray()
                 quality -= 10
-            } while (bytes.size > MAX_UPLOAD_BYTES && quality >= 48)
+            } while (bytes.size > ImageUploadPolicy.MAX_UPLOAD_BYTES && quality >= 48)
             return bytes
         } finally {
             recycle()
@@ -244,8 +232,4 @@ class ActionCardRepository(
         }
     }
 
-    companion object {
-        private const val MAX_UPLOAD_EDGE = 1800
-        private const val MAX_UPLOAD_BYTES = 5 * 1024 * 1024
-    }
 }

@@ -17,7 +17,8 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"http://10.0.2.2:8000/\"")
+        // Real-device debug uses adb reverse tcp:8000 tcp:8000, so localhost maps to the dev PC.
+        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"http://127.0.0.1:8000/\"")
     }
 
     buildTypes {

@@ -85,7 +85,8 @@ fun CardsScreen(
                         CardTypes.TASK to "任务",
                         CardTypes.EVENT to "事件",
                         CardTypes.PROMISE to "承诺",
-                        CardTypes.NOTE to "资料",
+                        CardTypes.COMPARISON to "对比",
+                        CardTypes.COLLECTION to "收藏",
                     ).forEach { (value, label) ->
                         NeutralPill(text = label, selected = type == value, onClick = { type = value })
                     }

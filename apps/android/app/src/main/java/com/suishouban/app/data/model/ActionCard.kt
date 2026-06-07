@@ -7,7 +7,8 @@ object CardTypes {
     const val TASK = "task"
     const val EVENT = "event"
     const val PROMISE = "promise"
-    const val NOTE = "note"
+    const val COMPARISON = "comparison"
+    const val COLLECTION = "collection"
 }
 
 object CardStatus {

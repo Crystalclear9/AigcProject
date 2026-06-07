@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -19,10 +20,12 @@ import android.provider.MediaStore
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.suishouban.app.MainActivity
 import com.suishouban.app.R
+import com.suishouban.app.ScreenshotPreviewActivity
 
 class ScreenshotMonitorService : Service() {
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingScreenshotIds = mutableSetOf<Long>()
     private var observer: ContentObserver? = null
     private var lastNotifiedId: Long = -1
 
@@ -44,6 +47,8 @@ class ScreenshotMonitorService : Service() {
     override fun onDestroy() {
         observer?.let { contentResolver.unregisterContentObserver(it) }
         observer = null
+        mainHandler.removeCallbacksAndMessages(null)
+        pendingScreenshotIds.clear()
         super.onDestroy()
     }
 
@@ -75,6 +80,8 @@ class ScreenshotMonitorService : Service() {
             add(MediaStore.Images.Media.DISPLAY_NAME)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(MediaStore.Images.Media.RELATIVE_PATH)
             add(MediaStore.Images.Media.DATE_ADDED)
+            add(MediaStore.Images.Media.SIZE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(MediaStore.Images.Media.IS_PENDING)
         }.toTypedArray()
         val cursor = contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
@@ -87,7 +94,7 @@ class ScreenshotMonitorService : Service() {
         cursor.use {
             if (!it.moveToFirst()) return
             val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
-            if (id == lastNotifiedId) return
+            if (id == lastNotifiedId || id in pendingScreenshotIds) return
             val name = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)).orEmpty()
             val path = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.RELATIVE_PATH)).orEmpty()
@@ -97,10 +104,59 @@ class ScreenshotMonitorService : Service() {
             val isScreenshot = listOf("Screenshots", "ScreenRecord", "截图", "截屏", "screenshot")
                 .any { keyword -> name.contains(keyword, ignoreCase = true) || path.contains(keyword, ignoreCase = true) }
             if (!isScreenshot) return
-            lastNotifiedId = id
             val imageUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-            notifyScreenshot(imageUri)
+            pendingScreenshotIds.add(id)
+            waitForScreenshotReady(id, imageUri, lastSize = null, deadlineMs = System.currentTimeMillis() + READY_TIMEOUT_MS)
         }
+    }
+
+    private fun waitForScreenshotReady(id: Long, uri: Uri, lastSize: Long?, deadlineMs: Long) {
+        val state = readImageState(uri)
+        val isStableSize = state.size > 0 && state.size == lastSize
+        if (!state.isPending && isStableSize && state.canDecode) {
+            pendingScreenshotIds.remove(id)
+            lastNotifiedId = id
+            notifyScreenshot(uri)
+            return
+        }
+        if (System.currentTimeMillis() >= deadlineMs) {
+            pendingScreenshotIds.remove(id)
+            return
+        }
+
+        // MediaStore 可能先发变更事件再完成落盘；短轮询能避免截图未写完就弹消息。
+        mainHandler.postDelayed(
+            { waitForScreenshotReady(id, uri, state.size, deadlineMs) },
+            READY_POLL_INTERVAL_MS,
+        )
+    }
+
+    private fun readImageState(uri: Uri): ImageState {
+        val projection = buildList {
+            add(MediaStore.Images.Media.SIZE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) add(MediaStore.Images.Media.IS_PENDING)
+        }.toTypedArray()
+        val cursor = contentResolver.query(uri, projection, null, null, null)
+        val fromStore = cursor?.use {
+            if (!it.moveToFirst()) return@use ImageState()
+            val size = it.getLong(it.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE))
+            val isPending = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                it.getInt(it.getColumnIndexOrThrow(MediaStore.Images.Media.IS_PENDING)) == 1
+            } else {
+                false
+            }
+            ImageState(size = size, isPending = isPending)
+        } ?: ImageState()
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        val canDecode = runCatching {
+            contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, bounds)
+            }
+            bounds.outWidth > 0 && bounds.outHeight > 0
+        }.getOrDefault(false)
+
+        return fromStore.copy(canDecode = canDecode)
     }
 
     private fun notifyScreenshot(uri: Uri) {
@@ -109,7 +165,7 @@ class ScreenshotMonitorService : Service() {
         ) {
             return
         }
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = Intent(this, ScreenshotPreviewActivity::class.java).apply {
             action = ACTION_PROCESS_SCREENSHOT
             data = uri
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -147,5 +203,13 @@ class ScreenshotMonitorService : Service() {
         const val ACTION_PROCESS_SCREENSHOT = "com.suishouban.app.action.PROCESS_SCREENSHOT"
         private const val CHANNEL_ID = "suishouban_screenshot_monitor"
         private const val SERVICE_NOTIFICATION_ID = 2026
+        private const val READY_TIMEOUT_MS = 3_000L
+        private const val READY_POLL_INTERVAL_MS = 250L
     }
 }
+
+private data class ImageState(
+    val size: Long = 0L,
+    val isPending: Boolean = false,
+    val canDecode: Boolean = false,
+)

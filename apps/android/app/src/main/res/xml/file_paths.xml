@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 系统相机把临时照片写到 cache/camera，再交给 OCR 流程读取。 -->
+    <cache-path
+        name="camera"
+        path="camera/" />
+</paths>

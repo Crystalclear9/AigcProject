@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.schemas.card import ActionCard
 from app.services.rule_extractor import extract_cards_with_rules
@@ -13,13 +13,13 @@ class DemoScenario:
     text: str
     expected_types: list[str]
     expected_keywords: list[str]
-    expected_titles: list[str]
-    expected_card_count: int
-    expected_time_fields: list[str]
-    expected_location_or_platform: list[str]
-    expected_materials: list[str]
-    expected_reminders: list[str]
-    expected_need_confirm: list[str]
+    expected_titles: list[str] = field(default_factory=list)
+    expected_card_count: int | None = None
+    expected_time_fields: list[str] = field(default_factory=list)
+    expected_location_or_platform: list[str] = field(default_factory=list)
+    expected_materials: list[str] = field(default_factory=list)
+    expected_reminders: list[str] = field(default_factory=list)
+    expected_need_confirm: list[str] = field(default_factory=list)
 
 
 DEMO_SCENARIOS = [
@@ -93,6 +93,42 @@ DEMO_SCENARIOS = [
         expected_reminders=["开始前 1 天", "开始前 30 分钟", "截止前 1 天", "截止前 3 小时", "截止前 30 分钟"],
         expected_need_confirm=["时间"],
     ),
+    DemoScenario(
+        id="option_comparison",
+        name="选项对比识别",
+        text="方案 A 价格 399 元，续航 8 小时；方案 B 价格 459 元，续航 12 小时，帮我对比一下选哪个。",
+        expected_types=["comparison"],
+        expected_keywords=["对比", "方案"],
+    ),
+    DemoScenario(
+        id="non_action_info",
+        name="非行动信息过滤",
+        text="图书馆总服务台电话 010-12345678，地址：主校区图书馆一层大厅。",
+        expected_types=[],
+        expected_keywords=[],
+        expected_card_count=0,
+    ),
+    DemoScenario(
+        id="signup_and_event",
+        name="报名截止与活动时间拆分",
+        text="校园创新赛报名截止 5 月 15 日 23:59，需提交报名表和作品说明书；决赛路演 5 月 20 日下午 2 点在大学生活动中心举行。",
+        expected_types=["task", "event"],
+        expected_keywords=["报名表", "大学生活动中心"],
+    ),
+    DemoScenario(
+        id="long_multi_task_notice",
+        name="长通知多任务识别",
+        text="课程通知：请本周五 22:00 前提交实验报告至学习通；另请下周一上午 9 点前把项目 PPT 发送至指定邮箱。",
+        expected_types=["task", "task"],
+        expected_keywords=["实验报告", "PPT", "学习通", "邮箱"],
+    ),
+    DemoScenario(
+        id="fuzzy_time_notice",
+        name="模糊时间待确认",
+        text="请各组在本月底前完成项目材料整理，并提交商业计划书和团队信息表。",
+        expected_types=["task"],
+        expected_keywords=["商业计划书", "团队信息表"],
+    ),
 ]
 
 
@@ -136,7 +172,7 @@ def _field_checks(scenario: DemoScenario, cards: list[ActionCard]) -> dict[str, 
         for field in scenario.expected_time_fields
     )
     return {
-        "card_count": len(cards) == scenario.expected_card_count,
+        "card_count": scenario.expected_card_count is None or len(cards) == scenario.expected_card_count,
         "card_types": all(expected in actual_types for expected in scenario.expected_types),
         "titles": all(title in [card.title for card in cards] for title in scenario.expected_titles),
         "keywords": all(keyword in combined_text for keyword in scenario.expected_keywords),

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Debug/dev backend uses HTTP on local LAN or adb reverse during phone testing. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.21.207.108</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+</network-security-config>
