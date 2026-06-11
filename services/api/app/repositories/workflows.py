@@ -19,6 +19,15 @@ _connection: sqlite3.Connection | None = None
 _event_condition = Condition()
 
 
+def close_workflow_repository() -> None:
+    global _connection, _schema_ready
+    with _connection_lock:
+        if _connection is not None:
+            _connection.close()
+        _connection = None
+        _schema_ready = False
+
+
 def _connect() -> sqlite3.Connection:
     global _schema_ready, _connection
     if _connection is not None:
