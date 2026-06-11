@@ -31,6 +31,33 @@ data class AnalyzeScreenshotTextResponse(
     @SerializedName("active_agents") val activeAgents: List<String> = emptyList(),
     @SerializedName("decision_reasons") val decisionReasons: List<String> = emptyList(),
     @SerializedName("risk_level") val riskLevel: String = "low",
+    @SerializedName("validation_errors") val validationErrors: List<String> = emptyList(),
+    @SerializedName("field_conflicts") val fieldConflicts: List<Map<String, Any?>> = emptyList(),
+    @SerializedName("field_versions") val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
+)
+
+data class WorkflowEventEnvelope(
+    val snapshot: AnalyzeScreenshotTextResponse? = null,
+)
+
+data class DraftPatchRequest(
+    @SerializedName("base_revision") val baseRevision: Int,
+    val operations: List<DraftFieldOperation>,
+)
+
+data class DraftFieldOperation(
+    val operation: String,
+    @SerializedName("card_id") val cardId: String,
+    val field: String,
+    val value: Any? = null,
+    @SerializedName("base_field_version") val baseFieldVersion: Int? = null,
+)
+
+data class HealthResponse(
+    val status: String,
+    val ready: Boolean = false,
+    @SerializedName("langgraph_version") val langGraphVersion: String = "",
+    @SerializedName("sqlite_checkpointer_available") val sqliteCheckpointerAvailable: Boolean = false,
 )
 
 data class WorkflowResumeRequest(

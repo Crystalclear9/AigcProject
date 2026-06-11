@@ -13,8 +13,8 @@ android {
         applicationId = "com.suishouban.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 7001
+        versionName = "1.0.1-remote-test"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Real-device debug uses adb reverse tcp:8000 tcp:8000, so localhost maps to the dev PC.

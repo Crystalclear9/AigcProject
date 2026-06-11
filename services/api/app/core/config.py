@@ -14,6 +14,10 @@ class Settings:
     api_prefix: str = "/api"
     database_path: str = os.getenv("DATABASE_PATH", "./suishouban.db")
     workflow_database_path: str = os.getenv("WORKFLOW_DATABASE_PATH", "./workflow.db")
+    workflow_checkpoint_database_path: str = os.getenv(
+        "WORKFLOW_CHECKPOINT_DATABASE_PATH",
+        "./workflow_checkpoint.db",
+    )
     workflow_input_directory: str = os.getenv("WORKFLOW_INPUT_DIRECTORY", "./workflow_inputs")
     workflow_lease_seconds: int = int(os.getenv("WORKFLOW_LEASE_SECONDS", "30"))
     workflow_environment: str = os.getenv("WORKFLOW_ENVIRONMENT", "development")

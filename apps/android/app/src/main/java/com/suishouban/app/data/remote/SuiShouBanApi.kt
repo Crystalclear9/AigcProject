@@ -40,6 +40,12 @@ interface SuiShouBanApi {
         @Body request: OcrCandidateRequest,
     ): AnalyzeScreenshotTextResponse
 
+    @PATCH("api/workflows/{run_id}/draft")
+    suspend fun patchDraft(
+        @Path("run_id") runId: String,
+        @Body request: DraftPatchRequest,
+    ): AnalyzeScreenshotTextResponse
+
     @POST("api/workflows/{run_id}/confirm")
     suspend fun confirmWorkflow(
         @Path("run_id") runId: String,
@@ -52,6 +58,9 @@ interface SuiShouBanApi {
         @Path("run_id") runId: String,
         @Header("Last-Event-ID") lastEventId: String? = null,
     ): ResponseBody
+
+    @GET("health")
+    suspend fun health(): HealthResponse
 
     @POST("api/analyze/screenshot-text")
     suspend fun analyzeScreenshotText(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse

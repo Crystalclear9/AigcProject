@@ -120,6 +120,14 @@ def cache_key(text: str, model_signature: str, prompt_version: str = "adaptive-v
 
 
 class WorkflowRepository:
+    def healthcheck(self) -> bool:
+        try:
+            with _connection_lock, _connect() as conn:
+                conn.execute("SELECT 1").fetchone()
+            return True
+        except sqlite3.Error:
+            return False
+
     def create_run(
         self,
         run_id: str,
@@ -233,6 +241,14 @@ class WorkflowRepository:
                     ),
                 )
 
+    def get_status(self, run_id: str) -> str | None:
+        with _connection_lock, _connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM workflow_runs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        return str(row["status"]) if row else None
+
     def save_with_events(
         self,
         run_id: str,
@@ -340,6 +356,41 @@ class WorkflowRepository:
                     _now().isoformat(),
                 ),
             )
+
+    def mark_agent_task_running(self, run_id: str, task: dict[str, Any]) -> None:
+        now = _now().isoformat()
+        with _connection_lock, _connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_agent_tasks
+                    (run_id, task_id, idempotency_key, tool, status, attempt,
+                     task_json, result_json, updated_at)
+                VALUES (?, ?, ?, ?, 'running', 1, ?, '{}', ?)
+                ON CONFLICT(run_id, task_id) DO UPDATE SET
+                    status='running',
+                    task_json=excluded.task_json,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    run_id,
+                    task.get("id"),
+                    task.get("idempotency_key"),
+                    task.get("tool"),
+                    json.dumps(task, ensure_ascii=False, default=str),
+                    now,
+                ),
+            )
+
+    def successful_agent_task_keys(self, run_id: str) -> set[str]:
+        with _connection_lock, _connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT idempotency_key FROM workflow_agent_tasks
+                WHERE run_id=? AND status IN ('completed', 'degraded', 'skipped')
+                """,
+                (run_id,),
+            ).fetchall()
+        return {str(row["idempotency_key"]) for row in rows}
 
     def wait_for_events(self, timeout: float = 15.0) -> None:
         with _event_condition:

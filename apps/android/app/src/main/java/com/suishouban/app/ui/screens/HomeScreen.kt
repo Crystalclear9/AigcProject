@@ -68,9 +68,8 @@ fun HomeScreen(
     val activeCards = state.cards.filter { it.status != CardStatus.ARCHIVED && it.status != CardStatus.DONE }
     val urgentCards = activeCards.filter { it.priority == Priority.HIGH }.take(3)
     val needConfirm = activeCards.count { it.needConfirm.isNotEmpty() }
-    val reminders = state.cards.sumOf { it.reminders.size }
-    val timedCards = state.cards.count { it.primaryTime() != null }
-    val savedMinutes = (state.cards.size * 2.5).toInt()
+    val reminders = activeCards.sumOf { it.reminders.size }
+    val timedCards = activeCards.count { it.primaryTime() != null }
 
     LazyColumn(
         modifier = Modifier.padding(horizontal = 18.dp),
@@ -120,10 +119,12 @@ fun HomeScreen(
 
         item {
             ImpactDashboard(
-                savedMinutes = savedMinutes,
+                activeCards = activeCards.size,
+                needConfirm = needConfirm,
                 reminders = reminders,
                 timedCards = timedCards,
                 engine = state.engine.ifBlank { if (state.settings.preferCloudModel) "云端优先" else "本地兜底" },
+                workflowStatus = state.workflowStatus,
             )
         }
 
@@ -224,10 +225,12 @@ private fun ImportSourceDialog(
 
 @Composable
 private fun ImpactDashboard(
-    savedMinutes: Int,
+    activeCards: Int,
+    needConfirm: Int,
     reminders: Int,
     timedCards: Int,
     engine: String,
+    workflowStatus: String,
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -239,22 +242,37 @@ private fun ImpactDashboard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Insights, contentDescription = null, tint = BrandBlue)
                 Spacer(Modifier.width(8.dp))
-                Text("AI 行动闭环看板", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("行动状态", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FlatMetric("节省", "${savedMinutes}m", BrandBlue, Modifier.weight(1f))
-                FlatMetric("提醒", reminders.toString(), PromiseOrange, Modifier.weight(1f))
-                FlatMetric("入历", timedCards.toString(), EventBlue, Modifier.weight(1f))
+                FlatMetric("进行中", activeCards.toString(), BrandBlue, Modifier.weight(1f))
+                FlatMetric("待确认", needConfirm.toString(), PromiseOrange, Modifier.weight(1f))
+                FlatMetric("有时间", timedCards.toString(), EventBlue, Modifier.weight(1f))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("OCR", color = BrandBlue)
-                Pill("抽取", color = TaskRed, soft = Color(0xFFFFECEC))
-                Pill("预览", color = PromiseOrange, soft = Color(0xFFFFF0E6))
-                Pill("收藏", color = CollectionBrown, soft = Color(0xFFFFF7E6))
+            if (workflowStatus.isNotBlank()) {
+                Text(
+                    "最近工作流：${workflowStatusLabel(workflowStatus)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Text("引擎：$engine", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "处理模式：$engine · 已配置提醒 $reminders",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
+}
+
+private fun workflowStatusLabel(status: String): String = when (status) {
+    "queued", "running" -> "正在分析"
+    "awaiting_client_ocr" -> "等待文字识别"
+    "awaiting_review" -> "等待确认"
+    "completed" -> "已确认"
+    "failed" -> "处理失败"
+    "cancelled" -> "已取消"
+    else -> status
 }
 
 @Composable

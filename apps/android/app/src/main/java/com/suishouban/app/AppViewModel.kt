@@ -38,6 +38,10 @@ data class AppUiState(
     val activeAgents: List<String> = emptyList(),
     val decisionReasons: List<String> = emptyList(),
     val riskLevel: String = "low",
+    val validationErrors: List<String> = emptyList(),
+    val fieldConflicts: List<Map<String, Any?>> = emptyList(),
+    val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
+    val connectionStatus: String = "未检测",
     val loading: Boolean = false,
     val error: String? = null,
     val settings: AppSettings = AppSettings(),
@@ -64,6 +68,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             settingsRepository.settings.collect { settings ->
                 _uiState.update { it.copy(settings = settings) }
+            }
+        }
+        repository.activeRunId()?.let { runId ->
+            viewModelScope.launch {
+                runCatching {
+                    repository.followWorkflow(runId) { applyAnalyzeResult(it) }
+                }.onFailure {
+                    _uiState.update { state ->
+                        state.copy(error = "恢复上次工作流失败：${it.message ?: "未知错误"}")
+                    }
+                }
             }
         }
     }
@@ -192,6 +207,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 activeAgents = result.activeAgents,
                 decisionReasons = result.decisionReasons,
                 riskLevel = result.riskLevel,
+                validationErrors = result.validationErrors,
+                fieldConflicts = result.fieldConflicts,
+                fieldVersions = result.fieldVersions,
                 error = if (!hasCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
             )
         }
@@ -223,7 +241,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value.traceId.isNotBlank()
             ) {
                 val resumed = runCatching {
-                    repository.resumeWithReview(_uiState.value.traceId, drafts)
+                    repository.reviewAndConfirm(
+                        _uiState.value.traceId,
+                        _uiState.value.revision,
+                        drafts,
+                        _uiState.value.fieldVersions,
+                    )
                 }.getOrElse { error ->
                     _uiState.update {
                         it.copy(loading = false, error = "审核提交失败：${error.message ?: "未知错误"}")
@@ -239,8 +262,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 drafts
             }
+            val syncWarnings = mutableListOf<String>()
             cardsToSave.forEach { card ->
-                val saved = repository.saveConfirmed(card)
+                val saveResult = repository.saveConfirmed(card)
+                val saved = saveResult.card
+                saveResult.syncError?.let(syncWarnings::add)
                 scheduler.schedule(saved)
                 if (_uiState.value.settings.calendarSync) {
                     calendarSyncer.insertIfPermitted(saved)
@@ -267,6 +293,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     activeAgents = emptyList(),
                     decisionReasons = emptyList(),
                     riskLevel = "low",
+                    validationErrors = emptyList(),
+                    fieldConflicts = emptyList(),
+                    fieldVersions = emptyMap(),
+                    error = syncWarnings.distinct().takeIf { warnings -> warnings.isNotEmpty() }?.joinToString("\n"),
                 )
             }
             locallyEditedDraftIds.clear()
@@ -300,8 +330,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun syncFromServer() {
         viewModelScope.launch {
             _uiState.update { it.copy(loading = true, error = null) }
-            repository.syncFromServer()
-            _uiState.update { it.copy(loading = false) }
+            runCatching { repository.syncFromServer() }
+                .onSuccess {
+                    _uiState.update { it.copy(loading = false) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            loading = false,
+                            error = "同步后端卡片失败：${error.message ?: "未知错误"}",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun testConnection() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(connectionStatus = "检测中…", error = null) }
+            runCatching { repository.testConnection() }
+                .onSuccess { message ->
+                    _uiState.update { it.copy(connectionStatus = message) }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            connectionStatus = "离线或地址不可达",
+                            error = "连接测试失败：${error.message ?: "未知错误"}",
+                        )
+                    }
+                }
         }
     }
 
