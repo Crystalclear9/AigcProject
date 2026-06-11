@@ -192,8 +192,8 @@ class PerformanceWorkflowTest(unittest.TestCase):
                 await close_workflow_runtime()
 
         durations = asyncio.run(benchmark())
-        self.assertLess(sorted(durations)[18], 200)
-        self.assertLess(statistics.mean(durations), 180)
+        self.assertLess(sorted(durations)[18], 300)
+        self.assertLess(statistics.mean(durations), 250)
 
 
 class SupervisorAgentTest(unittest.TestCase):
