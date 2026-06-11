@@ -45,6 +45,7 @@ fun SettingsScreen(
     state: AppUiState,
     onUpdate: (AppSettings) -> Unit,
     onSync: () -> Unit,
+    onTestConnection: () -> Unit,
 ) {
     var apiBaseUrl by remember(state.settings.apiBaseUrl) { mutableStateOf(state.settings.apiBaseUrl) }
 
@@ -79,6 +80,18 @@ fun SettingsScreen(
                 ) {
                     Text("同步后端卡片")
                 }
+                Button(
+                    onClick = onTestConnection,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text("测试服务连接")
+                }
+                Text(
+                    state.connectionStatus,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         item {

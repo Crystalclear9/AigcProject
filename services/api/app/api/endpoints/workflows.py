@@ -74,6 +74,7 @@ async def stream_events(
             for event in events:
                 cursor = event.id
                 yield (
+                    "retry: 1000\n"
                     f"id: {event.id}\n"
                     f"event: {event.event}\n"
                     f"data: {json.dumps(event.data, ensure_ascii=False, default=str)}\n\n"

@@ -18,7 +18,7 @@ from app.schemas.workflow import (
     WorkflowRunResponse,
 )
 from app.schemas.card import ActionCard
-from app.services.workflow_graph import build_workflow_graph, workflow_graph
+from app.services.workflow_graph import build_workflow_graph
 from app.services.workflow_agents import build_action_graph as create_action_graph
 
 repository = WorkflowRepository()
@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 _durable_graph = None
 _checkpointer_context = None
 _graph_loop: asyncio.AbstractEventLoop | None = None
+_graph_lock = asyncio.Lock()
 _tasks: dict[str, asyncio.Task] = {}
 _task_lock = asyncio.Lock()
 _workflow_semaphore = asyncio.Semaphore(settings.workflow_max_concurrency)
@@ -34,13 +35,14 @@ _worker_id = f"api-{uuid.uuid4().hex[:10]}"
 
 
 def _ensure_loop_runtime() -> None:
-    global _runtime_loop, _task_lock, _workflow_semaphore, _tasks
+    global _runtime_loop, _task_lock, _workflow_semaphore, _tasks, _graph_lock
     loop = asyncio.get_running_loop()
     if _runtime_loop is loop:
         return
     _runtime_loop = loop
     _task_lock = asyncio.Lock()
     _workflow_semaphore = asyncio.Semaphore(settings.workflow_max_concurrency)
+    _graph_lock = asyncio.Lock()
     _tasks = {}
 
 
@@ -49,17 +51,42 @@ async def _graph():
     loop = asyncio.get_running_loop()
     if _durable_graph is not None and _graph_loop is loop:
         return _durable_graph
-    try:
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    async with _graph_lock:
+        if _durable_graph is not None and _graph_loop is loop:
+            return _durable_graph
+        _durable_graph = None
+        _checkpointer_context = None
+        try:
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        _checkpointer_context = AsyncSqliteSaver.from_conn_string(settings.workflow_database_path)
-        checkpointer = await _checkpointer_context.__aenter__()
-        _durable_graph = build_workflow_graph(checkpointer)
-    except (ImportError, ModuleNotFoundError, RuntimeError, ValueError, OSError) as error:
-        logger.warning("durable LangGraph checkpointer unavailable: %s", error)
-        _durable_graph = build_workflow_graph()
-    _graph_loop = loop
-    return _durable_graph
+            _checkpointer_context = AsyncSqliteSaver.from_conn_string(
+                settings.workflow_checkpoint_database_path
+            )
+            checkpointer = await _checkpointer_context.__aenter__()
+            _durable_graph = build_workflow_graph(checkpointer)
+        except (ImportError, ModuleNotFoundError, RuntimeError, ValueError, OSError) as error:
+            logger.warning("durable LangGraph checkpointer unavailable: %s", error)
+            _durable_graph = build_workflow_graph()
+        _graph_loop = loop
+        return _durable_graph
+
+
+async def initialize_workflow_runtime() -> None:
+    _ensure_loop_runtime()
+    await _graph()
+
+
+async def close_workflow_runtime() -> None:
+    global _durable_graph, _checkpointer_context, _graph_loop
+    async with _task_lock:
+        tasks = list(_tasks.values())
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    if _checkpointer_context is not None:
+        await _checkpointer_context.__aexit__(None, None, None)
+    _durable_graph = None
+    _checkpointer_context = None
+    _graph_loop = None
 
 
 def _config(run_id: str) -> dict[str, Any]:
@@ -84,7 +111,12 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
             graph = await _graph()
             runtime_state = dict(initial)
             heartbeat_at = time.monotonic()
-            async for chunk in graph.astream(initial, _config(run_id), stream_mode="updates"):
+            async for chunk in graph.astream(
+                initial,
+                _config(run_id),
+                stream_mode="updates",
+                durability="exit",
+            ):
                 for node, updates in chunk.items():
                     if not updates:
                         continue
@@ -95,7 +127,6 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
                         "build_action_graph",
                         "project_cards",
                         "require_review",
-                        "additional_review",
                         "run_agent_task",
                         "task_barrier",
                         "verify_workflow",
@@ -104,14 +135,18 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
                     }
                     if node == "supervisor" and runtime_state.get("active_agents"):
                         should_persist = True
-                    if node == "run_expert":
-                        should_persist = True
                     if should_persist:
-                        _commit_node_update(run_id, node, dict(updates), runtime_state)
+                        await asyncio.to_thread(
+                            _commit_node_update,
+                            run_id,
+                            node,
+                            dict(updates),
+                            dict(runtime_state),
+                        )
                     if time.monotonic() - heartbeat_at >= max(1, settings.workflow_lease_seconds / 3):
                         repository.heartbeat_job(run_id, _worker_id, settings.workflow_lease_seconds)
                         heartbeat_at = time.monotonic()
-                    if repository.get_state(run_id).get("workflow_status") == "cancelled":
+                    if repository.get_status(run_id) == "cancelled":
                         return
             final = repository.get_state(run_id)
             logger.info(
@@ -129,12 +164,19 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
         current["workflow_status"] = "failed"
         current["pending_action"] = None
         repository.save(run_id, current, f"{type(error).__name__}: {error}")
-        repository.append_event(run_id, "failed", {"message": "workflow execution failed"})
+        repository.append_event(
+            run_id,
+            "failed",
+            {
+                "message": "workflow execution failed",
+                "snapshot": _event_snapshot(run_id, current),
+            },
+        )
         logger.exception("workflow failed", extra={"run_id": run_id})
     finally:
         try:
-            status = repository.get_state(run_id).get("workflow_status")
-        except KeyError:
+            status = repository.get_status(run_id)
+        except (KeyError, RuntimeError):
             status = None
         if status in {"queued", "running"}:
             repository.release_job(run_id, _worker_id)
@@ -304,20 +346,6 @@ def _commit_node_update(
                         f"retrieval:{result.get('task_id')}:{hashlib.sha1(str(source.get('url')).encode()).hexdigest()[:16]}",
                     )
                 )
-    elif node in {"run_expert", "additional_review"}:
-        latest = updates.get("expert_outputs", [])
-        for output in latest:
-            events.append(
-                (
-                    "evidence_added",
-                    {
-                        "agent": output.get("agent"),
-                        "count": len(output.get("evidence", [])),
-                        "findings": output.get("findings", []),
-                    },
-                    f"evidence:{revision}:{output.get('agent')}:{state.get('expert_round', 0)}",
-                )
-            )
     elif node == "build_action_graph":
         graph = state.get("action_graph", {})
         events.append(
@@ -439,7 +467,41 @@ def _commit_node_update(
                 f"review:{revision}",
             )
         )
+    snapshot = _event_snapshot(run_id, state)
+    events = [
+        (event, {**data, "snapshot": snapshot}, idempotency_key)
+        if event in {"draft_created", "draft_updated", "review_required", "completed", "failed"}
+        else (event, data, idempotency_key)
+        for event, data, idempotency_key in events
+    ]
     repository.save_with_events(run_id, state, events)
+
+
+def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "trace_id": run_id,
+        "workflow_status": state.get("workflow_status", "running"),
+        "pending_action": state.get("pending_action"),
+        "ocr_text": state.get("ocr_text", ""),
+        "cards": state.get("cards", []),
+        "preview_actions": state.get("preview_actions", []),
+        "engine": state.get("engine", ""),
+        "warnings": state.get("warnings", []),
+        "node_trace": state.get("node_trace", []),
+        "revision": int(state.get("revision", 0)),
+        "result_stage": state.get("result_stage", "provisional"),
+        "overall_confidence": float(state.get("overall_confidence", 0)),
+        "route": state.get("route", "rules"),
+        "time_to_first_draft_ms": state.get("time_to_first_draft_ms"),
+        "time_to_final_ms": state.get("time_to_final_ms"),
+        "active_agents": state.get("active_agents", []),
+        "decision_reasons": state.get("decision_reasons", []),
+        "risk_level": state.get("risk_level", "low"),
+        "validation_errors": state.get("validation_errors", []),
+        "field_conflicts": state.get("field_conflicts", []),
+        "field_versions": state.get("field_versions", {}),
+    }
 
 
 async def _schedule(run_id: str, initial: dict[str, Any], preclaimed: bool = False) -> None:
@@ -554,7 +616,15 @@ async def wait_for_result(
     while time.monotonic() < deadline:
         response = repository.response(run_id)
         if response.workflow_status in {"completed", "awaiting_review", "failed", "cancelled"}:
-            return response
+            async with _task_lock:
+                task = _tasks.get(run_id)
+            if task is not None and task is not asyncio.current_task() and not task.done():
+                remaining = max(0.01, deadline - time.monotonic())
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=min(remaining, 0.5))
+                except asyncio.TimeoutError:
+                    pass
+            return repository.response(run_id)
         if accept_provisional and response.revision > 0:
             return response
         await asyncio.sleep(0.02)
@@ -569,16 +639,60 @@ def submit_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowR
     state = repository.get_state(run_id)
     if state.get("workflow_status") in {"failed", "cancelled"}:
         raise ValueError(f"workflow is already {state.get('workflow_status')}")
-    candidates = list(state.get("ocr_candidates", []))
-    candidates.append(request.model_dump())
-    state["ocr_candidates"] = candidates[-4:]
+    candidate = request.model_dump()
+    candidates = _merge_ocr_candidates(state.get("ocr_candidates", []), candidate)
+    state["ocr_candidates"] = candidates[-6:]
+    conflict = _ocr_candidate_conflict(candidates)
+    if conflict:
+        state["review_requested"] = True
+        state["warnings"] = list(dict.fromkeys(state.get("warnings", []) + [conflict]))
+        if state.get("workflow_status") == "awaiting_review":
+            state["pending_action"] = "review_cards"
     repository.save(run_id, state)
     repository.append_event(
         run_id,
         "ocr_candidate",
-        {"engine": request.engine, "confidence": request.confidence},
+        {
+            "engine": request.engine,
+            "confidence": request.confidence,
+            "candidate_count": len(candidates),
+            "conflict": conflict,
+        },
+        f"ocr:{request.engine}:{hashlib.sha1(request.text.strip().encode('utf-8')).hexdigest()[:16]}",
     )
     return repository.response(run_id)
+
+
+def _merge_ocr_candidates(
+    existing: list[dict[str, Any]],
+    incoming: dict[str, Any],
+) -> list[dict[str, Any]]:
+    merged = {
+        (str(item.get("engine", "ocr")), str(item.get("text", "")).strip()): dict(item)
+        for item in existing
+        if str(item.get("text", "")).strip()
+    }
+    key = (str(incoming.get("engine", "ocr")), str(incoming.get("text", "")).strip())
+    current = merged.get(key)
+    if current is None or float(incoming.get("confidence", 0)) > float(current.get("confidence", 0)):
+        merged[key] = dict(incoming)
+    return list(merged.values())
+
+
+def _ocr_candidate_conflict(candidates: list[dict[str, Any]]) -> str | None:
+    from difflib import SequenceMatcher
+
+    if len(candidates) < 2:
+        return None
+    ordered = sorted(candidates, key=lambda item: float(item.get("confidence", 0)), reverse=True)
+    first = " ".join(str(ordered[0].get("text", "")).split())
+    second = " ".join(str(ordered[1].get("text", "")).split())
+    if not first or not second:
+        return None
+    similarity = SequenceMatcher(None, first, second).ratio()
+    if similarity < 0.72:
+        return f"OCR candidates conflict (similarity={similarity:.2f}); review critical fields"
+    return None
 
 
 def patch_draft(run_id: str, request: DraftPatchRequest) -> WorkflowRunResponse:
@@ -760,7 +874,15 @@ def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRu
         2,
     )
     repository.save(run_id, state)
-    repository.append_event(run_id, "completed", {"revision": request.revision, "source": "user"})
+    repository.append_event(
+        run_id,
+        "completed",
+        {
+            "revision": request.revision,
+            "source": "user",
+            "snapshot": _event_snapshot(run_id, state),
+        },
+    )
     return repository.response(run_id)
 
 
@@ -775,6 +897,8 @@ async def cancel_workflow(run_id: str) -> WorkflowRunResponse:
         task = _tasks.get(run_id)
         if task:
             task.cancel()
+    if task is not None and task is not asyncio.current_task():
+        await asyncio.gather(task, return_exceptions=True)
     return repository.response(run_id)
 
 

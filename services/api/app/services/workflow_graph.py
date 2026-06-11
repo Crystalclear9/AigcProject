@@ -25,9 +25,6 @@ from app.services.vivo_ocr import VivoOcrClient, clean_ocr_lines
 from app.services.workflow_agents import (
     adjudicate,
     build_action_graph as create_action_graph,
-    card_evidence,
-    plan_agents,
-    run_agent,
 )
 
 repository = WorkflowRepository()
@@ -161,7 +158,13 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
         except Exception as error:
             warnings.append(f"OCR source degraded: {type(error).__name__}")
     for task in pending:
-        task.cancel()
+        asyncio.create_task(
+            _persist_late_ocr_candidate(
+                state["run_id"],
+                task,
+                cloud=task is cloud_task,
+            )
+        )
     usable = [candidate for candidate in candidates if str(candidate.get("text", "")).strip()]
     if not usable:
         raise RuntimeError("OCR unavailable")
@@ -182,6 +185,31 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
             )
         ],
     }
+
+
+async def _persist_late_ocr_candidate(
+    run_id: str,
+    task: asyncio.Task,
+    *,
+    cloud: bool,
+) -> None:
+    try:
+        result = await task
+        if cloud:
+            text = clean_ocr_lines(result)
+            candidate = {"text": text, "engine": "vivo-ocr", "confidence": 0.9}
+        else:
+            candidate = dict(result)
+        if not str(candidate.get("text", "")).strip():
+            return
+        from app.services.workflow_service import submit_ocr_candidate
+        from app.schemas.workflow import OcrCandidateRequest
+
+        submit_ocr_candidate(run_id, OcrCandidateRequest(**candidate))
+    except (asyncio.CancelledError, TimeoutError):
+        return
+    except Exception:
+        return
 
 
 def _read_bytes(path: str) -> bytes:
@@ -271,35 +299,6 @@ async def create_rule_draft(state: WorkflowState) -> dict[str, Any]:
     }
 
 
-def choose_route(state: WorkflowState) -> dict[str, Any]:
-    started = time.perf_counter()
-    plan = create_plan(state)
-    agents = [task.tool for task in plan.tasks]
-    reasons = plan.reasons
-    budget = BudgetUsage(
-        task_limit=plan.max_tasks,
-        tasks_scheduled=len(plan.tasks),
-        replan_limit=plan.max_replans,
-        deadline_ms=plan.deadline_ms,
-    )
-    return {
-        "route": "supervisor_agents" if agents else "rules",
-        "active_agents": agents,
-        "decision_reasons": reasons or ["high-confidence deterministic extraction"],
-        "agent_plan": plan.model_dump(mode="json"),
-        "budget_usage": budget.model_dump(mode="json"),
-        "workflow_deadline_at": float(state.get("started_at", time.time())) + plan.deadline_ms / 1000,
-        "node_trace": [
-            _trace(
-                "planner",
-                started,
-                engine="autonomous-task-planner",
-                detail=",".join(agents) if agents else "rules-only",
-            )
-        ],
-    }
-
-
 async def plan_workflow(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
     plan = await create_plan_with_model(state)
@@ -329,28 +328,6 @@ async def plan_workflow(state: WorkflowState) -> dict[str, Any]:
     }
 
 
-def dispatch_experts(state: WorkflowState) -> list[Send] | str:
-    agents = state.get("active_agents", [])
-    if not agents:
-        return "build_action_graph"
-    common = {
-        key: state.get(key)
-        for key in (
-            "run_id",
-            "ocr_text",
-            "ocr_candidates",
-            "rule_cards",
-            "screenshot_time",
-            "overall_confidence",
-            "complexity_reasons",
-            "validation_errors",
-            "has_fast_model",
-            "has_expert_model",
-        )
-    }
-    return [Send("run_expert", {**common, "expert_name": agent}) for agent in agents]
-
-
 def dispatch_ready_tasks(state: WorkflowState) -> list[Send] | str:
     plan = AgentPlan(**state.get("agent_plan", {}))
     results = [AgentResult(**item) for item in state.get("agent_task_results", [])]
@@ -359,7 +336,9 @@ def dispatch_ready_tasks(state: WorkflowState) -> list[Send] | str:
         for result in results
         if result.status in {"completed", "degraded", "failed", "skipped"}
     }
+    successful_keys = repository.successful_agent_task_keys(str(state.get("run_id", "")))
     pending = [task for task in plan.tasks if task.id not in completed]
+    pending = [task for task in pending if task.idempotency_key not in successful_keys]
     ready = [
         task for task in pending
         if set(task.depends_on).issubset(completed)
@@ -431,6 +410,7 @@ def _result_to_expert_output(result: AgentResult) -> dict[str, Any]:
 async def execute_agent_task(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
     task = state["agent_task"]
+    repository.mark_agent_task_running(str(state["run_id"]), task)
     deadline = float(state.get("workflow_deadline_at", time.time() + 1))
     if time.time() >= deadline:
         result = AgentResult(
@@ -492,24 +472,6 @@ def task_barrier(state: WorkflowState) -> dict[str, Any]:
         usage["exhausted"] = True
         usage["exhaustion_reason"] = "deadline"
     return {"budget_usage": usage}
-
-
-async def execute_expert(state: WorkflowState) -> dict[str, Any]:
-    started = time.perf_counter()
-    agent = state["expert_name"]
-    try:
-        output = await run_agent(agent, state)
-        status = "completed"
-        warnings: list[str] = []
-    except Exception as error:
-        output = {"agent": agent, "evidence": [], "cards": [], "findings": [type(error).__name__]}
-        status = "degraded"
-        warnings = [f"{agent} degraded; existing evidence retained"]
-    return {
-        "expert_outputs": [output],
-        "warnings": warnings,
-        "node_trace": [_trace(agent, started, status=status, engine=agent)],
-    }
 
 
 def build_action_graph(state: WorkflowState) -> dict[str, Any]:
@@ -680,16 +642,6 @@ def replan_workflow(state: WorkflowState) -> dict[str, Any]:
     }
 
 
-async def additional_review(state: WorkflowState) -> dict[str, Any]:
-    started = time.perf_counter()
-    output = await run_agent("quality_agent", state)
-    return {
-        "expert_outputs": [output],
-        "expert_round": int(state.get("expert_round", 0)) + 1,
-        "node_trace": [_trace("additional_review", started, engine="quality_agent")],
-    }
-
-
 def project_cards(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
     cards = [ActionCard(**card) for card in state.get("cards", [])]
@@ -724,15 +676,6 @@ def require_review(state: WorkflowState) -> dict[str, Any]:
     }
 
 
-# Compatibility helpers retained for callers/tests from the adaptive workflow.
-async def fast_and_expert(state: WorkflowState) -> dict[str, Any]:
-    fast, expert = await asyncio.gather(
-        run_agent("semantic_agent", {**state, "has_fast_model": True, "has_expert_model": False}),
-        run_agent("quality_agent", state),
-    )
-    return {"expert_outputs": [fast, expert], "warnings": [], "node_trace": []}
-
-
 def build_workflow_graph(checkpointer=None):
     graph = StateGraph(WorkflowState)
     graph.add_node("prepare_text", prepare_text)
@@ -741,13 +684,11 @@ def build_workflow_graph(checkpointer=None):
     graph.add_node("supervisor", plan_workflow)
     graph.add_node("run_agent_task", execute_agent_task)
     graph.add_node("task_barrier", task_barrier)
-    graph.add_node("run_expert", execute_expert)
     graph.add_node("build_action_graph", build_action_graph)
     graph.add_node("finalize_rules_fast", finalize_rules_fast)
     graph.add_node("adjudicate_evidence", adjudicate_evidence)
     graph.add_node("verify_workflow", verify_workflow)
     graph.add_node("replan", replan_workflow)
-    graph.add_node("additional_review", additional_review)
     graph.add_node("project_cards", project_cards)
     graph.add_node("require_review", require_review)
 
@@ -762,7 +703,6 @@ def build_workflow_graph(checkpointer=None):
     graph.add_conditional_edges("supervisor", dispatch_ready_tasks)
     graph.add_edge("run_agent_task", "task_barrier")
     graph.add_conditional_edges("task_barrier", dispatch_ready_tasks)
-    graph.add_edge("run_expert", "build_action_graph")
     graph.add_edge("build_action_graph", "adjudicate_evidence")
     graph.add_conditional_edges(
         "adjudicate_evidence",
@@ -781,11 +721,7 @@ def build_workflow_graph(checkpointer=None):
         },
     )
     graph.add_conditional_edges("replan", dispatch_ready_tasks)
-    graph.add_edge("additional_review", "build_action_graph")
     graph.add_edge("finalize_rules_fast", END)
     graph.add_edge("require_review", END)
     graph.add_edge("project_cards", END)
     return graph.compile(checkpointer=checkpointer or MemorySaver())
-
-
-workflow_graph = build_workflow_graph()

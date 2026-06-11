@@ -16,8 +16,10 @@ from app.schemas.workflow import (
     WorkflowResumeRequest,
 )
 from app.services.workflow_service import (
+    close_workflow_runtime,
     confirm_workflow,
     get_workflow,
+    initialize_workflow_runtime,
     patch_draft,
     resume_workflow,
     start_image_workflow,
@@ -26,8 +28,9 @@ from app.services.workflow_service import (
     wait_for_result,
 )
 from app.services.vivo_ocr import VivoOcrError
-from app.services.workflow_graph import choose_route, dispatch_experts
-from app.services.workflow_agents import build_action_graph, plan_agents
+from app.services.autonomous_agents import create_plan
+from app.services.workflow_graph import dispatch_ready_tasks
+from app.services.workflow_agents import build_action_graph
 from app.repositories.workflows import WorkflowRepository, cache_key
 
 
@@ -158,6 +161,19 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         cancelled = await resume_workflow(other.run_id, WorkflowResumeRequest(command="cancel"))
         self.assertEqual(cancelled.workflow_status, "cancelled")
 
+    async def test_late_ocr_conflict_is_preserved_for_review(self) -> None:
+        started = await start_text_workflow("提交实验报告")
+        submit_ocr_candidate(
+            started.run_id,
+            OcrCandidateRequest(text="明天十点提交实验报告", engine="mlkit", confidence=0.84),
+        )
+        updated = submit_ocr_candidate(
+            started.run_id,
+            OcrCandidateRequest(text="下周五下午参加篮球比赛", engine="vivo-ocr", confidence=0.9),
+        )
+        self.assertGreaterEqual(len(WorkflowRepository().get_state(started.run_id)["ocr_candidates"]), 2)
+        self.assertTrue(any("OCR candidates conflict" in warning for warning in updated.warnings))
+
 
 class PerformanceWorkflowTest(unittest.TestCase):
     def test_twenty_concurrent_rule_workflows_meet_local_budget(self) -> None:
@@ -169,7 +185,11 @@ class PerformanceWorkflowTest(unittest.TestCase):
             return (time.perf_counter() - started_at) * 1000
 
         async def benchmark() -> list[float]:
-            return await asyncio.gather(*(one(index) for index in range(20)))
+            await initialize_workflow_runtime()
+            try:
+                return await asyncio.gather(*(one(index) for index in range(20)))
+            finally:
+                await close_workflow_runtime()
 
         durations = asyncio.run(benchmark())
         self.assertLess(sorted(durations)[18], 200)
@@ -183,7 +203,10 @@ class SupervisorAgentTest(unittest.TestCase):
             "complexity_reasons": [],
             "rule_cards": [{"title": "Submit report", "card_type": "task"}],
         }
-        self.assertEqual(plan_agents(simple)[0], [])
+        simple["run_id"] = "simple"
+        simple["agent_task_results"] = []
+        simple["replan_count"] = 0
+        self.assertEqual(create_plan(simple).tasks, [])
         complex_state = {
             "overall_confidence": 0.55,
             "complexity_reasons": ["multiple_cards", "uncertain_fields"],
@@ -192,24 +215,38 @@ class SupervisorAgentTest(unittest.TestCase):
                 {"title": "Attend meeting", "card_type": "event", "start_time": "2026-06-10T10:00:00Z"},
             ],
         }
-        agents, _ = plan_agents(complex_state)
-        self.assertIn("semantic_agent", agents)
-        self.assertIn("temporal_agent", agents)
-        self.assertIn("quality_agent", agents)
-        routed = choose_route(complex_state)
-        self.assertEqual(routed["route"], "supervisor_agents")
+        complex_state["run_id"] = "complex"
+        complex_state["ocr_text"] = "Prepare report before attending the meeting"
+        complex_state["agent_task_results"] = []
+        complex_state["replan_count"] = 0
+        tools = {task.tool for task in create_plan(complex_state).tasks}
+        self.assertIn("semantic_decomposer", tools)
+        self.assertIn("temporal_solver", tools)
+        self.assertIn("quality_verifier", tools)
 
     def test_dispatch_creates_real_send_branches(self) -> None:
-        sends = dispatch_experts(
+        plan = create_plan(
             {
                 "run_id": "parallel",
-                "active_agents": ["temporal_agent", "quality_agent"],
+                "overall_confidence": 0.5,
+                "complexity_reasons": ["multiple_cards"],
                 "ocr_text": "text",
                 "rule_cards": [],
+                "agent_task_results": [],
+                "replan_count": 0,
             }
         )
-        self.assertEqual(len(sends), 2)
-        self.assertEqual({send.node for send in sends}, {"run_expert"})
+        sends = dispatch_ready_tasks(
+            {
+                "run_id": "parallel",
+                "agent_plan": plan.model_dump(mode="json"),
+                "agent_task_results": [],
+                "workflow_deadline_at": time.time() + 15,
+            }
+        )
+        self.assertIsInstance(sends, list)
+        self.assertGreaterEqual(len(sends), 2)
+        self.assertEqual({send.node for send in sends}, {"run_agent_task"})
 
     def test_action_graph_projects_prerequisite(self) -> None:
         cards = [
@@ -274,6 +311,15 @@ class WorkflowApiTest(unittest.TestCase):
             self.assertIn("event: draft_created", text)
             self.assertIn("event: action_graph_updated", text)
             self.assertIn("event: completed", text)
+            self.assertIn('"snapshot"', text)
+
+    def test_health_reports_durable_runtime_ready(self) -> None:
+        with TestClient(app) as client:
+            health = client.get("/health").json()
+            ready = client.get("/ready").json()
+        self.assertEqual(health["status"], "ok")
+        self.assertTrue(health["sqlite_checkpointer_available"])
+        self.assertTrue(ready["ready"])
 
 
 if __name__ == "__main__":

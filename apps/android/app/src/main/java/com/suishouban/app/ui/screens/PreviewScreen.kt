@@ -24,7 +24,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -46,6 +51,10 @@ fun PreviewScreen(
     onConfirm: () -> Unit,
     onImport: () -> Unit,
 ) {
+    var showDiagnostics by rememberSaveable { mutableStateOf(false) }
+    val localDraftValid = state.draftCards.all {
+        it.title.isNotBlank() && (it.cardType != "promise" || it.deadline != null || it.startTime != null)
+    }
     LazyColumn(
         modifier = Modifier.padding(horizontal = 18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -73,15 +82,10 @@ fun PreviewScreen(
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("即将执行", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (state.engine.isNotBlank()) {
-                                NeutralPill(text = "引擎 ${state.engine}", selected = true)
-                            }
-                            if (state.traceId.isNotBlank()) {
-                                NeutralPill(text = "Trace ${state.traceId.take(8)}")
-                            }
                             if (state.workflowStatus.isNotBlank()) {
                                 NeutralPill(
                                     text = when (state.workflowStatus) {
+                                        "queued", "running" -> "正在校验"
                                         "awaiting_review" -> "等待人工确认"
                                         "awaiting_client_ocr" -> "等待本地 OCR"
                                         "completed" -> "工作流完成"
@@ -90,13 +94,31 @@ fun PreviewScreen(
                                 )
                             }
                             if (state.resultStage.isNotBlank()) {
-                                NeutralPill(text = "${state.resultStage} ${(state.overallConfidence * 100).toInt()}%")
-                            }
-                            if (state.activeAgents.isNotEmpty()) {
-                                NeutralPill(text = "Agents ${state.activeAgents.size}")
+                                NeutralPill(text = "可信度 ${(state.overallConfidence * 100).toInt()}%")
                             }
                             if (state.riskLevel != "low") {
-                                NeutralPill(text = "Risk ${state.riskLevel}")
+                                NeutralPill(text = if (state.riskLevel == "high") "高风险" else "需留意")
+                            }
+                        }
+                        val reviewItems = (
+                            state.validationErrors +
+                                state.fieldConflicts.mapNotNull { it["field"]?.toString() } +
+                                state.draftCards.flatMap { it.needConfirm }
+                            ).distinct()
+                        if (reviewItems.isNotEmpty()) {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Column(
+                                    Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text("请重点确认", fontWeight = FontWeight.Bold)
+                                    reviewItems.take(6).forEach { Text("• $it") }
+                                }
                             }
                         }
                         if (state.fallbackReason != null || state.warnings.isNotEmpty()) {
@@ -113,25 +135,20 @@ fun PreviewScreen(
                                 Text(action, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
-                        if (state.decisionReasons.isNotEmpty()) {
-                            Text(
-                                state.decisionReasons.joinToString(" · "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        TextButton(onClick = { showDiagnostics = !showDiagnostics }) {
+                            Text(if (showDiagnostics) "收起诊断信息" else "查看诊断信息")
                         }
-                        if (state.nodeTrace.isNotEmpty()) {
+                        if (showDiagnostics) {
                             Text(
-                                state.nodeTrace.joinToString(" → ") { trace ->
-                                    trace.node.replace("_", " ")
+                                buildString {
+                                    append("运行 ${state.traceId.take(8)} · ${state.route}")
+                                    if (state.activeAgents.isNotEmpty()) append(" · ${state.activeAgents.size} 个任务")
+                                    state.timeToFirstDraftMs?.let { append(" · 首稿 ${it.toInt()} ms") }
+                                    if (state.nodeTrace.isNotEmpty()) {
+                                        append("\n")
+                                        append(state.nodeTrace.joinToString(" → ") { it.node.replace("_", " ") })
+                                    }
                                 },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        state.timeToFirstDraftMs?.let { latency ->
-                            Text(
-                                "First draft ${latency.toInt()} ms · route ${state.route}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -151,12 +168,19 @@ fun PreviewScreen(
             item {
                 Button(
                     onClick = onConfirm,
+                    enabled = localDraftValid && !state.loading && state.workflowStatus !in setOf("queued", "running"),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
                 ) {
                     Icon(Icons.Outlined.CheckCircle, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("确认创建提醒与行动卡")
+                    Text(
+                        when {
+                            state.loading || state.workflowStatus in setOf("queued", "running") -> "等待分析完成"
+                            !localDraftValid -> "补全关键信息后继续"
+                            else -> "确认并创建行动卡"
+                        }
+                    )
                 }
             }
         }

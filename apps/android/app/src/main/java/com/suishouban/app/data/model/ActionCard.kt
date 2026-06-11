@@ -68,6 +68,9 @@ data class AnalyzeResult(
     val activeAgents: List<String> = emptyList(),
     val decisionReasons: List<String> = emptyList(),
     val riskLevel: String = "low",
+    val validationErrors: List<String> = emptyList(),
+    val fieldConflicts: List<Map<String, Any?>> = emptyList(),
+    val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
 )
 
 data class NodeTrace(

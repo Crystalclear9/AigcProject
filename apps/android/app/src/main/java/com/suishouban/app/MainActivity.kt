@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
                                 state = state,
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
+                                onTestConnection = viewModel::testConnection,
                             )
                             else -> HomeScreen(
                                 state = state,

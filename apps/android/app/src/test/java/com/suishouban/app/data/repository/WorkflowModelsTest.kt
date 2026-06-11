@@ -1,6 +1,8 @@
 package com.suishouban.app.data.repository
 
 import com.suishouban.app.data.remote.AnalyzeScreenshotTextResponse
+import com.suishouban.app.data.remote.WorkflowEventEnvelope
+import com.google.gson.Gson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -26,5 +28,29 @@ class WorkflowModelsTest {
         val second = com.suishouban.app.data.remote.ApiFactory.create("http://127.0.0.1:8000/")
 
         assertSame(first, second)
+    }
+
+    @Test
+    fun sseEventSnapshotCanDriveUiWithoutFollowUpGet() {
+        val event = Gson().fromJson(
+            """
+            {
+              "snapshot": {
+                "ocr_text": "提交报告",
+                "cards": [],
+                "preview_actions": [],
+                "engine": "rules",
+                "run_id": "run-1",
+                "workflow_status": "awaiting_review",
+                "revision": 2
+              }
+            }
+            """.trimIndent(),
+            WorkflowEventEnvelope::class.java,
+        )
+
+        assertEquals("run-1", event.snapshot?.runId)
+        assertEquals("awaiting_review", event.snapshot?.workflowStatus)
+        assertEquals(2, event.snapshot?.revision)
     }
 }

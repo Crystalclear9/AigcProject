@@ -4,6 +4,11 @@ build/
 **/build/
 local.properties
 *.iml
+*.apk
+*.aab
+.android-commandline-tools/
+.android-commandline-tools.zip
+.tools/
 
 # Python
 __pycache__/
@@ -11,14 +16,22 @@ __pycache__/
 .venv/
 venv/
 *.db
+*.db-wal
+*.db-shm
 .env
 services/api/workflow_inputs/
+.pytest_cache/
 
 # IDE / OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
+*.log
+remote-*.png
+remote-*.xml
+serveo.*
+*.tunnel-url
 
 *.pdf
 *.docx

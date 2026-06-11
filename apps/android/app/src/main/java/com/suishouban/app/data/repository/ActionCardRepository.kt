@@ -16,8 +16,12 @@ import com.suishouban.app.data.remote.toDomain
 import com.suishouban.app.data.remote.toDto
 import com.suishouban.app.data.remote.WorkflowResumeRequest
 import com.suishouban.app.data.remote.OcrCandidateRequest
+import com.suishouban.app.data.remote.DraftFieldOperation
+import com.suishouban.app.data.remote.DraftPatchRequest
+import com.suishouban.app.data.remote.WorkflowEventEnvelope
 import com.suishouban.app.data.model.NodeTrace
 import com.suishouban.app.domain.LocalActionExtractor
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.MediaType.Companion.toMediaType
@@ -26,6 +30,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+data class SaveConfirmedResult(
+    val card: ActionCard,
+    val syncError: String? = null,
+)
 
 class ActionCardRepository(
     context: Context,
@@ -34,6 +44,8 @@ class ActionCardRepository(
     private val appContext = context.applicationContext
     private val dao = AppDatabase.get(context).cardDao()
     private val extractor = LocalActionExtractor()
+    private val workflowPrefs = appContext.getSharedPreferences("workflow_runtime", Context.MODE_PRIVATE)
+    private val gson = Gson()
 
     fun observeCards(
         type: String? = null,
@@ -94,35 +106,107 @@ class ActionCardRepository(
         val api = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
         var latest = responseToResult(api.getWorkflow(runId))
         onUpdate(latest)
+        if (workflowPrefs.getString("active_run_id", null) != runId) {
+            workflowPrefs.edit()
+                .putString("active_run_id", runId)
+                .remove("last_event_id")
+                .apply()
+        }
         return withContext(Dispatchers.IO) {
-            api.workflowEvents(runId).use { body ->
-                body.charStream().buffered().useLines { lines ->
-                    var eventName = ""
-                    for (line in lines) {
-                        when {
-                            line.startsWith("event:") -> eventName = line.substringAfter(":").trim()
-                            line.isBlank() && eventName.isNotBlank() -> {
-                                latest = responseToResult(api.getWorkflow(runId))
-                                withContext(Dispatchers.Main) { onUpdate(latest) }
-                                if (eventName == "completed" || eventName == "failed") break
-                                eventName = ""
+            var attempt = 0
+            while (attempt < 4 && latest.workflowStatus !in streamTerminalWorkflowStatuses) {
+                try {
+                    val lastEventId = workflowPrefs.getLong("last_event_id", 0)
+                        .takeIf { it > 0 }
+                        ?.toString()
+                    api.workflowEvents(runId, lastEventId).use { body ->
+                        body.charStream().buffered().useLines { lines ->
+                            var eventName = ""
+                            var eventId: Long? = null
+                            var data = ""
+                            for (line in lines) {
+                                when {
+                                    line.startsWith("id:") -> eventId = line.substringAfter(":").trim().toLongOrNull()
+                                    line.startsWith("event:") -> eventName = line.substringAfter(":").trim()
+                                    line.startsWith("data:") -> data += line.substringAfter(":").trim()
+                                    line.isBlank() && eventName.isNotBlank() -> {
+                                        val snapshot = runCatching {
+                                            gson.fromJson(data, WorkflowEventEnvelope::class.java).snapshot
+                                        }.getOrNull()
+                                        if (snapshot != null) {
+                                            latest = responseToResult(snapshot)
+                                            withContext(Dispatchers.Main) { onUpdate(latest) }
+                                        } else if (eventName in snapshotRequiredEvents) {
+                                            latest = responseToResult(api.getWorkflow(runId))
+                                            withContext(Dispatchers.Main) { onUpdate(latest) }
+                                        }
+                                        eventId?.let {
+                                            workflowPrefs.edit().putLong("last_event_id", it).apply()
+                                        }
+                                        if (eventName == "completed" || eventName == "failed") break
+                                        eventName = ""
+                                        eventId = null
+                                        data = ""
+                                    }
+                                }
                             }
                         }
                     }
+                    attempt = 0
+                } catch (error: Exception) {
+                    attempt += 1
+                    if (attempt >= 4) throw error
+                    kotlinx.coroutines.delay(500L shl (attempt - 1))
                 }
             }
+            if (latest.workflowStatus in terminalWorkflowStatuses) clearActiveWorkflow()
             latest
         }
     }
 
-    suspend fun resumeWithReview(runId: String, cards: List<ActionCard>): AnalyzeResult {
+    suspend fun reviewAndConfirm(
+        runId: String,
+        baseRevision: Int,
+        cards: List<ActionCard>,
+        fieldVersions: Map<String, Map<String, Int>>,
+    ): AnalyzeResult {
         val api = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
-        return responseToResult(
-            api.resumeWorkflow(
-                runId,
-                WorkflowResumeRequest(command = "review_cards", cards = cards.map { it.toDto() }),
-            )
+        val operations = cards.flatMap { card ->
+            editableFields(card).flatMap { (field, value) ->
+                listOf(
+                    DraftFieldOperation(
+                        operation = "set",
+                        cardId = card.id,
+                        field = field,
+                        value = value,
+                        baseFieldVersion = fieldVersions[card.id]?.get(field),
+                    ),
+                    DraftFieldOperation(operation = "lock", cardId = card.id, field = field),
+                )
+            }
+        }
+        val patched = api.patchDraft(
+            runId,
+            DraftPatchRequest(baseRevision = baseRevision, operations = operations),
         )
+        val confirmed = api.confirmWorkflow(runId, com.suishouban.app.data.remote.ConfirmWorkflowRequest(patched.revision))
+        clearActiveWorkflow()
+        return responseToResult(confirmed)
+    }
+
+    fun activeRunId(): String? = workflowPrefs.getString("active_run_id", null)
+
+    fun clearActiveWorkflow() {
+        workflowPrefs.edit().remove("active_run_id").remove("last_event_id").apply()
+    }
+
+    suspend fun testConnection(): String {
+        val health = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).health()
+        return if (health.ready) {
+            "在线，工作流运行时正常（LangGraph ${health.langGraphVersion}）"
+        } else {
+            "后端可访问，但工作流运行时处于 ${health.status}"
+        }
     }
 
     private fun responseToResult(response: com.suishouban.app.data.remote.AnalyzeScreenshotTextResponse): AnalyzeResult {
@@ -149,8 +233,27 @@ class ActionCardRepository(
             activeAgents = response.activeAgents,
             decisionReasons = response.decisionReasons,
             riskLevel = response.riskLevel,
+            validationErrors = response.validationErrors,
+            fieldConflicts = response.fieldConflicts,
+            fieldVersions = response.fieldVersions,
         )
     }
+
+    private fun editableFields(card: ActionCard): List<Pair<String, Any?>> = listOf(
+        "card_type" to card.cardType,
+        "title" to card.title,
+        "summary" to card.summary,
+        "deadline" to card.deadline,
+        "start_time" to card.startTime,
+        "end_time" to card.endTime,
+        "location" to card.location,
+        "materials" to card.materials,
+        "submit_method" to card.submitMethod,
+        "priority" to card.priority,
+        "tags" to card.tags,
+        "reminders" to card.reminders,
+        "need_confirm" to card.needConfirm,
+    )
 
     private fun prefixEngine(engine: String, prefix: String?): String {
         return EngineLabels.withPrefix(engine, prefix)
@@ -192,13 +295,20 @@ class ActionCardRepository(
         }
     }
 
-    suspend fun saveConfirmed(card: ActionCard): ActionCard {
+    suspend fun saveConfirmed(card: ActionCard): SaveConfirmedResult {
         val confirmed = card.copy(status = CardStatus.CONFIRMED)
         dao.upsert(confirmed.toEntity())
-        runCatching {
-            ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).createCard(confirmed.toDto())
+        val remoteAttempt = withTimeoutOrNull(1_500) {
+            runCatching {
+                ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).createCard(confirmed.toDto())
+            }
         }
-        return confirmed
+        val syncError = when {
+            remoteAttempt == null -> "Remote sync timed out; the card is saved locally."
+            remoteAttempt.isFailure -> "Remote sync failed; the card is saved locally."
+            else -> null
+        }
+        return SaveConfirmedResult(confirmed, syncError)
     }
 
     suspend fun saveDraft(card: ActionCard) {
@@ -224,12 +334,20 @@ class ActionCardRepository(
     }
 
     suspend fun syncFromServer() {
-        runCatching {
-            val cards = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
-                .listCards()
-                .map { it.toDomain().toEntity() }
-            dao.upsertAll(cards)
-        }
+        val cards = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
+            .listCards()
+            .map { it.toDomain().toEntity() }
+        dao.upsertAll(cards)
     }
 
 }
+
+private val terminalWorkflowStatuses = setOf("completed", "failed", "cancelled")
+private val streamTerminalWorkflowStatuses = terminalWorkflowStatuses + "awaiting_review"
+private val snapshotRequiredEvents = setOf(
+    "draft_created",
+    "draft_updated",
+    "review_required",
+    "completed",
+    "failed",
+)
