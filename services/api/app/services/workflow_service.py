@@ -627,7 +627,7 @@ async def wait_for_result(
             return repository.response(run_id)
         if accept_provisional and response.revision > 0:
             return response
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.005)
     return repository.response(run_id)
 
 
