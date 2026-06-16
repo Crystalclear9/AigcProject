@@ -4,14 +4,19 @@ import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.AnalyzeResult
 import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.data.model.Priority
+import com.suishouban.app.domain.screenshot.OcrTextNormalizer
 import java.time.DayOfWeek
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.util.UUID
 
 class LocalActionExtractor {
+    private val textNormalizer = OcrTextNormalizer()
+
     fun extract(text: String): AnalyzeResult {
-        val normalized = text.replace(Regex("\\s+"), " ").trim()
+        val normalized = textNormalizer.normalize(text).fullText.ifBlank {
+            text.replace(Regex("\\s+"), " ").trim()
+        }
         val cards = if (!isActionableText(normalized)) {
             emptyList()
         } else if (hasMeetingPreparation(normalized)) {
@@ -57,6 +62,7 @@ class LocalActionExtractor {
             Regex("(今天|明天|后天|今晚|上午|早上|中午|下午|晚上)"),
             Regex("\\d{1,2}[:：]\\d{2}"),
             Regex("\\d{1,2}\\s*点"),
+            Regex("\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}"),
             Regex("本月底|月底|近期|近日|\\d{1,2}\\s*月\\s*(上旬|中旬|下旬)"),
         ).any { it.containsMatchIn(text) }
     }
@@ -151,7 +157,7 @@ class LocalActionExtractor {
     }
 
     private fun extractMaterials(text: String): List<String> {
-        return listOf("报名表", "作品说明书", "实验报告", "进展汇报", "表格", "材料", "证件", "文件")
+        return listOf("报名表", "作品说明书", "团队信息表", "实验报告", "进展汇报", "表格", "材料", "证件", "文件", "PPT", "简历")
             .filter { it in text }
     }
 
@@ -195,6 +201,16 @@ class LocalActionExtractor {
     private fun extractTime(text: String): TimeGuess {
         val now = OffsetDateTime.now(ZoneOffset.ofHours(8))
         val hourGuess = extractHour(text)
+
+        Regex("(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})").find(text)?.let {
+            val year = it.groupValues[1].toInt()
+            val month = it.groupValues[2].toInt()
+            val day = it.groupValues[3].toInt()
+            return TimeGuess(
+                OffsetDateTime.of(year, month, day, hourGuess.hour, hourGuess.minute, 0, 0, now.offset).toString(),
+                hourGuess.fuzzy,
+            )
+        }
 
         Regex("(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[日号]?").find(text)?.let {
             val month = it.groupValues[1].toInt()
@@ -243,7 +259,7 @@ class LocalActionExtractor {
     private data class HourGuess(val hour: Int, val minute: Int, val fuzzy: Boolean)
 
     private fun extractHour(text: String): HourGuess {
-        Regex("(\\d{1,2})[:：](\\d{2})").find(text)?.let {
+        Regex("(\\d{1,2})\\s*[:：]\\s*(\\d{2})").find(text)?.let {
             return HourGuess(it.groupValues[1].toInt(), it.groupValues[2].toInt(), false)
         }
         Regex("(上午|早上|中午|下午|晚上|今晚|晚)?\\s*(\\d{1,2})\\s*点\\s*(\\d{1,2})?分?").find(text)?.let {
@@ -264,7 +280,7 @@ class LocalActionExtractor {
     }
 
     private companion object {
-        val taskWords = listOf("提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "准备", "完成", "整理")
+        val taskWords = listOf("提交", "报名", "上传", "填写", "截止", "截至", "DDL", "deadline", "作业", "报告", "发送", "准备", "完成", "整理")
         val eventWords = listOf("开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加")
         val promiseWords = listOf("帮我", "帮你", "答应", "可以，我", "我来", "没问题", "承诺", "说好了")
         val comparisonWords = listOf("对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS")

@@ -123,7 +123,7 @@ fun HomeScreen(
                 needConfirm = needConfirm,
                 reminders = reminders,
                 timedCards = timedCards,
-                engine = state.engine.ifBlank { if (state.settings.preferCloudModel) "云端优先" else "本地兜底" },
+                engine = state.engine.ifBlank { if (state.settings.preferCloudModel) "云端增强" else "本机模式" },
                 workflowStatus = state.workflowStatus,
             )
         }

@@ -58,12 +58,18 @@ fun SettingsScreen(
             SectionHeader("设置中心")
         }
         item {
-            SettingsCard(title = "服务端", icon = Icons.Outlined.CloudSync) {
+            SettingsCard(title = "云端增强（可选）", icon = Icons.Outlined.CloudSync) {
+                Text(
+                    "不配置也可使用端侧 OCR、截图判定、本地卡片和提醒。配置 HTTPS 工作流网关后，可启用 AI 增强、SSE 进度和多端同步。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(
                     value = apiBaseUrl,
                     onValueChange = { apiBaseUrl = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("API Base URL") },
+                    label = { Text("Workflow API URL，可留空") },
+                    placeholder = { Text("https://api.example.com/") },
                     shape = RoundedCornerShape(16.dp),
                 )
                 Button(
@@ -71,21 +77,21 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("保存服务地址")
+                    Text("保存增强端点")
                 }
                 Button(
                     onClick = onSync,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("同步后端卡片")
+                    Text("从云端同步卡片")
                 }
                 Button(
                     onClick = onTestConnection,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("测试服务连接")
+                    Text("测试增强服务")
                 }
                 Text(
                     state.connectionStatus,
@@ -116,7 +122,7 @@ fun SettingsScreen(
                     onCheckedChange = { onUpdate(state.settings.copy(autoDetectScreenshots = it)) },
                 )
                 SettingSwitch(
-                    title = "优先使用云端模型",
+                    title = "启用云端增强",
                     checked = state.settings.preferCloudModel,
                     onCheckedChange = { onUpdate(state.settings.copy(preferCloudModel = it)) },
                 )
