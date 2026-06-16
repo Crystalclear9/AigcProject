@@ -14,11 +14,12 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 7001
-        versionName = "1.0.1-remote-test"
+        versionName = "1.0.2-product-hardening"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Real-device debug uses adb reverse tcp:8000 tcp:8000, so localhost maps to the dev PC.
-        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"http://127.0.0.1:8000/\"")
+        // Production default is fully local. Configure this per build flavor or in Settings
+        // when an optional workflow/AI gateway is available.
+        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"\"")
     }
 
     buildTypes {

@@ -62,11 +62,9 @@ class ActionCardRepository(
     fun observeAll(): Flow<List<ActionCard>> = dao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
     suspend fun analyzeImage(uri: Uri, screenshotTime: String? = null): AnalyzeResult? {
-        val settings = settingsRepository.settings.value
-        if (!settings.preferCloudModel) return null
+        val api = workflowApiOrNull() ?: return null
 
         return runCatching {
-            val api = ApiFactory.create(settings.apiBaseUrl)
             val imagePart = buildImagePart(uri)
             val timePart = screenshotTime?.toRequestBody("text/plain".toMediaType())
             responseToResult(api.startImageWorkflow(imagePart, timePart))
@@ -74,10 +72,9 @@ class ActionCardRepository(
     }
 
     suspend fun analyzeText(text: String, screenshotTime: String? = null, enginePrefix: String? = null): AnalyzeResult {
-        val settings = settingsRepository.settings.value
-        if (settings.preferCloudModel) {
+        val api = workflowApiOrNull()
+        if (api != null) {
             val remoteResult = runCatching {
-                val api = ApiFactory.create(settings.apiBaseUrl)
                 val response = api.startTextWorkflow(AnalyzeScreenshotTextRequest(text, screenshotTime))
                 responseToResult(response).copy(engine = prefixEngine(response.engine, enginePrefix))
             }.getOrNull()
@@ -88,7 +85,7 @@ class ActionCardRepository(
     }
 
     suspend fun resumeWithOcr(runId: String, text: String): AnalyzeResult {
-        val api = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
+        val api = requireRemoteApi()
         return responseToResult(
             api.resumeWorkflow(
                 runId,
@@ -98,12 +95,12 @@ class ActionCardRepository(
     }
 
     suspend fun submitOcrCandidate(runId: String, text: String): AnalyzeResult {
-        val api = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
+        val api = requireRemoteApi()
         return responseToResult(api.submitOcrCandidate(runId, OcrCandidateRequest(text)))
     }
 
     suspend fun followWorkflow(runId: String, onUpdate: (AnalyzeResult) -> Unit): AnalyzeResult {
-        val api = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
+        val api = requireRemoteApi()
         var latest = responseToResult(api.getWorkflow(runId))
         onUpdate(latest)
         if (workflowPrefs.getString("active_run_id", null) != runId) {
@@ -177,7 +174,7 @@ class ActionCardRepository(
         cards: List<ActionCard>,
         fieldVersions: Map<String, Map<String, Int>>,
     ): AnalyzeResult {
-        val api = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
+        val api = requireRemoteApi()
         val operations = cards.flatMap { card ->
             editableFields(card).flatMap { (field, value) ->
                 listOf(
@@ -201,18 +198,23 @@ class ActionCardRepository(
         return responseToResult(confirmed)
     }
 
-    fun activeRunId(): String? = workflowPrefs.getString("active_run_id", null)
+    fun activeRunId(): String? {
+        val settings = settingsRepository.settings.value
+        if (!settings.preferCloudModel || settings.apiBaseUrl.trim().isBlank()) return null
+        return workflowPrefs.getString("active_run_id", null)
+    }
 
     fun clearActiveWorkflow() {
         workflowPrefs.edit().remove("active_run_id").remove("last_event_id").apply()
     }
 
     suspend fun testConnection(): String {
-        val health = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).health()
+        val api = remoteApiOrNull() ?: return "本机模式：未配置云端增强端点，端侧 OCR、行动判定、卡片和提醒可用"
+        val health = api.health()
         return if (health.ready) {
-            "在线，工作流运行时正常（LangGraph ${health.langGraphVersion}）"
+            "云端增强在线，工作流运行时正常（LangGraph ${health.langGraphVersion}）"
         } else {
-            "后端可访问，但工作流运行时处于 ${health.status}"
+            "云端端点可访问，但工作流运行时处于 ${health.status}"
         }
     }
 
@@ -305,10 +307,10 @@ class ActionCardRepository(
     suspend fun saveConfirmed(card: ActionCard): SaveConfirmedResult {
         val confirmed = card.copy(status = CardStatus.CONFIRMED)
         dao.upsert(confirmed.toEntity())
+        val api = remoteApiOrNull()
+        if (api == null) return SaveConfirmedResult(confirmed)
         val remoteAttempt = withTimeoutOrNull(1_500) {
-            runCatching {
-                ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).createCard(confirmed.toDto())
-            }
+            runCatching { api.createCard(confirmed.toDto()) }
         }
         val syncError = when {
             remoteAttempt == null -> "Remote sync timed out; the card is saved locally."
@@ -324,16 +326,12 @@ class ActionCardRepository(
 
     suspend fun update(card: ActionCard) {
         dao.upsert(card.toEntity())
-        runCatching {
-            ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).updateCard(card.id, card.toDto())
-        }
+        remoteApiOrNull()?.let { api -> runCatching { api.updateCard(card.id, card.toDto()) } }
     }
 
     suspend fun complete(id: String) {
         dao.updateStatus(id, CardStatus.DONE)
-        runCatching {
-            ApiFactory.create(settingsRepository.settings.value.apiBaseUrl).completeCard(id)
-        }
+        remoteApiOrNull()?.let { api -> runCatching { api.completeCard(id) } }
     }
 
     suspend fun archive(id: String) {
@@ -341,10 +339,25 @@ class ActionCardRepository(
     }
 
     suspend fun syncFromServer() {
-        val cards = ApiFactory.create(settingsRepository.settings.value.apiBaseUrl)
+        val cards = requireRemoteApi()
             .listCards()
             .map { it.toDomain().toEntity() }
         dao.upsertAll(cards)
+    }
+
+    private fun workflowApiOrNull(): com.suishouban.app.data.remote.SuiShouBanApi? {
+        val settings = settingsRepository.settings.value
+        if (!settings.preferCloudModel) return null
+        return remoteApiOrNull(settings)
+    }
+
+    private fun remoteApiOrNull(settings: AppSettings = settingsRepository.settings.value): com.suishouban.app.data.remote.SuiShouBanApi? {
+        val baseUrl = settings.apiBaseUrl.trim().takeIf { it.isNotBlank() } ?: return null
+        return ApiFactory.create(baseUrl)
+    }
+
+    private fun requireRemoteApi(): com.suishouban.app.data.remote.SuiShouBanApi {
+        return remoteApiOrNull() ?: error("未配置云端增强端点")
     }
 
 }

@@ -11,7 +11,7 @@ data class AppSettings(
     val privacyMask: Boolean = true,
     val calendarSync: Boolean = false,
     val keepOriginalScreenshot: Boolean = false,
-    val preferCloudModel: Boolean = true,
+    val preferCloudModel: Boolean = false,
 )
 
 class AppSettingsRepository(context: Context) {
@@ -25,7 +25,7 @@ class AppSettingsRepository(context: Context) {
         privacyMask = prefs.getBoolean("privacy_mask", true),
         calendarSync = prefs.getBoolean("calendar_sync", false),
         keepOriginalScreenshot = prefs.getBoolean("keep_screenshot", false),
-        preferCloudModel = prefs.getBoolean("prefer_cloud", true),
+        preferCloudModel = prefs.getBoolean("prefer_cloud", false),
     )
 
     fun update(settings: AppSettings) {

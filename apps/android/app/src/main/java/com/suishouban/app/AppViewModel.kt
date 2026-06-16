@@ -136,7 +136,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 onDone = onDone,
                 screenshotTime = screenshotTime,
                 enginePrefix = "mlkit",
-                extraWarnings = listOf("Cloud workflow unavailable; using local OCR"),
+                extraWarnings = listOf("云端增强不可用，已使用端侧 OCR 与本地规则"),
                 notifyWhenEmpty = notifyWhenEmpty,
             )
         }
@@ -388,7 +388,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update {
                         it.copy(
                             loading = false,
-                            error = "同步后端卡片失败：${error.message ?: "未知错误"}",
+                            error = "云端同步失败：${error.message ?: "未知错误"}",
                         )
                     }
                 }

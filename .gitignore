@@ -31,6 +31,7 @@ Thumbs.db
 remote-*.png
 remote-*.jpg
 remote-*.xml
+remote-*.txt
 serveo.*
 *.tunnel-url
 

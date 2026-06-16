@@ -187,8 +187,6 @@ class MainActivity : ComponentActivity() {
             } else {
                 add(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
-            add(Manifest.permission.READ_CALENDAR)
-            add(Manifest.permission.WRITE_CALENDAR)
         }.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }

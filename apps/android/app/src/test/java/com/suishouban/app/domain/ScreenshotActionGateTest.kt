@@ -1,5 +1,6 @@
 package com.suishouban.app.domain
 
+import com.suishouban.app.domain.screenshot.ScreenshotActionGate
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,7 +13,7 @@ class ScreenshotActionGateTest {
         val result = gate.evaluate("请在6月10日22:00前提交实验报告，逾期无法补交")
 
         assertTrue(result.shouldPrompt)
-        assertTrue(result.matchedSignals.any { it.startsWith("行动词:") })
+        assertTrue(result.matchedSignals.any { it.startsWith("行动:") })
         assertTrue(result.deadlineHint?.contains("6月10日") == true)
     }
 
@@ -54,6 +55,80 @@ class ScreenshotActionGateTest {
     @Test
     fun ignoresCasualChatWithoutActionTime() {
         val result = gate.evaluate("哈哈这个海报挺好看的，晚上再聊")
+
+        assertFalse(result.shouldPrompt)
+    }
+
+    @Test
+    fun promptsForNoisyCourseScreenshotWithStatusBarAndBottomTabs() {
+        val result = gate.evaluate(
+            """
+            15:14 5G WiFi 62%
+            学习通
+            ✨ 课程通知 ✨
+            请各位同学
+            6 月 20 日 22 ： 00 前
+            提交《实验报告》
+            提交至学习通，文件命名为学号+姓名
+            首页 消息 我的
+            """.trimIndent()
+        )
+
+        assertTrue(result.shouldPrompt)
+        assertTrue(result.suggestedTitle?.contains("实验报告") == true)
+        assertTrue(result.deadlineHint?.contains("6 月 20 日") == true || result.deadlineHint?.contains("6月20日") == true)
+    }
+
+    @Test
+    fun promptsForPosterStyleCompetitionNotice() {
+        val result = gate.evaluate(
+            """
+            AIGC 创新赛
+            报 名 通 道 已 开 启
+            D D L：2026.06.18 23:59
+            上传作品说明书、团队信息表
+            点击官网链接提交
+            """.trimIndent()
+        )
+
+        assertTrue(result.shouldPrompt)
+        assertTrue(result.matchedSignals.any { it.contains("截止:DDL") || it.contains("截止:ddl") })
+    }
+
+    @Test
+    fun ignoresShoppingPromoEvenWithDeadlineWords() {
+        val result = gate.evaluate("618 优惠券 限时秒杀 明晚20:00截止 抢购满减 购物车 下单")
+
+        assertFalse(result.shouldPrompt)
+    }
+
+    @Test
+    fun promptsForMeetingPosterWithPreparationTask() {
+        val result = gate.evaluate(
+            """
+            团队周会安排
+            周五 14:30 腾讯会议
+            请参加会议并准备本周进展汇报 PPT。
+            需要提前 10 分钟签到。
+            """.trimIndent()
+        )
+
+        assertTrue(result.shouldPrompt)
+        assertTrue(result.suggestedTitle?.contains("会议") == true || result.suggestedTitle?.contains("汇报") == true)
+    }
+
+    @Test
+    fun ignoresGeneratedOwnAppSettingsImage() {
+        val result = gate.evaluate(
+            """
+            随手办
+            设置中心
+            云端增强（可选）
+            Workflow API URL，可留空
+            提醒策略：高优先级 3 天 / 1 天 / 3 小时 / 30 分钟
+            已创建提醒 0
+            """.trimIndent()
+        )
 
         assertFalse(result.shouldPrompt)
     }

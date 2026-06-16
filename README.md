@@ -1,52 +1,76 @@
 # 随手办
 
-随手办是一个面向大学生和轻办公场景的“截图到行动”移动端项目。用户把课程通知、比赛海报、社团活动、会议安排或聊天承诺截图导入后，系统会完成 OCR、语义抽取、行动卡生成、动作预览、提醒和日历管理。
+随手办是一个“截图到行动”的 Android + FastAPI 项目。它的产品目标不是让用户每次手动上传截图，而是在用户截图后先在端侧完成 OCR 和行动判定，只在发现明确待办、截止、会议、报名、承诺等信号时给出轻量提示；用户确认后才生成行动卡、注册提醒或同步日历。
 
-## 核心链路
+## 产品工作流
 
 ```text
-截图/图片
-  -> Android 相册/分享/截图入口
-  -> 优先 POST /api/analyze/screenshot-image
-  -> vivo OCR；失败时回退 Android ML Kit
-  -> 蓝心大模型结构化抽取；失败时规则兜底
-  -> 动作预览与字段确认
-  -> 保存行动卡、注册提醒、进入卡片/日历视图
+用户截图
+  -> Android 端侧 ML Kit OCR
+  -> OCR 噪声清洗：状态栏、底栏、按钮、广告和 App 自身界面过滤
+  -> ScreenshotActionGate 证据评分
+  -> 无明确行动信号：静默忽略，只写调试日志
+  -> 命中强行动信号：发送低打扰通知“可能有待办”
+  -> 用户点击“生成”：进入预览页生成草稿
+  -> 用户编辑并确认：保存 Room 行动卡，注册 WorkManager 截止提醒，可选写入日历
 ```
 
-文本粘贴路径会直接调用 `POST /api/analyze/screenshot-text`，同样优先走蓝心大模型，失败时自动回退规则抽取。
+手动入口仍然保留：相册导入、系统分享图片和文字粘贴可以直接进入预览。最终创建行动卡、提醒、日历写入都必须由用户确认触发。
+
+## 架构原则
+
+- **端侧优先**：默认不依赖任何主机或后端。端侧 OCR、行动判定、本地规则抽取、Room 卡片和 WorkManager 提醒均可独立运行。
+- **云端增强可选**：设置页可配置 Workflow API URL 并启用云端增强；不配置时 App 不会假设 `127.0.0.1:8000`、局域网 IP 或某台开发主机存在。
+- **AI Provider 解耦**：后端预留快模型、强模型、OCR、联网检索等独立 provider 环境变量，不同能力可以接入不同 OpenAI 兼容或厂商 API。
+- **证据驱动**：工作流保留 provisional 草稿、SSE 事件、字段来源、置信度、审核和确认门控；模型不可用时仍可使用端侧与规则流程。
+- **低打扰交互**：截图建议通知采用短文案、默认静默、低打扰样式，避免大弹窗打断当前 App 使用。
 
 ## 仓库结构
 
 ```text
 .
 ├── apps/
-│   └── android/                 # Android Compose 客户端
+│   └── android/                         # Android Compose 客户端
+│       └── app/src/main/java/com/suishouban/app/
+│           ├── data/                    # Room、Repository、远程 DTO/API
+│           ├── domain/                  # 本地规则抽取
+│           │   └── screenshot/          # OCR 清洗与截图行动判定
+│           ├── ocr/                     # ML Kit OCR
+│           ├── reminder/                # 截图监听、通知、WorkManager 提醒
+│           └── ui/                      # Compose 页面与组件
 ├── services/
-│   └── api/                     # FastAPI 后端服务
+│   └── api/                             # FastAPI + LangGraph 工作流服务
 ├── docs/
-│   ├── api/vivo-aigc/           # vivo AIGC 接口资料归档
-│   ├── architecture/            # 架构说明
-│   ├── guides/                  # 演示脚本与使用指南
-│   ├── product/                 # 产品策划案交付物
-│   └── reports/                 # 接口实验与验收报告
-├── scripts/                     # 文档抓取等辅助脚本
-├── .gitignore
+│   ├── api/vivo-aigc/                   # vivo AIGC 接口资料归档
+│   ├── architecture/                    # 架构说明
+│   ├── guides/                          # 演示与调试指南
+│   ├── product/                         # 产品策划案交付物
+│   └── reports/                         # 接口实验与验收报告
+├── scripts/                             # 构建、测试、部署辅助脚本
+├── .github/workflows/                   # CI
 └── README.md
 ```
 
-## 功能概览
+## Android 运行方式
 
-- 截图监听通知、系统分享图片、相册导入、文本粘贴。
-- 图片路径优先使用 vivo 通用 OCR，失败时自动回退 ML Kit 中文 OCR。
-- 后端蓝心大模型抽取，未配置 key、接口超时或调用失败时自动使用规则兜底。
-- 分析结果返回 `trace_id`、`fallback_reason`、`warnings`，便于演示和排查真实接口链路。
-- 行动卡类型覆盖任务、事件、承诺、资料。
-- 动作预览支持创建前编辑标题、时间、地点、提交方式、提醒和待确认字段。
-- 本地 Room 存储、WorkManager 通知提醒、日历视图、卡片筛选。
-- 内置五类演示场景评测：课程通知、比赛报名、社团活动、聊天承诺、会议准备。
+用 Android Studio 打开 `apps/android`，安装 Android SDK 35，运行 `app` 模块。
 
-## 后端快速启动
+默认配置是本机模式：
+
+```text
+Workflow API URL = 空
+启用云端增强 = 关闭
+```
+
+这意味着真机不需要连接开发主机即可完成截图识别、提示、预览、本地保存和提醒。若要接入后端或 AI 工作流，在 App 设置页配置一个手机可访问的 HTTPS 网关，例如：
+
+```text
+https://api.your-domain.com/
+```
+
+本地开发调试仍可使用 `adb reverse tcp:8000 tcp:8000`，但这只是开发便利，不是产品运行前提。
+
+## 后端启动
 
 ```powershell
 cd services/api
@@ -57,55 +81,65 @@ copy .env.example .env
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-接口文档地址：
-
-```text
-http://127.0.0.1:8000/docs
-```
-
 健康检查：
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-## Android 快速启动
-
-用 Android Studio 打开 `apps/android`，安装 Android SDK 35，运行 `app` 模块。
-
-默认后端地址是：
+接口文档：
 
 ```text
-http://10.0.2.2:8000/
+http://127.0.0.1:8000/docs
 ```
 
-这个地址适用于 Android 模拟器。真机运行时，在 App 设置页把 API 地址改为电脑的局域网地址，例如 `http://192.168.x.x:8000/`。
+## AI 与外部能力配置
 
-## 环境变量
-
-后端配置文件位于 `services/api/.env`，可从 `.env.example` 复制：
+后端配置文件位于 `services/api/.env`，可从 `.env.example` 复制。不同模块可以接入不同服务：
 
 ```env
+# 兼容旧蓝心配置
 LANXIN_API_KEY=
 LANXIN_BASE_URL=https://api-ai.vivo.com.cn/v1
 LANXIN_MODEL=Doubao-Seed-2.0-mini
-REQUEST_TIMEOUT_SECONDS=20
+
+# 快模型：规划、普通抽取、低延迟增强
+FAST_MODEL_API_KEY=
+FAST_MODEL_BASE_URL=https://api-ai.vivo.com.cn/v1
+FAST_MODEL_NAME=Doubao-Seed-2.0-mini
+
+# 强模型：复杂冲突、最终验证
+EXPERT_MODEL_API_KEY=
+EXPERT_MODEL_BASE_URL=https://api-ai.vivo.com.cn/v1
+EXPERT_MODEL_NAME=Doubao-Seed-2.0
+
+# 云 OCR，可选；Android 端侧 OCR 始终可用
 VIVO_OCR_APP_ID=
 VIVO_OCR_APP_KEY=
 VIVO_OCR_BUSINESS_PROFILE=rotatable
-VIVO_OCR_TIMEOUT_SECONDS=5
+
+REQUEST_TIMEOUT_SECONDS=20
 MAX_UPLOAD_IMAGE_BYTES=5242880
 DATABASE_PATH=./suishouban.db
+WORKFLOW_DATABASE_PATH=./workflow.db
+WORKFLOW_CHECKPOINT_DATABASE_PATH=./workflow_checkpoint.db
 CORS_ORIGINS=*
 ```
 
-`LANXIN_API_KEY` 为空时，后端不会调用蓝心大模型，会直接使用规则抽取。`VIVO_OCR_APP_KEY` 为空时，后端图片接口会返回明确错误，Android 会回退到 ML Kit 本地 OCR。
+没有模型密钥或 OCR 密钥时，后端仍会保留规则降级路径；Android 端默认不依赖这些密钥。
 
 ## API 概览
+
+旧同步接口保留兼容：
 
 ```http
 POST /api/analyze/screenshot-text
 POST /api/analyze/screenshot-image
+```
+
+工作流接口：
+
+```http
 POST /api/workflows/screenshot-text
 POST /api/workflows/screenshot-image
 GET  /api/workflows/{run_id}
@@ -114,78 +148,49 @@ POST /api/workflows/{run_id}/ocr-candidates
 PATCH /api/workflows/{run_id}/draft
 POST /api/workflows/{run_id}/confirm
 POST /api/workflows/{run_id}/resume
+```
+
+卡片与指标：
+
+```http
 GET  /api/cards
 POST /api/cards
 PATCH /api/cards/{id}
 POST /api/cards/{id}/complete
-GET  /api/demo/scenarios
-GET  /api/demo/evaluate
 GET  /api/metrics/summary
 GET  /api/metrics/performance
 ```
 
-分析接口响应保留原有字段：
-
-```json
-{
-  "ocr_text": "识别或输入的文本",
-  "cards": [],
-  "preview_actions": [],
-  "engine": "vivo-ocr+lanxin"
-}
-```
-
-同时新增演示和排查字段：
-
-```json
-{
-  "trace_id": "per-request uuid",
-  "fallback_reason": "RuntimeError: ...",
-  "warnings": ["蓝心大模型不可用，已自动切换到本地规则抽取"]
-}
-```
-
-文本分析示例：
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/api/analyze/screenshot-text `
-  -ContentType application/json `
-  -Body '{"text":"请同学们在本周五晚上 22:00 前提交实验报告，提交至学习通。"}'
-```
-
 ## 验证
 
-后端静态编译和单元测试：
+后端：
 
 ```powershell
 cd services/api
-python -m compileall app
-python -m unittest discover -s tests -v
+python -m pytest -q
 ```
 
-接口验收：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/demo/evaluate
-Invoke-RestMethod http://127.0.0.1:8000/api/metrics/summary
-```
-
-Android 单元测试需要本机配置 Android SDK：
+Android：
 
 ```powershell
 cd apps/android
-.\gradlew.bat testDebugUnitTest --no-daemon
+.\gradlew.bat testDebugUnitTest assembleDebug --no-daemon
 ```
 
-如果当前环境未配置 `ANDROID_HOME` 或 `local.properties` 的 `sdk.dir`，Android 只能做源码级检查；APK 构建和单测需要在 Android Studio 环境完成。
+云真机或真机回归建议覆盖：
+
+- 普通界面截图：不出现行动提示。
+- 花哨课程通知或海报截图：出现低打扰“可能有待办”通知。
+- 点击“忽略”：不生成卡片。
+- 点击“生成”：进入预览页，用户确认后保存卡片。
+- 有截止时间的任务：WorkManager 注册临近截止提醒。
+- 未配置 Workflow API URL：端侧流程仍完整可用。
+- 配置 HTTPS Workflow API URL：SSE、审核和云端增强正常工作。
 
 ## 文档索引
 
 - [架构说明](docs/architecture/ARCHITECTURE.md)
+- [云真机与 ADB 调试](docs/ADB_DEBUGGING.md)
 - [全国赛演示脚本](docs/guides/COMPETITION_DEMO.md)
 - [接口实验与比赛验收报告](docs/reports/API_EXPERIMENT_REPORT.md)
-- [产品策划案 PDF](docs/product/随手办-产品策划案.pdf)
-- [产品策划案 DOCX](docs/product/随手办-产品策划案.docx)
 - [vivo AIGC 接口资料](docs/api/vivo-aigc/README.md)
