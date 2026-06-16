@@ -392,6 +392,7 @@ class WorkflowApiTest(unittest.TestCase):
             self.assertIn("event: action_graph_updated", text)
             self.assertIn("event: completed", text)
             self.assertIn('"snapshot"', text)
+            self.assertIn('"cache_status"', text)
 
     def test_health_reports_durable_runtime_ready(self) -> None:
         with TestClient(app) as client:

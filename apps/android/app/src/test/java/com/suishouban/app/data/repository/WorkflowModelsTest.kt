@@ -4,6 +4,7 @@ import com.suishouban.app.data.remote.AnalyzeScreenshotTextResponse
 import com.suishouban.app.data.remote.WorkflowEventEnvelope
 import com.google.gson.Gson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -20,6 +21,7 @@ class WorkflowModelsTest {
         assertEquals("provisional", response.resultStage)
         assertEquals("rules", response.route)
         assertEquals(0, response.revision)
+        assertNull(response.cacheStatus)
     }
 
     @Test
@@ -52,5 +54,27 @@ class WorkflowModelsTest {
         assertEquals("run-1", event.snapshot?.runId)
         assertEquals("awaiting_review", event.snapshot?.workflowStatus)
         assertEquals(2, event.snapshot?.revision)
+        assertNull(event.snapshot?.cacheStatus)
+    }
+
+    @Test
+    fun sseSnapshotWithNullCacheStatusCanDeserialize() {
+        val event = Gson().fromJson(
+            """
+            {
+              "snapshot": {
+                "ocr_text": "提交报告",
+                "cards": [],
+                "preview_actions": [],
+                "engine": "rules",
+                "workflow_status": "awaiting_review",
+                "cache_status": null
+              }
+            }
+            """.trimIndent(),
+            WorkflowEventEnvelope::class.java,
+        )
+
+        assertNull(event.snapshot?.cacheStatus)
     }
 }

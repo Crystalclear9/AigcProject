@@ -132,7 +132,9 @@ class ActionCardRepository(
                                     line.isBlank() && eventName.isNotBlank() -> {
                                         val snapshot = runCatching {
                                             gson.fromJson(data, WorkflowEventEnvelope::class.java).snapshot
-                                        }.getOrNull()
+                                        }.getOrElse {
+                                            throw IllegalStateException("工作流事件解析失败，请重试或查看诊断", it)
+                                        }
                                         if (snapshot != null) {
                                             latest = responseToResult(snapshot)
                                             withContext(Dispatchers.Main) { onUpdate(latest) }
@@ -155,7 +157,12 @@ class ActionCardRepository(
                     attempt = 0
                 } catch (error: Exception) {
                     attempt += 1
-                    if (attempt >= 4) throw error
+                    if (attempt >= 4) {
+                        if (error is IllegalStateException && error.message?.startsWith("工作流事件解析失败") == true) {
+                            throw error
+                        }
+                        throw IllegalStateException("工作流事件流中断，请重试或查看诊断", error)
+                    }
                     kotlinx.coroutines.delay(500L shl (attempt - 1))
                 }
             }
@@ -227,7 +234,7 @@ class ActionCardRepository(
             resultStage = response.resultStage,
             overallConfidence = response.overallConfidence,
             route = response.route,
-            cacheStatus = response.cacheStatus,
+            cacheStatus = response.cacheStatus ?: "bypass",
             timeToFirstDraftMs = response.timeToFirstDraftMs,
             timeToFinalMs = response.timeToFinalMs,
             activeAgents = response.activeAgents,

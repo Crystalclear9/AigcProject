@@ -25,7 +25,7 @@ data class AnalyzeScreenshotTextResponse(
     @SerializedName("result_stage") val resultStage: String = "provisional",
     @SerializedName("overall_confidence") val overallConfidence: Double = 0.0,
     val route: String = "rules",
-    @SerializedName("cache_status") val cacheStatus: String = "bypass",
+    @SerializedName("cache_status") val cacheStatus: String? = null,
     @SerializedName("time_to_first_draft_ms") val timeToFirstDraftMs: Double? = null,
     @SerializedName("time_to_final_ms") val timeToFinalMs: Double? = null,
     @SerializedName("active_agents") val activeAgents: List<String> = emptyList(),

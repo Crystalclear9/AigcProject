@@ -29,6 +29,7 @@ services/api/workflow_inputs/
 Thumbs.db
 *.log
 remote-*.png
+remote-*.jpg
 remote-*.xml
 serveo.*
 *.tunnel-url
