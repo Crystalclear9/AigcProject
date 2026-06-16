@@ -19,9 +19,11 @@ class TextRecognitionService {
         val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
         recognizer.process(image)
             .addOnSuccessListener { result ->
+                recognizer.close()
                 continuation.resume(result.text)
             }
             .addOnFailureListener { error ->
+                recognizer.close()
                 continuation.resumeWithException(error)
             }
         continuation.invokeOnCancellation {

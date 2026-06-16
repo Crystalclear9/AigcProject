@@ -48,18 +48,29 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
 
         val screenshotUri = intent.data
+        val ocrText = intent.getStringExtra(EXTRA_OCR_TEXT)
+        val gateReason = intent.getStringExtra(EXTRA_GATE_REASON)
+        val deadlineHint = intent.getStringExtra(EXTRA_DEADLINE_HINT)
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-                LaunchedEffect(screenshotUri) {
+                LaunchedEffect(screenshotUri, ocrText) {
                     if (screenshotUri == null) {
                         viewModel.clearError()
                         finish()
                         return@LaunchedEffect
                     }
                     // 弹窗入口只处理当前截图 URI，避免进入主 App 导航后再触发分析。
-                    viewModel.analyzeImage(screenshotUri, notifyWhenEmpty = true)
+                    if (!ocrText.isNullOrBlank()) {
+                        viewModel.analyzeScreenshotPrompt(
+                            ocrText = ocrText,
+                            gateReason = gateReason,
+                            deadlineHint = deadlineHint,
+                        )
+                    } else {
+                        viewModel.analyzeImage(screenshotUri, notifyWhenEmpty = true)
+                    }
                 }
 
                 ScreenshotPreviewDialog(
@@ -71,6 +82,12 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_OCR_TEXT = "com.suishouban.app.extra.OCR_TEXT"
+        const val EXTRA_GATE_REASON = "com.suishouban.app.extra.GATE_REASON"
+        const val EXTRA_DEADLINE_HINT = "com.suishouban.app.extra.DEADLINE_HINT"
     }
 }
 
@@ -91,9 +108,11 @@ private fun ScreenshotPreviewDialog(
         Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("截图行动卡", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("发现可能行动事项", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        text = if (state.engine.isBlank()) "正在识别截图" else state.engine,
+                        text = state.screenshotDeadlineHint
+                            ?: state.screenshotGateReason
+                            ?: if (state.engine.isBlank()) "正在根据 OCR 生成草稿" else state.engine,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -129,7 +148,7 @@ private fun LoadingPane() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             CircularProgressIndicator()
-            Text("云端 OCR 与行动卡生成中", style = MaterialTheme.typography.bodyMedium)
+            Text("正在根据 OCR 生成行动草稿", style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

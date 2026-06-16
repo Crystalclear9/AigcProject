@@ -493,6 +493,7 @@ def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
         "result_stage": state.get("result_stage", "provisional"),
         "overall_confidence": float(state.get("overall_confidence", 0)),
         "route": state.get("route", "rules"),
+        "cache_status": state.get("cache_status") or "bypass",
         "time_to_first_draft_ms": state.get("time_to_first_draft_ms"),
         "time_to_final_ms": state.get("time_to_final_ms"),
         "active_agents": state.get("active_agents", []),

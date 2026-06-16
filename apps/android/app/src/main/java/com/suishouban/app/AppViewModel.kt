@@ -41,6 +41,8 @@ data class AppUiState(
     val validationErrors: List<String> = emptyList(),
     val fieldConflicts: List<Map<String, Any?>> = emptyList(),
     val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
+    val screenshotGateReason: String? = null,
+    val screenshotDeadlineHint: String? = null,
     val connectionStatus: String = "未检测",
     val loading: Boolean = false,
     val error: String? = null,
@@ -76,7 +78,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     repository.followWorkflow(runId) { applyAnalyzeResult(it) }
                 }.onFailure {
                     _uiState.update { state ->
-                        state.copy(error = "恢复上次工作流失败：${it.message ?: "未知错误"}")
+                        state.copy(error = userVisibleWorkflowError(it, "恢复上次工作流失败"))
                     }
                 }
             }
@@ -90,7 +92,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, error = null) }
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    screenshotGateReason = null,
+                    screenshotDeadlineHint = null,
+                )
+            }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
             val localOcr = async { runCatching { ocr.recognize(getApplication(), uri) }.getOrNull() }
             val cloudResult = runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull()
@@ -111,7 +120,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }.onFailure { error ->
                     _uiState.update {
-                        it.copy(loading = false, error = "Workflow event stream failed: ${error.message ?: "unknown"}")
+                        it.copy(loading = false, error = userVisibleWorkflowError(error, "工作流事件流中断"))
                     }
                 }
                 candidateSubmit.await()
@@ -136,8 +145,47 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun analyzeText(text: String, onDone: (Boolean) -> Unit = {}) {
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
-            _uiState.update { it.copy(loading = true, error = null) }
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    screenshotGateReason = null,
+                    screenshotDeadlineHint = null,
+                )
+            }
             analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
+        }
+    }
+
+    fun analyzeScreenshotPrompt(
+        ocrText: String,
+        gateReason: String?,
+        deadlineHint: String?,
+        onDone: (Boolean) -> Unit = {},
+    ) {
+        locallyEditedDraftIds.clear()
+        viewModelScope.launch {
+            val warnings = buildList {
+                gateReason?.takeIf { it.isNotBlank() }?.let { add("截图判定：$it") }
+                deadlineHint?.takeIf { it.isNotBlank() }?.let { add("候选截止：$it") }
+            }
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    ocrText = ocrText,
+                    screenshotGateReason = gateReason,
+                    screenshotDeadlineHint = deadlineHint,
+                )
+            }
+            analyzeTextInternal(
+                text = ocrText,
+                onDone = onDone,
+                screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString(),
+                enginePrefix = "mlkit",
+                extraWarnings = warnings,
+                notifyWhenEmpty = true,
+            )
         }
     }
 
@@ -170,7 +218,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }.onFailure { error ->
-                _uiState.update { it.copy(loading = false, error = "Workflow event stream failed: ${error.message}") }
+                _uiState.update { it.copy(loading = false, error = userVisibleWorkflowError(error, "工作流事件流中断")) }
             }
             return
         }
@@ -296,6 +344,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     validationErrors = emptyList(),
                     fieldConflicts = emptyList(),
                     fieldVersions = emptyMap(),
+                    screenshotGateReason = null,
+                    screenshotDeadlineHint = null,
                     error = syncWarnings.distinct().takeIf { warnings -> warnings.isNotEmpty() }?.joinToString("\n"),
                 )
             }
@@ -365,5 +415,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    private fun userVisibleWorkflowError(error: Throwable, prefix: String): String {
+        val message = error.message.orEmpty()
+        return when {
+            "Parameter specified as non-null is null" in message ||
+                "AnalyzeResult.<init>" in message ||
+                "cacheStatus" in message ||
+                "工作流事件解析失败" in message ->
+                "$prefix：工作流事件解析失败，请重试或查看诊断"
+            else -> "$prefix：${message.ifBlank { "请稍后重试或查看诊断" }}"
+        }
     }
 }
