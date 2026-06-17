@@ -61,7 +61,7 @@ fun PreviewScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("动作预览", if (state.engine.isBlank()) null else state.engine)
+            SectionHeader("发现可能行动事项", if (state.engine.isBlank()) null else state.engine)
         }
 
         item {
@@ -80,7 +80,7 @@ fun PreviewScreen(
                     border = BorderStroke(1.dp, Line),
                 ) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("即将执行", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("确认前检查", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (state.workflowStatus.isNotBlank()) {
                                 NeutralPill(
@@ -105,6 +105,38 @@ fun PreviewScreen(
                                 state.fieldConflicts.mapNotNull { it["field"]?.toString() } +
                                 state.draftCards.flatMap { it.needConfirm }
                             ).distinct()
+                        if (state.screenshotPromptSummary != null || state.screenshotPrimaryEvidence.isNotEmpty()) {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = BrandBlue.copy(alpha = 0.08f)
+                                ),
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Column(
+                                    Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    state.screenshotPromptSummary?.let {
+                                        Text(it, fontWeight = FontWeight.Bold)
+                                    }
+                                    state.screenshotScenarioType?.let {
+                                        Text(
+                                            "识别场景：${scenarioLabel(it)}" +
+                                                (state.screenshotConfidenceBand?.let { band -> " · ${confidenceLabel(band)}" } ?: ""),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    state.screenshotPrimaryEvidence.take(3).forEach { evidence ->
+                                        Text(
+                                            "• $evidence",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         if (reviewItems.isNotEmpty()) {
                             Card(
                                 colors = CardDefaults.cardColors(
@@ -189,6 +221,22 @@ fun PreviewScreen(
             Spacer(Modifier.height(92.dp))
         }
     }
+}
+
+private fun scenarioLabel(value: String): String = when (value) {
+    "course_notice" -> "课程/作业通知"
+    "chat_promise" -> "聊天承诺"
+    "registration" -> "报名/提交"
+    "meeting" -> "会议/汇报"
+    "noise" -> "干扰内容"
+    "own_app" -> "随手办界面"
+    else -> "待确认"
+}
+
+private fun confidenceLabel(value: String): String = when (value) {
+    "high" -> "高可信"
+    "medium" -> "中可信"
+    else -> "低可信"
 }
 
 @Composable

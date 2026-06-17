@@ -1,5 +1,5 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35185",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35109",
     [string]$BackendUrl = "http://127.0.0.1:8000",
     [string]$ApkPath = "",
     [switch]$SkipBackendCheck

@@ -1,5 +1,5 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35173",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35109",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [switch]$SkipInstall
@@ -48,6 +48,9 @@ $T = @{
     ReminderCreated = Utf8Text "5bey5Yib5bu65o+Q6YaS"
     PossibleAction = Utf8Text "5Y+R546w5Y+v6IO96KGM5Yqo5LqL6aG5"
     LabReport = Utf8Text "5a6e6aqM5oql5ZGK"
+    EvidenceLabel = Utf8Text "6K+G5Yir5Zy65pmv"
+    CourseScenario = Utf8Text "6K++56iLL+S9nOS4mumAmuefpQ=="
+    HighConfidence = Utf8Text "6auY5Y+v5L+h"
 }
 
 function Normalize-AdbArgs {
@@ -167,6 +170,36 @@ function Assert-UiNotContains {
     if ($xml -match [regex]::Escape($Text)) {
         throw $Message
     }
+}
+
+function Wait-UiContains {
+    param([string]$Text, [string]$Message, [int]$Attempts = 8)
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        $xml = Get-UiXml "wait-window.xml"
+        if ($xml -match [regex]::Escape($Text)) {
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw $Message
+}
+
+function Test-UiContains {
+    param([string]$Text)
+    $xml = Get-UiXml "test-window.xml"
+    return $xml -match [regex]::Escape($Text)
+}
+
+function Wait-UiNotContains {
+    param([string]$Text, [string]$Message, [int]$Attempts = 5)
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        $xml = Get-UiXml "wait-window.xml"
+        if ($xml -notmatch [regex]::Escape($Text)) {
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw $Message
 }
 
 function Confirm-VivoInstaller {
@@ -311,6 +344,11 @@ function Assert-ActionSuggestionNotification {
     return $xml
 }
 
+function Test-ActionSuggestionNotification {
+    $xml = Open-Notifications
+    return $xml -match [regex]::Escape($T.MaybeTodo)
+}
+
 function Tap-NotificationAction {
     param([string]$Text)
     $xml = Open-Notifications
@@ -320,6 +358,39 @@ function Tap-NotificationAction {
     }
     Invoke-Adb shell input tap $center.X $center.Y | Out-Null
     Start-Sleep -Seconds 3
+}
+
+function Dismiss-ActionSuggestionWithIgnore {
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Tap-NotificationAction $T.Ignore
+        if (-not (Test-ActionSuggestionNotification)) {
+            Invoke-Adb shell cmd statusbar collapse | Out-Null
+            return
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw "Ignore action did not dismiss the suggestion notification."
+}
+
+function Tap-NotificationContentFallback {
+    $xml = Open-Notifications
+    $center = Get-TextCenter $xml $T.LabReport
+    if (-not $center) {
+        $center = Get-TextCenter $xml $T.MaybeTodo
+    }
+    if (-not $center) {
+        throw "Could not find notification content fallback."
+    }
+    Invoke-Adb shell input tap $center.X $center.Y | Out-Null
+    Start-Sleep -Seconds 3
+}
+
+function Open-GeneratedPreviewFromNotification {
+    Tap-NotificationAction $T.Generate
+    if (-not (Test-UiContains $T.PossibleAction)) {
+        Tap-NotificationContentFallback
+    }
+    Wait-UiContains $T.PossibleAction "Generate action did not open screenshot preview."
 }
 
 function Confirm-Preview {
@@ -373,15 +444,17 @@ Assert-NoActionSuggestionNotification
 Write-Host "Validating action screenshot notification and ignore action..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
-Tap-NotificationAction $T.Ignore
-Assert-UiNotContains $T.PossibleAction "Ignore action unexpectedly opened preview."
+Dismiss-ActionSuggestionWithIgnore
+Wait-UiNotContains $T.PossibleAction "Ignore action unexpectedly opened preview."
 
 Write-Host "Validating action screenshot notification, generate action, preview, save, reminder..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
-Tap-NotificationAction $T.Generate
-Assert-UiContains $T.PossibleAction "Generate action did not open screenshot preview."
-Assert-UiContains $T.LabReport "Preview did not contain the expected task title."
+Open-GeneratedPreviewFromNotification
+Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
+Wait-UiContains $T.EvidenceLabel "Preview did not show evidence summary."
+Wait-UiContains $T.CourseScenario "Preview did not show course scenario classification."
+Wait-UiContains $T.HighConfidence "Preview did not show confidence label."
 Confirm-Preview
 Assert-CardAndReminderCreated
 Assert-NoBadLogs

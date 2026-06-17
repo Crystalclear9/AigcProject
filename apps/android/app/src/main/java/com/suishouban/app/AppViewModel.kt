@@ -9,6 +9,7 @@ import com.suishouban.app.data.model.AnalyzeResult
 import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.data.repository.EngineLabels
 import com.suishouban.app.data.model.NodeTrace
+import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +44,11 @@ data class AppUiState(
     val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
     val screenshotGateReason: String? = null,
     val screenshotDeadlineHint: String? = null,
+    val screenshotPromptSummary: String? = null,
+    val screenshotConfidenceBand: String? = null,
+    val screenshotScenarioType: String? = null,
+    val screenshotPrimaryEvidence: List<String> = emptyList(),
+    val screenshotWorkflowStage: ScreenshotWorkflowStage? = null,
     val connectionStatus: String = "未检测",
     val loading: Boolean = false,
     val error: String? = null,
@@ -98,6 +104,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     error = null,
                     screenshotGateReason = null,
                     screenshotDeadlineHint = null,
+                    screenshotPromptSummary = null,
+                    screenshotConfidenceBand = null,
+                    screenshotScenarioType = null,
+                    screenshotPrimaryEvidence = emptyList(),
+                    screenshotWorkflowStage = ScreenshotWorkflowStage.OCR_DETECTED,
                 )
             }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
@@ -151,6 +162,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     error = null,
                     screenshotGateReason = null,
                     screenshotDeadlineHint = null,
+                    screenshotPromptSummary = null,
+                    screenshotConfidenceBand = null,
+                    screenshotScenarioType = null,
+                    screenshotPrimaryEvidence = emptyList(),
+                    screenshotWorkflowStage = null,
                 )
             }
             analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
@@ -161,6 +177,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         ocrText: String,
         gateReason: String?,
         deadlineHint: String?,
+        promptSummary: String?,
+        confidenceBand: String?,
+        scenarioType: String?,
+        primaryEvidence: List<String>,
         onDone: (Boolean) -> Unit = {},
     ) {
         locallyEditedDraftIds.clear()
@@ -176,6 +196,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     ocrText = ocrText,
                     screenshotGateReason = gateReason,
                     screenshotDeadlineHint = deadlineHint,
+                    screenshotPromptSummary = promptSummary,
+                    screenshotConfidenceBand = confidenceBand,
+                    screenshotScenarioType = scenarioType,
+                    screenshotPrimaryEvidence = primaryEvidence,
+                    screenshotWorkflowStage = ScreenshotWorkflowStage.GATE_PASSED,
                 )
             }
             analyzeTextInternal(
@@ -258,6 +283,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 validationErrors = result.validationErrors,
                 fieldConflicts = result.fieldConflicts,
                 fieldVersions = result.fieldVersions,
+                screenshotWorkflowStage = if (hasCards) ScreenshotWorkflowStage.DRAFT_READY else it.screenshotWorkflowStage,
                 error = if (!hasCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
             )
         }
@@ -346,6 +372,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     fieldVersions = emptyMap(),
                     screenshotGateReason = null,
                     screenshotDeadlineHint = null,
+                    screenshotPromptSummary = null,
+                    screenshotConfidenceBand = null,
+                    screenshotScenarioType = null,
+                    screenshotPrimaryEvidence = emptyList(),
+                    screenshotWorkflowStage = ScreenshotWorkflowStage.CONFIRMED,
                     error = syncWarnings.distinct().takeIf { warnings -> warnings.isNotEmpty() }?.joinToString("\n"),
                 )
             }

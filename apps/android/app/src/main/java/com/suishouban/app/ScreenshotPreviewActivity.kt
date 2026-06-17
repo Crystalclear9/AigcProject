@@ -51,6 +51,10 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         val ocrText = intent.getStringExtra(EXTRA_OCR_TEXT)
         val gateReason = intent.getStringExtra(EXTRA_GATE_REASON)
         val deadlineHint = intent.getStringExtra(EXTRA_DEADLINE_HINT)
+        val promptSummary = intent.getStringExtra(EXTRA_PROMPT_SUMMARY)
+        val confidenceBand = intent.getStringExtra(EXTRA_CONFIDENCE_BAND)
+        val scenarioType = intent.getStringExtra(EXTRA_SCENARIO_TYPE)
+        val primaryEvidence = intent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -67,6 +71,10 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                             ocrText = ocrText,
                             gateReason = gateReason,
                             deadlineHint = deadlineHint,
+                            promptSummary = promptSummary,
+                            confidenceBand = confidenceBand,
+                            scenarioType = scenarioType,
+                            primaryEvidence = primaryEvidence,
                         )
                     } else {
                         viewModel.analyzeImage(screenshotUri, notifyWhenEmpty = true)
@@ -88,6 +96,10 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_OCR_TEXT = "com.suishouban.app.extra.OCR_TEXT"
         const val EXTRA_GATE_REASON = "com.suishouban.app.extra.GATE_REASON"
         const val EXTRA_DEADLINE_HINT = "com.suishouban.app.extra.DEADLINE_HINT"
+        const val EXTRA_PROMPT_SUMMARY = "com.suishouban.app.extra.PROMPT_SUMMARY"
+        const val EXTRA_CONFIDENCE_BAND = "com.suishouban.app.extra.CONFIDENCE_BAND"
+        const val EXTRA_SCENARIO_TYPE = "com.suishouban.app.extra.SCENARIO_TYPE"
+        const val EXTRA_PRIMARY_EVIDENCE = "com.suishouban.app.extra.PRIMARY_EVIDENCE"
     }
 }
 
@@ -110,7 +122,8 @@ private fun ScreenshotPreviewDialog(
                 Column(Modifier.weight(1f)) {
                     Text("发现可能行动事项", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(
-                        text = state.screenshotDeadlineHint
+                        text = state.screenshotPromptSummary
+                            ?: state.screenshotDeadlineHint
                             ?: state.screenshotGateReason
                             ?: if (state.engine.isBlank()) "正在根据 OCR 生成草稿" else state.engine,
                         style = MaterialTheme.typography.bodySmall,
@@ -175,6 +188,27 @@ private fun DraftPane(
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
+            if (state.screenshotPrimaryEvidence.isNotEmpty() || state.screenshotScenarioType != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.screenshotScenarioType?.let {
+                        Text(
+                            text = "识别场景：${scenarioLabel(it)}" +
+                                (state.screenshotConfidenceBand?.let { band -> " · ${confidenceLabel(band)}" } ?: ""),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    state.screenshotPrimaryEvidence.take(4).forEach { evidence ->
+                        Text(
+                            text = "• $evidence",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        item {
             PreviewActionsCard(previewActions = state.previewActions)
         }
         items(state.draftCards, key = { it.id }) { card ->
@@ -196,4 +230,20 @@ private fun DraftPane(
             }
         }
     }
+}
+
+private fun scenarioLabel(value: String): String = when (value) {
+    "course_notice" -> "课程/作业通知"
+    "chat_promise" -> "聊天承诺"
+    "registration" -> "报名/提交"
+    "meeting" -> "会议/汇报"
+    "noise" -> "干扰内容"
+    "own_app" -> "随手办界面"
+    else -> "待确认"
+}
+
+private fun confidenceLabel(value: String): String = when (value) {
+    "high" -> "高可信"
+    "medium" -> "中可信"
+    else -> "低可信"
 }

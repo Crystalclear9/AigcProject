@@ -81,10 +81,18 @@ class ScreenshotMonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_IGNORE_SCREENSHOT) {
-            val mediaId = intent.getLongExtra(EXTRA_MEDIA_ID, -1L)
-            if (mediaId > 0) ignoredScreenshotIds += mediaId
-            NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
+        when (intent?.action) {
+            ACTION_IGNORE_SCREENSHOT -> {
+                val mediaId = intent.getLongExtra(EXTRA_MEDIA_ID, -1L)
+                if (mediaId > 0) ignoredScreenshotIds += mediaId
+                NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
+                Log.i(TAG, "Screenshot prompt ignored: mediaId=$mediaId")
+            }
+            ACTION_GENERATE_SCREENSHOT -> {
+                NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
+                Log.i(TAG, "Screenshot prompt generate action received: uri=${intent.data}")
+                startActivity(buildPreviewIntentFromAction(intent))
+            }
         }
         return START_STICKY
     }
@@ -272,18 +280,24 @@ class ScreenshotMonitorService : Service() {
             return
         }
         val notificationId = uri.hashCode()
-        val intent = Intent(this, ScreenshotPreviewActivity::class.java).apply {
-            action = ACTION_PROCESS_SCREENSHOT
-            data = uri
-            putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TEXT, ocrText)
-            putExtra(ScreenshotPreviewActivity.EXTRA_GATE_REASON, gate.reason)
-            putExtra(ScreenshotPreviewActivity.EXTRA_DEADLINE_HINT, gate.deadlineHint)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
+        val intent = buildPreviewIntent(uri, ocrText, gate)
         val pendingIntent = PendingIntent.getActivity(
             this,
             notificationId,
             intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val generateIntent = Intent(this, ScreenshotMonitorService::class.java).apply {
+            action = ACTION_GENERATE_SCREENSHOT
+            data = uri
+            putExtras(intent)
+            putExtra(EXTRA_MEDIA_ID, mediaId)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val generatePendingIntent = PendingIntent.getService(
+            this,
+            notificationId + 2,
+            generateIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val ignoreIntent = Intent(this, ScreenshotMonitorService::class.java).apply {
@@ -301,7 +315,7 @@ class ScreenshotMonitorService : Service() {
         val compactView = RemoteViews(packageName, R.layout.notification_action_suggestion).apply {
             setTextViewText(R.id.notification_action_title, "可能有待办")
             setTextViewText(R.id.notification_action_content, content)
-            setOnClickPendingIntent(R.id.notification_generate, pendingIntent)
+            setOnClickPendingIntent(R.id.notification_generate, generatePendingIntent)
             setOnClickPendingIntent(R.id.notification_ignore, ignorePendingIntent)
         }
         val notification = NotificationCompat.Builder(this, PROMPT_CHANNEL_ID)
@@ -310,7 +324,7 @@ class ScreenshotMonitorService : Service() {
             .setContentText(content)
             .setContentIntent(pendingIntent)
             .setCustomContentView(compactView)
-            .addAction(R.drawable.ic_launcher_foreground, "生成", pendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "生成", generatePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "忽略", ignorePendingIntent)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -324,11 +338,42 @@ class ScreenshotMonitorService : Service() {
         NotificationManagerCompat.from(this).notify(notificationId, notification)
     }
 
+    private fun buildPreviewIntent(
+        uri: Uri,
+        ocrText: String,
+        gate: ScreenshotActionGateResult,
+    ): Intent {
+        return Intent(this, ScreenshotPreviewActivity::class.java).apply {
+            action = ACTION_PROCESS_SCREENSHOT
+            data = uri
+            putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TEXT, ocrText)
+            putExtra(ScreenshotPreviewActivity.EXTRA_GATE_REASON, gate.reason)
+            putExtra(ScreenshotPreviewActivity.EXTRA_DEADLINE_HINT, gate.deadlineHint)
+            putExtra(ScreenshotPreviewActivity.EXTRA_PROMPT_SUMMARY, gate.promptSummary)
+            putExtra(ScreenshotPreviewActivity.EXTRA_CONFIDENCE_BAND, gate.confidenceBand)
+            putExtra(ScreenshotPreviewActivity.EXTRA_SCENARIO_TYPE, gate.scenarioType)
+            putStringArrayListExtra(
+                ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE,
+                ArrayList(gate.primaryEvidence),
+            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+    }
+
+    private fun buildPreviewIntentFromAction(source: Intent): Intent {
+        return Intent(this, ScreenshotPreviewActivity::class.java).apply {
+            action = ACTION_PROCESS_SCREENSHOT
+            data = source.data
+            source.extras?.let { putExtras(it) }
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+    }
+
     private fun buildPromptContent(gate: ScreenshotActionGateResult): String {
-        val title = gate.suggestedTitle ?: "可能的行动事项"
-        return gate.deadlineHint?.takeIf { it.isNotBlank() }?.let {
-            "$title · $it"
-        } ?: title
+        return gate.promptSummary
+            ?: gate.deadlineHint?.takeIf { it.isNotBlank() }?.let { "可能的行动事项 · $it" }
+            ?: gate.suggestedTitle
+            ?: "可能的行动事项"
     }
 
     private fun ensureChannel() {
@@ -356,6 +401,7 @@ class ScreenshotMonitorService : Service() {
 
     companion object {
         const val ACTION_PROCESS_SCREENSHOT = "com.suishouban.app.action.PROCESS_SCREENSHOT"
+        private const val ACTION_GENERATE_SCREENSHOT = "com.suishouban.app.action.GENERATE_SCREENSHOT"
         private const val ACTION_IGNORE_SCREENSHOT = "com.suishouban.app.action.IGNORE_SCREENSHOT"
         private const val EXTRA_MEDIA_ID = "com.suishouban.app.extra.MEDIA_ID"
         private const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"

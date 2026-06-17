@@ -8,6 +8,11 @@ data class ScreenshotActionGateResult(
     val deadlineHint: String? = null,
     val confidence: Double = 0.0,
     val evidenceExcerpt: String? = null,
+    val promptSummary: String? = null,
+    val confidenceBand: String = ConfidenceBands.LOW,
+    val scenarioType: String = ScenarioTypes.UNKNOWN,
+    val primaryEvidence: List<String> = emptyList(),
+    val negativeSignals: List<String> = emptyList(),
 )
 
 class ScreenshotActionGate(
@@ -20,10 +25,19 @@ class ScreenshotActionGate(
     ): ScreenshotActionGateResult {
         val normalized = normalizer.normalize(ocrText)
         if (normalized.fullText.length < MIN_TEXT_LENGTH) {
-            return ScreenshotActionGateResult(false, "OCR 文本过短，未发现明确行动信号")
+            return ScreenshotActionGateResult(
+                shouldPrompt = false,
+                reason = "OCR 文本过短，未发现明确行动信号",
+                scenarioType = ScenarioTypes.UNKNOWN,
+            )
         }
         if (looksLikeOwnAppUi(normalized.fullText)) {
-            return ScreenshotActionGateResult(false, "随手办自身界面截图，跳过自动生成")
+            return ScreenshotActionGateResult(
+                shouldPrompt = false,
+                reason = "随手办自身界面截图，跳过自动生成",
+                scenarioType = ScenarioTypes.OWN_APP,
+                negativeSignals = listOf("own_app_ui"),
+            )
         }
 
         val scoredWindows = normalized.windows.map { scoreWindow(it) }.sortedByDescending { it.score }
@@ -31,7 +45,12 @@ class ScreenshotActionGate(
         val confidence = (best.score / 12.0).coerceIn(0.0, 1.0)
         val title = suggestedTitle(best.text) ?: suggestedTitle(normalized.fullText)
         val deadline = deadlineHint(best.text) ?: deadlineHint(normalized.fullText)
-        val shouldPrompt = best.isActionable && confidence >= 0.58 && (title != null || deadline != null)
+        val scenario = scenarioType(best.text, normalized.fullText, best)
+        val shouldPrompt = best.isActionable &&
+            confidence >= 0.58 &&
+            (title != null || deadline != null) &&
+            scenario !in setOf(ScenarioTypes.NOISE, ScenarioTypes.OWN_APP)
+        val promptSummary = promptSummary(title, deadline)
 
         val reason = if (shouldPrompt) {
             buildString {
@@ -40,7 +59,11 @@ class ScreenshotActionGate(
                 deadline?.let { append("；候选截止 ").append(it) }
             }
         } else {
-            "无明确行动信号"
+            if (best.negativeSignals.isNotEmpty()) {
+                "命中干扰或广告信号，未提示"
+            } else {
+                "无明确行动信号"
+            }
         }
 
         return ScreenshotActionGateResult(
@@ -51,6 +74,11 @@ class ScreenshotActionGate(
             deadlineHint = deadline,
             confidence = confidence,
             evidenceExcerpt = best.text.take(MAX_EVIDENCE_LENGTH),
+            promptSummary = promptSummary,
+            confidenceBand = confidenceBand(confidence),
+            scenarioType = scenario,
+            primaryEvidence = primaryEvidence(best, title, deadline),
+            negativeSignals = best.negativeSignals,
         )
     }
 
@@ -97,8 +125,47 @@ class ScreenshotActionGate(
             text = text,
             score = score,
             signals = signals,
+            negativeSignals = negativeHits,
             isActionable = score >= 7 && (hasTaskCore || hasDeadlineTask || hasPromise),
         )
+    }
+
+    private fun promptSummary(title: String?, deadline: String?): String? {
+        val cleanTitle = title?.takeIf { it.isNotBlank() }
+        val cleanDeadline = deadline?.takeIf { it.isNotBlank() }
+        return when {
+            cleanTitle != null && cleanDeadline != null -> "$cleanTitle · $cleanDeadline"
+            cleanTitle != null -> cleanTitle
+            cleanDeadline != null -> "可能的行动事项 · $cleanDeadline"
+            else -> null
+        }?.take(MAX_PROMPT_SUMMARY_LENGTH)
+    }
+
+    private fun primaryEvidence(best: WindowScore, title: String?, deadline: String?): List<String> {
+        return buildList {
+            title?.let { add("候选事项：$it") }
+            deadline?.let { add("候选时间：$it") }
+            best.signals.take(4).forEach { add(it) }
+            best.text.take(MAX_EVIDENCE_LENGTH).takeIf { it.isNotBlank() }?.let { add("片段：$it") }
+        }.distinct().take(6)
+    }
+
+    private fun confidenceBand(confidence: Double): String = when {
+        confidence >= 0.82 -> ConfidenceBands.HIGH
+        confidence >= 0.58 -> ConfidenceBands.MEDIUM
+        else -> ConfidenceBands.LOW
+    }
+
+    private fun scenarioType(text: String, fullText: String, best: WindowScore): String {
+        val merged = "$text $fullText"
+        return when {
+            best.negativeSignals.size >= 2 || looksLikeChromeOnly(text) -> ScenarioTypes.NOISE
+            COMMITMENT_SIGNALS.any { it in merged } -> ScenarioTypes.CHAT_PROMISE
+            listOf("报名", "比赛", "官网", "报名表", "作品说明书").any { it in merged } -> ScenarioTypes.REGISTRATION
+            listOf("会议", "组会", "腾讯会议", "开会", "汇报").any { it in merged } -> ScenarioTypes.MEETING
+            listOf("课程", "作业", "实验报告", "学习通", "老师").any { it in merged } -> ScenarioTypes.COURSE_NOTICE
+            else -> ScenarioTypes.UNKNOWN
+        }
     }
 
     private fun suggestedTitle(text: String): String? {
@@ -140,6 +207,7 @@ class ScreenshotActionGate(
         val text: String,
         val score: Int,
         val signals: List<String>,
+        val negativeSignals: List<String>,
         val isActionable: Boolean,
     )
 
@@ -148,6 +216,7 @@ class ScreenshotActionGate(
         private const val MAX_TITLE_LENGTH = 24
         private const val MAX_DEADLINE_HINT_LENGTH = 36
         private const val MAX_EVIDENCE_LENGTH = 160
+        private const val MAX_PROMPT_SUMMARY_LENGTH = 56
 
         private val TRIM_CHARS = charArrayOf(' ', '，', '。', '；', ';', '：', ':', '\n', '\r', '\t', '-', '—')
         private val ACTION_SIGNALS = listOf(
@@ -171,6 +240,7 @@ class ScreenshotActionGate(
         private val COMMITMENT_SIGNALS = listOf("我来", "我会", "我负责", "帮我", "帮你", "麻烦", "记得", "别忘", "提醒我", "说好了")
         private val NEGATIVE_SIGNALS = listOf(
             "优惠券", "秒杀", "抢购", "满减", "直播间", "购物车", "下单", "广告", "游戏", "皮肤", "金币",
+            "领券", "折扣", "特价", "爆款", "包邮", "到手价", "清仓", "主播", "种草",
         )
         private val CHROME_SIGNALS = listOf(
             "5G", "WiFi", "电量", "今日", "导入", "卡片", "日历", "设置", "首页", "消息", "我的", "返回",
@@ -202,6 +272,32 @@ class ScreenshotActionGate(
     }
 }
 
+object ScenarioTypes {
+    const val COURSE_NOTICE = "course_notice"
+    const val CHAT_PROMISE = "chat_promise"
+    const val REGISTRATION = "registration"
+    const val MEETING = "meeting"
+    const val NOISE = "noise"
+    const val OWN_APP = "own_app"
+    const val UNKNOWN = "unknown"
+}
+
+object ConfidenceBands {
+    const val LOW = "low"
+    const val MEDIUM = "medium"
+    const val HIGH = "high"
+}
+
+enum class ScreenshotWorkflowStage {
+    OCR_DETECTED,
+    GATE_PASSED,
+    PROMPT_SHOWN,
+    DRAFT_READY,
+    REVIEWING,
+    CONFIRMED,
+    IGNORED,
+}
+
 data class TextWindow(val text: String)
 
 class OcrTextNormalizer {
@@ -211,9 +307,10 @@ class OcrTextNormalizer {
             .joinToString("")
             .replace('\u00A0', ' ')
             .replace(Regex("[\\u200B-\\u200D\\uFEFF]"), "")
-            .replace(Regex("[|｜•·●◆◇★☆]+"), " ")
+            .replace(Regex("[|｜•·●◆◇★☆✨※→←↑↓✓✔✦✧]+"), " ")
             .replace(Regex("[ \t]+"), " ")
             .replaceKnownSeparatedWords()
+            .normalizeDateAndTimeSeparators()
 
         val lines = converted
             .split(Regex("[\\r\\n]+"))
@@ -259,6 +356,26 @@ class OcrTextNormalizer {
 
     private fun String.replaceKnownSeparatedWords(): String {
         return this
+            .mergeSeparatedKeyword("截止")
+            .mergeSeparatedKeyword("截至")
+            .mergeSeparatedKeyword("提交")
+            .mergeSeparatedKeyword("报名")
+            .mergeSeparatedKeyword("上传")
+            .mergeSeparatedKeyword("完成")
+            .mergeSeparatedKeyword("准备")
+            .mergeSeparatedKeyword("会议")
+            .mergeSeparatedKeyword("组会")
+            .mergeSeparatedKeyword("开会")
+            .mergeSeparatedKeyword("实验报告")
+            .mergeSeparatedKeyword("学习通")
+            .mergeSeparatedKeyword("腾讯会议")
+            .mergeSeparatedKeyword("作品说明书")
+            .mergeSeparatedKeyword("团队信息表")
+            .mergeSeparatedKeyword("报名表")
+            .mergeSeparatedKeyword("商业计划书")
+            .mergeSeparatedKeyword("进展汇报")
+            .mergeSeparatedKeyword("截止时间")
+            .mergeSeparatedKeyword("报名通道")
             .replace(Regex("截\\s*[止至]"), "截止")
             .replace(Regex("报\\s*名"), "报名")
             .replace(Regex("学\\s*习\\s*通"), "学习通")
@@ -266,6 +383,25 @@ class OcrTextNormalizer {
             .replace(Regex("腾\\s*讯\\s*会\\s*议"), "腾讯会议")
             .replace(Regex("P\\s*P\\s*T", RegexOption.IGNORE_CASE), "PPT")
             .replace(Regex("D\\s*D\\s*L", RegexOption.IGNORE_CASE), "DDL")
+    }
+
+    private fun String.mergeSeparatedKeyword(keyword: String): String {
+        if (keyword.length < 2) return this
+        val pattern = keyword.map { Regex.escape(it.toString()) }.joinToString("\\s*")
+        return replace(Regex(pattern), keyword)
+    }
+
+    private fun String.normalizeDateAndTimeSeparators(): String {
+        return this
+            .replace(Regex("(20\\d{2})\\s*[-/.]\\s*(\\d{1,2})\\s*[-/.]\\s*(\\d{1,2})")) {
+                "${it.groupValues[1]}/${it.groupValues[2]}/${it.groupValues[3]}"
+            }
+            .replace(Regex("(\\d{1,2})\\s*[:：]\\s*(\\d{2})")) {
+                "${it.groupValues[1]}:${it.groupValues[2]}"
+            }
+            .replace(Regex("(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*[日号]?")) {
+                "${it.groupValues[1]}月${it.groupValues[2]}日"
+            }
     }
 
     companion object {
