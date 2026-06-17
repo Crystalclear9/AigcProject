@@ -24,7 +24,7 @@
 .\scripts\deploy_remote_android.ps1
 ```
 
-默认云真机为 `val-vclinner-rt-contest.vivo.com.cn:35185`。vivo 安装器会要求勾选风险提示并确认安装，部署脚本会自动处理该页面。
+默认云真机为 `val-vclinner-rt-contest.vivo.com.cn:35109`。vivo 安装器会要求勾选风险提示并确认安装，部署脚本会自动处理该页面。
 
 部分云真机虽然接受 `adb reverse`，但不会把流量转发到开发机。在线端到端测试应建立临时 HTTPS 隧道，再在 App 设置页写入该地址并使用“测试服务连接”。临时 URL、截图、日志和隧道输出均不得提交。
 

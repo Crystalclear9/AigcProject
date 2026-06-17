@@ -1,6 +1,9 @@
 package com.suishouban.app.domain
 
 import com.suishouban.app.domain.screenshot.ScreenshotActionGate
+import com.suishouban.app.domain.screenshot.ConfidenceBands
+import com.suishouban.app.domain.screenshot.ScenarioTypes
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -77,6 +80,9 @@ class ScreenshotActionGateTest {
         assertTrue(result.shouldPrompt)
         assertTrue(result.suggestedTitle?.contains("实验报告") == true)
         assertTrue(result.deadlineHint?.contains("6 月 20 日") == true || result.deadlineHint?.contains("6月20日") == true)
+        assertEquals(ScenarioTypes.COURSE_NOTICE, result.scenarioType)
+        assertTrue(result.promptSummary?.contains("实验报告") == true)
+        assertTrue(result.primaryEvidence.isNotEmpty())
     }
 
     @Test
@@ -93,6 +99,8 @@ class ScreenshotActionGateTest {
 
         assertTrue(result.shouldPrompt)
         assertTrue(result.matchedSignals.any { it.contains("截止:DDL") || it.contains("截止:ddl") })
+        assertEquals(ScenarioTypes.REGISTRATION, result.scenarioType)
+        assertEquals(ConfidenceBands.HIGH, result.confidenceBand)
     }
 
     @Test
@@ -100,6 +108,8 @@ class ScreenshotActionGateTest {
         val result = gate.evaluate("618 优惠券 限时秒杀 明晚20:00截止 抢购满减 购物车 下单")
 
         assertFalse(result.shouldPrompt)
+        assertEquals(ScenarioTypes.NOISE, result.scenarioType)
+        assertTrue(result.negativeSignals.isNotEmpty())
     }
 
     @Test
@@ -115,6 +125,7 @@ class ScreenshotActionGateTest {
 
         assertTrue(result.shouldPrompt)
         assertTrue(result.suggestedTitle?.contains("会议") == true || result.suggestedTitle?.contains("汇报") == true)
+        assertEquals(ScenarioTypes.MEETING, result.scenarioType)
     }
 
     @Test
@@ -131,5 +142,23 @@ class ScreenshotActionGateTest {
         )
 
         assertFalse(result.shouldPrompt)
+        assertEquals(ScenarioTypes.OWN_APP, result.scenarioType)
+    }
+
+    @Test
+    fun restoresSeparatedPosterKeywordsAndProducesPromptSummary() {
+        val result = gate.evaluate(
+            """
+            商 业 计 划 书 路 演
+            请 在 2026 / 06 / 21 18 : 30 前
+            上 传 P P T 和 团 队 信 息 表
+            提 交 至 官 网 报 名 通 道
+            """.trimIndent()
+        )
+
+        assertTrue(result.shouldPrompt)
+        assertTrue(result.promptSummary?.contains("上传") == true || result.promptSummary?.contains("提交") == true)
+        assertTrue(result.deadlineHint?.contains("2026/06/21") == true || result.deadlineHint?.contains("2026 / 06 / 21") == true)
+        assertTrue(result.primaryEvidence.any { it.contains("候选时间") })
     }
 }

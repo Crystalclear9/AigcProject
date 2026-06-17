@@ -20,7 +20,9 @@ import com.suishouban.app.data.remote.DraftFieldOperation
 import com.suishouban.app.data.remote.DraftPatchRequest
 import com.suishouban.app.data.remote.WorkflowEventEnvelope
 import com.suishouban.app.data.model.NodeTrace
-import com.suishouban.app.domain.LocalActionExtractor
+import com.suishouban.app.domain.ActionEnhancementInput
+import com.suishouban.app.domain.ActionEnhancer
+import com.suishouban.app.domain.LocalRuleActionEnhancer
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -43,7 +45,7 @@ class ActionCardRepository(
 ) {
     private val appContext = context.applicationContext
     private val dao = AppDatabase.get(context).cardDao()
-    private val extractor = LocalActionExtractor()
+    private val localEnhancer: ActionEnhancer = LocalRuleActionEnhancer()
     private val workflowPrefs = appContext.getSharedPreferences("workflow_runtime", Context.MODE_PRIVATE)
     private val gson = Gson()
 
@@ -80,7 +82,13 @@ class ActionCardRepository(
             }.getOrNull()
             if (remoteResult != null) return remoteResult
         }
-        val localResult = extractor.extract(text)
+        val localResult = localEnhancer.enhance(
+            ActionEnhancementInput(
+                ocrText = text,
+                screenshotTime = screenshotTime,
+                source = enginePrefix ?: "local",
+            )
+        )
         return localResult.copy(engine = prefixEngine(localResult.engine, enginePrefix))
     }
 
