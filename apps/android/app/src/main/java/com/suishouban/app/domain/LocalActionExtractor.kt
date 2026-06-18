@@ -14,26 +14,128 @@ class LocalActionExtractor {
     private val textNormalizer = OcrTextNormalizer()
 
     fun extract(text: String): AnalyzeResult {
-        val normalized = textNormalizer.normalize(text).fullText.ifBlank {
+        val normalizedOcr = textNormalizer.normalize(text)
+        val normalized = normalizedOcr.fullText.ifBlank {
             text.replace(Regex("\\s+"), " ").trim()
         }
-        val cards = if (!isActionableText(normalized)) {
-            emptyList()
-        } else if (hasMeetingPreparation(normalized)) {
-            listOf(
-                buildCard(normalized, CardTypes.EVENT, title = if ("组会" in normalized) "参加组会" else "参加会议"),
-                buildCard(normalized, CardTypes.TASK, title = if ("汇报" in normalized) "准备进展汇报" else "准备会议材料"),
-            )
-        } else {
-            val cardType = classify(normalized)
-            if (cardType == null) emptyList() else listOf(buildCard(normalized, cardType))
-        }
+        val segments = splitActionSegments(normalizedOcr.lines, normalized)
+        val rawCards = segments
+            .flatMap { segment -> extractCardsFromSegment(segment) }
+            .ifEmpty { extractCardsFromSegment(normalized) }
+        val cards = mergeSimilarCandidates(rawCards)
         return AnalyzeResult(
             ocrText = normalized,
             cards = cards,
             previewActions = previewActions(cards),
             engine = "local-rules",
         )
+    }
+
+    private fun extractCardsFromSegment(segment: String): List<ActionCard> {
+        val text = segment.trim()
+        if (!isActionableText(text)) return emptyList()
+        if (hasMeetingPreparation(text)) {
+            return listOf(
+                buildCard(text, CardTypes.EVENT, title = if ("组会" in text) "参加组会" else "参加会议"),
+                buildCard(text, CardTypes.TASK, title = if ("汇报" in text) "准备进展汇报" else "准备会议材料"),
+            )
+        }
+        val cardType = classify(text) ?: return emptyList()
+        return listOf(buildCard(text, cardType))
+    }
+
+    private fun mergeSimilarCandidates(cards: List<ActionCard>): List<ActionCard> {
+        val merged = mutableListOf<ActionCard>()
+        cards.sortedByDescending(::cardEvidenceScore).forEach { candidate ->
+            val existingIndex = merged.indexOfFirst { existing -> areSameAction(existing, candidate) }
+            if (existingIndex < 0) {
+                merged += candidate
+            } else if (cardEvidenceScore(candidate) > cardEvidenceScore(merged[existingIndex])) {
+                merged[existingIndex] = candidate
+            }
+        }
+        return merged
+    }
+
+    private fun areSameAction(left: ActionCard, right: ActionCard): Boolean {
+        if (left.cardType != right.cardType) return false
+        val sameTime = left.primaryTimeKey().isNotBlank() && left.primaryTimeKey() == right.primaryTimeKey()
+        val sharedMaterials = left.materials.intersect(right.materials.toSet()).isNotEmpty()
+        val sameSubmitMethod = left.submitMethod != null && left.submitMethod == right.submitMethod
+        val sourceOverlap = textOverlap(left.sourceText, right.sourceText) >= 0.48
+        val titleOverlap = textOverlap(left.title, right.title) >= 0.58
+        return sourceOverlap && (sameTime || sharedMaterials || sameSubmitMethod || titleOverlap)
+    }
+
+    private fun cardEvidenceScore(card: ActionCard): Int {
+        var score = card.sourceText.length.coerceAtMost(160) / 10
+        if (!card.deadline.isNullOrBlank() || !card.startTime.isNullOrBlank()) score += 12
+        if (card.materials.isNotEmpty()) score += 8 + card.materials.size
+        if (!card.submitMethod.isNullOrBlank()) score += 6
+        if (!card.location.isNullOrBlank()) score += 4
+        if (card.title !in setOf("处理截图事项", "提交材料")) score += 4
+        score += card.evidenceSummary.size
+        return score
+    }
+
+    private fun textOverlap(left: String, right: String): Double {
+        val a = left.normalizedKey()
+        val b = right.normalizedKey()
+        if (a.isBlank() || b.isBlank()) return 0.0
+        if (a.contains(b) || b.contains(a)) return 1.0
+        val gramsA = a.charNgrams()
+        val gramsB = b.charNgrams()
+        if (gramsA.isEmpty() || gramsB.isEmpty()) return 0.0
+        val shared = gramsA.intersect(gramsB).size
+        return shared.toDouble() / minOf(gramsA.size, gramsB.size)
+    }
+
+    private fun splitActionSegments(lines: List<String>, fullText: String): List<String> {
+        val candidates = mutableListOf<String>()
+        val usefulLines = lines.filter { line -> line.length >= 4 && !looksLikeChromeOnly(line) }
+        usefulLines.forEachIndexed { index, line ->
+            val contextWindow = usefulLines
+                .subList((index - 1).coerceAtLeast(0), (index + 3).coerceAtMost(usefulLines.size))
+                .joinToString(" ")
+            when {
+                isActionableText(contextWindow) -> candidates += contextWindow
+                isActionableText(line) -> {
+                    val next = usefulLines.getOrNull(index + 1)
+                        ?.takeIf { !isActionableText(it) && hasKeySignal("$line $it") }
+                    candidates += listOfNotNull(line, next).joinToString(" ")
+                }
+            }
+        }
+
+        val splitText = fullText
+            .replace(Regex("([①②③④⑤⑥⑦⑧⑨])"), "\n$1")
+            .replace(Regex("(?<!\\d)([1-9][、.．)]\\s*)"), "\n$1")
+            .replace(Regex("(另外|同时|还有|并且|以及|请各位|各组需|注意[:：])"), "\n$1")
+        splitText
+            .split(Regex("[\\n；;。]+"))
+            .map { it.trim(' ', '，', ',', '-', '—') }
+            .filter { it.length >= 6 }
+            .filter { isActionableText(it) }
+            .forEach { candidates += it }
+
+        if (candidates.isEmpty() && isActionableText(fullText)) candidates += fullText
+        return candidates
+            .map { it.replace(Regex("\\s+"), " ").trim() }
+            .filter { it.isNotBlank() }
+            .sortedByDescending { segmentEvidenceScore(it) }
+            .distinctBy { it.normalizedKey() }
+            .take(MAX_SEGMENTS)
+    }
+
+    private fun segmentEvidenceScore(text: String): Int {
+        var score = text.length.coerceAtMost(120) / 12
+        if (hasTimeSignal(text)) score += 6
+        if (extractMaterials(text).isNotEmpty()) score += 5
+        if (extractSubmitMethod(text) != null) score += 4
+        if (extractLocation(text) != null) score += 3
+        score += taskWords.count { it in text } * 2
+        score += eventWords.count { it in text } * 2
+        return score
     }
 
     private fun isActionableText(text: String): Boolean {
@@ -69,6 +171,12 @@ class LocalActionExtractor {
 
     private fun hasMeetingPreparation(text: String): Boolean {
         return listOf("组会", "开会", "会议").any { it in text } && listOf("准备", "汇报").any { it in text }
+    }
+
+    private fun looksLikeChromeOnly(text: String): Boolean {
+        val chromeHits = listOf("首页", "返回", "设置", "消息", "我的", "搜索", "5G", "WiFi", "电量").count { it in text }
+        val actionHits = taskWords.count { it in text } + eventWords.count { it in text } + promiseWords.count { it in text }
+        return chromeHits >= 3 && actionHits == 0
     }
 
     private fun classify(text: String): String? = when {
@@ -113,10 +221,29 @@ class LocalActionExtractor {
             reminders = ReminderPolicy.recommend(cardType, priority, hasTime),
             needConfirm = needConfirm,
             sourceText = text,
+            evidenceSummary = evidenceSummary(text, time.value, location, submitMethod),
         )
     }
 
+    private fun evidenceSummary(
+        text: String,
+        time: String?,
+        location: String?,
+        submitMethod: String?,
+    ): List<String> {
+        return buildList {
+            time?.let { add("时间：$it") }
+            location?.let { add("地点/平台：$it") }
+            submitMethod?.let { add("方式：$it") }
+            extractMaterials(text).takeIf { it.isNotEmpty() }?.let { add("材料：${it.joinToString("、")}") }
+            add("片段：${text.take(80)}")
+        }.distinct().take(5)
+    }
+
     private fun inferTitle(text: String, cardType: String): String = when {
+        Regex("(提交|上传|完成|填写|报名|准备|参加|发送|缴费|复习|整理)[^，。；;！？!?\n]{2,20}").find(text) != null ->
+            Regex("(提交|上传|完成|填写|报名|准备|参加|发送|缴费|复习|整理)[^，。；;！？!?\n]{2,20}")
+                .find(text)!!.value.trim().take(28)
         "实验报告" in text -> "提交实验报告"
         "AIGC" in text -> "完成 AIGC 创新赛报名"
         "比赛" in text && "报名" in text -> "完成比赛报名"
@@ -280,6 +407,7 @@ class LocalActionExtractor {
     }
 
     private companion object {
+        const val MAX_SEGMENTS = 8
         val taskWords = listOf("提交", "报名", "上传", "填写", "截止", "截至", "DDL", "deadline", "作业", "报告", "发送", "准备", "完成", "整理")
         val eventWords = listOf("开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加")
         val promiseWords = listOf("帮我", "帮你", "答应", "可以，我", "我来", "没问题", "承诺", "说好了")
@@ -287,3 +415,14 @@ class LocalActionExtractor {
         val objectWords = listOf("老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件")
     }
 }
+
+private fun String.normalizedKey(): String =
+    lowercase().replace(Regex("[^a-z0-9\\u4e00-\\u9fff]+"), "")
+
+private fun String.charNgrams(size: Int = 3): Set<String> {
+    if (length <= size) return if (isBlank()) emptySet() else setOf(this)
+    return windowed(size).toSet()
+}
+
+private fun ActionCard.primaryTimeKey(): String =
+    (startTime ?: deadline ?: "").take(16)

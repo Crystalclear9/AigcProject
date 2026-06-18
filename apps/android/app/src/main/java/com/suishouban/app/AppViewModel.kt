@@ -5,10 +5,13 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.ActionCandidate
 import com.suishouban.app.data.model.AnalyzeResult
 import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.data.repository.EngineLabels
 import com.suishouban.app.data.model.NodeTrace
+import com.suishouban.app.domain.ocr.OcrCandidate
+import com.suishouban.app.domain.ocr.OcrRaceController
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -21,6 +24,8 @@ import kotlinx.coroutines.async
 data class AppUiState(
     val cards: List<ActionCard> = emptyList(),
     val draftCards: List<ActionCard> = emptyList(),
+    val actionCandidates: List<ActionCandidate> = emptyList(),
+    val selectedDraftIds: Set<String> = emptySet(),
     val previewActions: List<String> = emptyList(),
     val ocrText: String = "",
     val engine: String = "",
@@ -49,6 +54,7 @@ data class AppUiState(
     val screenshotScenarioType: String? = null,
     val screenshotPrimaryEvidence: List<String> = emptyList(),
     val screenshotWorkflowStage: ScreenshotWorkflowStage? = null,
+    val ocrArbitrationReason: String? = null,
     val connectionStatus: String = "未检测",
     val loading: Boolean = false,
     val error: String? = null,
@@ -62,6 +68,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val ocr = app.textRecognitionService
     private val scheduler = app.reminderScheduler
     private val calendarSyncer = app.calendarSyncer
+    private val ocrRaceController = OcrRaceController
     private val locallyEditedDraftIds = mutableSetOf<String>()
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
@@ -102,6 +109,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     error = null,
+                    actionCandidates = emptyList(),
+                    selectedDraftIds = emptySet(),
                     screenshotGateReason = null,
                     screenshotDeadlineHint = null,
                     screenshotPromptSummary = null,
@@ -109,6 +118,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotScenarioType = null,
                     screenshotPrimaryEvidence = emptyList(),
                     screenshotWorkflowStage = ScreenshotWorkflowStage.OCR_DETECTED,
+                    ocrArbitrationReason = null,
                 )
             }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
@@ -142,14 +152,28 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(loading = false, error = "Image recognition failed") }
                 return@launch
             }
+            val arbitration = ocrRaceController.arbitrate(
+                listOf(
+                    OcrCandidate(
+                        engine = "mlkit",
+                        text = text,
+                        blocks = text.lines().count { it.isNotBlank() },
+                        arrivedAtMs = 0L,
+                    ),
+                ),
+            ) ?: run {
+                _uiState.update { it.copy(loading = false, error = "Image recognition failed") }
+                return@launch
+            }
             analyzeTextInternal(
-                text = text,
+                text = arbitration.selectedCandidate.text,
                 onDone = onDone,
                 screenshotTime = screenshotTime,
-                enginePrefix = "mlkit",
+                enginePrefix = arbitration.selectedCandidate.engine,
                 extraWarnings = listOf("云端增强不可用，已使用端侧 OCR 与本地规则"),
                 notifyWhenEmpty = notifyWhenEmpty,
             )
+            _uiState.update { it.copy(ocrArbitrationReason = arbitration.reason) }
         }
     }
 
@@ -160,6 +184,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     error = null,
+                    actionCandidates = emptyList(),
+                    selectedDraftIds = emptySet(),
                     screenshotGateReason = null,
                     screenshotDeadlineHint = null,
                     screenshotPromptSummary = null,
@@ -167,13 +193,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotScenarioType = null,
                     screenshotPrimaryEvidence = emptyList(),
                     screenshotWorkflowStage = null,
+                    ocrArbitrationReason = null,
                 )
             }
             analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
         }
     }
 
+    fun prepareScreenshotPrompt(
+        ocrText: String,
+        gateReason: String?,
+        deadlineHint: String?,
+        promptSummary: String?,
+        confidenceBand: String?,
+        scenarioType: String?,
+        primaryEvidence: List<String>,
+    ) {
+        locallyEditedDraftIds.clear()
+        _uiState.update {
+            it.copy(
+                loading = false,
+                error = null,
+                ocrText = ocrText,
+                draftCards = emptyList(),
+                actionCandidates = emptyList(),
+                selectedDraftIds = emptySet(),
+                previewActions = emptyList(),
+                engine = "",
+                traceId = "",
+                screenshotGateReason = gateReason,
+                screenshotDeadlineHint = deadlineHint,
+                screenshotPromptSummary = promptSummary,
+                screenshotConfidenceBand = confidenceBand,
+                screenshotScenarioType = scenarioType,
+                screenshotPrimaryEvidence = primaryEvidence,
+                screenshotWorkflowStage = ScreenshotWorkflowStage.PROMPT_SHOWN,
+                ocrArbitrationReason = null,
+            )
+        }
+    }
+
     fun analyzeScreenshotPrompt(
+        screenshotUri: Uri? = null,
         ocrText: String,
         gateReason: String?,
         deadlineHint: String?,
@@ -193,6 +254,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     error = null,
+                    actionCandidates = emptyList(),
+                    selectedDraftIds = emptySet(),
                     ocrText = ocrText,
                     screenshotGateReason = gateReason,
                     screenshotDeadlineHint = deadlineHint,
@@ -200,17 +263,51 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotConfidenceBand = confidenceBand,
                     screenshotScenarioType = scenarioType,
                     screenshotPrimaryEvidence = primaryEvidence,
-                    screenshotWorkflowStage = ScreenshotWorkflowStage.GATE_PASSED,
+                    screenshotWorkflowStage = ScreenshotWorkflowStage.ANALYZING,
                 )
             }
-            analyzeTextInternal(
-                text = ocrText,
-                onDone = onDone,
-                screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString(),
-                enginePrefix = "mlkit",
-                extraWarnings = warnings,
+            val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
+            val remoteImageWorkflow = screenshotUri?.let { uri ->
+                async { runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull() }
+            }
+            val localResult = runCatching {
+                repository.analyzeTextLocal(
+                    text = ocrText,
+                    screenshotTime = screenshotTime,
+                    enginePrefix = "mlkit",
+                )
+            }.getOrElse { error ->
+                _uiState.update { it.copy(loading = false, error = "行动卡生成失败：${error.message ?: "未知错误"}") }
+                return@launch
+            }
+            val hasLocalCards = applyAnalyzeResult(
+                localResult.copy(warnings = warnings + localResult.warnings),
                 notifyWhenEmpty = true,
             )
+            onDone(hasLocalCards)
+
+            val cloudStart = remoteImageWorkflow?.await()
+            if (cloudStart?.traceId.isNullOrBlank()) return@launch
+            applyAnalyzeResult(
+                cloudStart!!.copy(
+                    engine = EngineLabels.withPrefix(cloudStart.engine, "mlkit"),
+                    warnings = warnings + listOf("云端增强正在校验截图和补全候选字段") + cloudStart.warnings,
+                ),
+            )
+            runCatching {
+                repository.submitOcrCandidate(cloudStart.traceId, ocrText)
+                repository.followWorkflow(cloudStart.traceId) { update ->
+                    val enhanced = update.copy(
+                        engine = EngineLabels.withPrefix(update.engine, "mlkit"),
+                        warnings = warnings + listOf("云端增强结果已合入候选；用户编辑字段保持锁定") + update.warnings,
+                    )
+                    applyAnalyzeResult(enhanced)
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(error = userVisibleWorkflowError(error, "云端增强失败，已保留端侧草稿"))
+                }
+            }
         }
     }
 
@@ -256,13 +353,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val hasCards = result.cards.isNotEmpty()
         _uiState.update {
             val localDrafts = it.draftCards.associateBy { card -> card.id }
-            val mergedDrafts = result.cards.map { incoming ->
-                if (incoming.id in locallyEditedDraftIds) localDrafts[incoming.id] ?: incoming else incoming
+            val incomingDrafts = result.cards
+            val mergedDrafts = when {
+                incomingDrafts.isEmpty() && it.draftCards.isNotEmpty() -> it.draftCards
+                locallyEditedDraftIds.isNotEmpty() -> mergeIncomingWithoutOverwritingUserDrafts(
+                    localDrafts = it.draftCards,
+                    incomingDrafts = incomingDrafts,
+                )
+                else -> incomingDrafts.map { incoming ->
+                    if (incoming.id in locallyEditedDraftIds) localDrafts[incoming.id] ?: incoming else incoming
+                }
+            }
+            val hasVisibleCards = mergedDrafts.isNotEmpty()
+            val previousSelections = it.selectedDraftIds
+            val nextSelectedIds = when {
+                !hasVisibleCards -> emptySet()
+                previousSelections.isEmpty() -> mergedDrafts.map { card -> card.id }.toSet()
+                else -> previousSelections.intersect(mergedDrafts.map { card -> card.id }.toSet())
+            }
+            val previousCandidates = it.actionCandidates.associateBy { candidate -> candidate.card.id }
+            val candidates = mergedDrafts.map { card ->
+                val previous = previousCandidates[card.id]
+                ActionCandidate(
+                    card = card,
+                    selected = card.id in nextSelectedIds,
+                    confidenceBand = previous?.confidenceBand ?: confidenceBand(result.overallConfidence),
+                    evidenceSummary = card.evidenceSummary.ifEmpty {
+                        previous?.evidenceSummary ?: result.decisionReasons.take(3)
+                    },
+                    sourceSpan = previous?.sourceSpan ?: card.sourceText.take(180),
+                    userLockedFields = previous?.userLockedFields.orEmpty(),
+                )
             }
             it.copy(
                 loading = false,
                 ocrText = result.ocrText,
                 draftCards = mergedDrafts,
+                actionCandidates = candidates,
+                selectedDraftIds = nextSelectedIds,
                 previewActions = result.previewActions,
                 engine = result.engine,
                 traceId = result.traceId,
@@ -283,29 +411,137 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 validationErrors = result.validationErrors,
                 fieldConflicts = result.fieldConflicts,
                 fieldVersions = result.fieldVersions,
-                screenshotWorkflowStage = if (hasCards) ScreenshotWorkflowStage.DRAFT_READY else it.screenshotWorkflowStage,
-                error = if (!hasCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
+                screenshotWorkflowStage = if (hasVisibleCards) ScreenshotWorkflowStage.CANDIDATES_READY else it.screenshotWorkflowStage,
+                error = if (!hasVisibleCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
             )
         }
-        return hasCards
+        return _uiState.value.draftCards.isNotEmpty()
+    }
+
+    private fun mergeIncomingWithoutOverwritingUserDrafts(
+        localDrafts: List<ActionCard>,
+        incomingDrafts: List<ActionCard>,
+    ): List<ActionCard> {
+        val merged = localDrafts.toMutableList()
+        incomingDrafts.forEach { incoming ->
+            val sameIndex = merged.indexOfFirst { existing -> sameActionCandidate(existing, incoming) }
+            when {
+                sameIndex < 0 -> merged += incoming
+                merged[sameIndex].id !in locallyEditedDraftIds -> merged[sameIndex] = incoming
+                else -> merged[sameIndex] = fillEmptyFields(merged[sameIndex], incoming)
+            }
+        }
+        return merged
+    }
+
+    private fun fillEmptyFields(local: ActionCard, incoming: ActionCard): ActionCard {
+        return local.copy(
+            summary = local.summary.ifBlank { incoming.summary },
+            deadline = local.deadline ?: incoming.deadline,
+            startTime = local.startTime ?: incoming.startTime,
+            endTime = local.endTime ?: incoming.endTime,
+            location = local.location ?: incoming.location,
+            materials = if (local.materials.isEmpty()) incoming.materials else local.materials,
+            submitMethod = local.submitMethod ?: incoming.submitMethod,
+            tags = if (local.tags.isEmpty()) incoming.tags else local.tags,
+            evidenceSummary = (local.evidenceSummary + incoming.evidenceSummary).distinct().take(6),
+        )
+    }
+
+    private fun sameActionCandidate(left: ActionCard, right: ActionCard): Boolean {
+        if (left.cardType != right.cardType) return false
+        val leftTime = left.deadline ?: left.startTime
+        val rightTime = right.deadline ?: right.startTime
+        val sameTime = !leftTime.isNullOrBlank() && leftTime.take(16) == rightTime?.take(16)
+        val sharedMaterials = left.materials.intersect(right.materials.toSet()).isNotEmpty()
+        val titleOverlap = tokenOverlap(left.title, right.title) >= 0.55
+        return sameTime || sharedMaterials || titleOverlap
+    }
+
+    private fun tokenOverlap(left: String, right: String): Double {
+        val a = left.normalizedForMatch()
+        val b = right.normalizedForMatch()
+        if (a.isBlank() || b.isBlank()) return 0.0
+        if (a.contains(b) || b.contains(a)) return 1.0
+        val gramsA = a.windowed(2).toSet()
+        val gramsB = b.windowed(2).toSet()
+        if (gramsA.isEmpty() || gramsB.isEmpty()) return 0.0
+        return gramsA.intersect(gramsB).size.toDouble() / minOf(gramsA.size, gramsB.size)
     }
 
     fun updateDraft(card: ActionCard) {
         locallyEditedDraftIds += card.id
         _uiState.update { state ->
-            state.copy(draftCards = state.draftCards.map { if (it.id == card.id) card else it })
+            state.copy(
+                draftCards = state.draftCards.map { if (it.id == card.id) card else it },
+                actionCandidates = state.actionCandidates.map { candidate ->
+                    if (candidate.card.id == card.id) {
+                        candidate.copy(card = card, userLockedFields = candidate.userLockedFields + "edited")
+                    } else {
+                        candidate
+                    }
+                },
+            )
         }
     }
 
     fun removeDraft(id: String) {
         _uiState.update { state ->
-            state.copy(draftCards = state.draftCards.filterNot { it.id == id })
+            state.copy(
+                draftCards = state.draftCards.filterNot { it.id == id },
+                actionCandidates = state.actionCandidates.filterNot { it.card.id == id },
+                selectedDraftIds = state.selectedDraftIds - id,
+            )
         }
+    }
+
+    fun toggleDraftSelection(id: String) {
+        _uiState.update { state ->
+            val nextSelectedIds = if (id in state.selectedDraftIds) {
+                state.selectedDraftIds - id
+            } else {
+                state.selectedDraftIds + id
+            }
+            state.copy(
+                selectedDraftIds = nextSelectedIds,
+                actionCandidates = state.actionCandidates.map { candidate ->
+                    if (candidate.card.id == id) candidate.copy(selected = id in nextSelectedIds) else candidate
+                },
+            )
+        }
+    }
+
+    fun selectAllDrafts() {
+        _uiState.update { state ->
+            val allIds = state.draftCards.map { it.id }.toSet()
+            state.copy(
+                selectedDraftIds = allIds,
+                actionCandidates = state.actionCandidates.map { it.copy(selected = it.card.id in allIds) },
+            )
+        }
+    }
+
+    fun ignoreScreenshotWorkflow(onDone: () -> Unit = {}) {
+        _uiState.update {
+            it.copy(
+                draftCards = emptyList(),
+                actionCandidates = emptyList(),
+                selectedDraftIds = emptySet(),
+                previewActions = emptyList(),
+                screenshotWorkflowStage = ScreenshotWorkflowStage.IGNORED,
+                loading = false,
+                error = null,
+            )
+        }
+        onDone()
     }
 
     fun confirmDrafts(onDone: () -> Unit = {}) {
         viewModelScope.launch {
-            val drafts = _uiState.value.draftCards
+            val state = _uiState.value
+            val drafts = state.draftCards.filter { card ->
+                state.selectedDraftIds.isEmpty() || card.id in state.selectedDraftIds
+            }
             if (drafts.isEmpty()) {
                 _uiState.update { it.copy(error = "没有需要确认的行动卡") }
                 return@launch
@@ -349,6 +585,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update {
                 it.copy(
                     draftCards = emptyList(),
+                    actionCandidates = emptyList(),
+                    selectedDraftIds = emptySet(),
                     previewActions = emptyList(),
                     ocrText = "",
                     engine = "",
@@ -377,6 +615,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotScenarioType = null,
                     screenshotPrimaryEvidence = emptyList(),
                     screenshotWorkflowStage = ScreenshotWorkflowStage.CONFIRMED,
+                    ocrArbitrationReason = null,
                     error = syncWarnings.distinct().takeIf { warnings -> warnings.isNotEmpty() }?.joinToString("\n"),
                 )
             }
@@ -448,6 +687,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(error = null) }
     }
 
+    private fun confidenceBand(value: Double): String = when {
+        value >= 0.82 -> "high"
+        value >= 0.58 -> "medium"
+        else -> "low"
+    }
+
     private fun userVisibleWorkflowError(error: Throwable, prefix: String): String {
         val message = error.message.orEmpty()
         return when {
@@ -460,3 +705,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
+
+private fun String.normalizedForMatch(): String =
+    lowercase().replace(Regex("[^a-z0-9\\u4e00-\\u9fff]+"), "")

@@ -99,6 +99,6 @@ for a final or provisional result.
 - `data/remote`: Retrofit DTOs and API interface.
 - `data/local`: Room entities and DAO.
 - `data/repository`: merge remote, local cache, and fallback behavior.
-- `domain`: deterministic extraction and reminder policy.
+- `domain`: deterministic extraction, OCR arbitration, screenshot gate, local/AI action enhancers, and reminder policy.
 - `ui/screens`: feature screens.
 - `ui/components`: reusable visual primitives.

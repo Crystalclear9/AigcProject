@@ -1,8 +1,10 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35109",
-    [string]$BackendUrl = "http://127.0.0.1:8000",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35165",
+    [string]$WorkflowUrl = "",
+    [string]$BackendUrl = "",
     [string]$ApkPath = "",
-    [switch]$SkipBackendCheck
+    [switch]$SkipBackendCheck,
+    [switch]$UseAdbReverse
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +30,9 @@ function Wait-AdbDevice {
         $state = (& $adb -s $Device get-state 2>&1) -join ""
         if ($state.Trim() -eq "device") { return }
     }
-    throw "Remote device did not reach the device state."
+    $finalState = (& $adb -s $Device get-state 2>&1) -join "`n"
+    $finalDevices = (& $adb devices 2>&1) -join "`n"
+    throw "Remote device did not reach the device state. get-state=[$finalState] adb devices=[$finalDevices]"
 }
 
 function Confirm-VivoInstaller {
@@ -56,18 +60,30 @@ if (-not (Test-Path -LiteralPath $ApkPath)) {
     throw "APK was not found: $ApkPath"
 }
 
-if (-not $SkipBackendCheck) {
+if (-not $SkipBackendCheck -and -not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    if (-not $WorkflowUrl.Trim().StartsWith("https://")) {
+        throw "WorkflowUrl must be a public HTTPS gateway for remote deployment: $WorkflowUrl"
+    }
+    $health = Invoke-RestMethod -Uri "$($WorkflowUrl.TrimEnd('/'))/health" -TimeoutSec 5
+    if ($health.status -ne "ok") {
+        throw "Workflow gateway health check did not return status=ok."
+    }
+} elseif (-not $SkipBackendCheck -and -not [string]::IsNullOrWhiteSpace($BackendUrl)) {
     $health = Invoke-RestMethod -Uri "$($BackendUrl.TrimEnd('/'))/health" -TimeoutSec 5
     if ($health.status -ne "ok") {
         throw "Backend health check did not return status=ok."
     }
+} else {
+    Write-Host "No WorkflowUrl provided. Deploying in phone-only fallback mode."
 }
 
 Wait-AdbDevice
 
-& $adb -s $Device reverse tcp:8000 tcp:8000
-if ($LASTEXITCODE -ne 0) {
-    throw "ADB reverse failed."
+if ($UseAdbReverse) {
+    & $adb -s $Device reverse tcp:8000 tcp:8000
+    if ($LASTEXITCODE -ne 0) {
+        throw "ADB reverse failed."
+    }
 }
 
 $installedPath = (& $adb -s $Device shell pm path com.suishouban.app 2>$null)
@@ -115,8 +131,12 @@ Write-Host ""
 Write-Host "Installed package:"
 $packageInfo | Select-String -Pattern "versionCode|versionName|firstInstallTime|lastUpdateTime|targetSdk"
 Write-Host ""
-Write-Host "Reverse mappings:"
-& $adb -s $Device reverse --list
+if ($UseAdbReverse) {
+    Write-Host "Reverse mappings:"
+    & $adb -s $Device reverse --list
+} else {
+    Write-Host "ADB reverse was not enabled. Phone is not coupled to a development host."
+}
 Write-Host ""
 if ($fatalLogs) {
     Write-Warning "Potential runtime failures were found:"

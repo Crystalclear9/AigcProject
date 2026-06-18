@@ -70,6 +70,35 @@ https://api.your-domain.com/
 
 本地开发调试仍可使用 `adb reverse tcp:8000 tcp:8000`，但这只是开发便利，不是产品运行前提。
 
+### Android 后端代理调试
+
+Android 不再直连蓝心，也不把 API key 写入 APK。需要验证蓝心增强时，先启动公网 HTTPS 后端代理，key 只放在后端/网关环境变量中；debug APK 只允许注入非敏感的默认 API URL：
+
+```powershell
+$env:DEFAULT_API_BASE_URL="https://your-temp-gateway.example.com/"
+cd apps\android
+.\gradlew.bat assembleDebug --no-daemon
+```
+
+不要把真实 key 写入 `build.gradle.kts`、脚本、文档或任何 Android 构建环境变量。没有网关 URL、无网或蓝心代理失败时，App 会降级到 ML Kit OCR + 本地规则工作流，不访问 `127.0.0.1`、`10.0.2.2` 或开发主机。
+
+### 云真机强制验收
+
+复杂截图链路的功能验收以云真机为准，默认设备为：
+
+```text
+val-vclinner-rt-contest.vivo.com.cn:35165
+```
+
+执行：
+
+```powershell
+.\scripts\validate_remote_complex_screenshots.ps1
+.\scripts\validate_remote_complex_screenshots.ps1 -WorkflowUrl "https://your-temp-gateway.example.com/"
+```
+
+验收覆盖：无行动截图不提示、行动截图出现低打扰“可能有待办”小窗、点击生成后展示候选卡、多任务截图拆出多张卡、选择后保存 Room、注册 WorkManager 截止提醒、logcat 无崩溃/DTO/Room/WorkManager/本机地址连接错误。
+
 ## 后端启动
 
 ```powershell
@@ -92,6 +121,20 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+生产或云真机验收推荐部署为公网 HTTPS 网关，蓝心 key 只放在网关环境变量中：
+
+```powershell
+cd services/api
+docker build -t suishouban-workflow-gateway .
+docker run --rm -p 8000:8000 `
+  -e LANXIN_API_KEY="<server-side-key>" `
+  -e FAST_MODEL_API_KEY="<server-side-key>" `
+  -e EXPERT_MODEL_API_KEY="<server-side-key>" `
+  suishouban-workflow-gateway
+```
+
+再由反向代理或托管平台提供 HTTPS 域名，手机设置页填写该 HTTPS Workflow API URL。
 
 ## AI 与外部能力配置
 

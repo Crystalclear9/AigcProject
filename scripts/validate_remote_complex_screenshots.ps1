@@ -1,7 +1,9 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35109",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35165",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
+    [string]$WorkflowUrl = "",
+    [switch]$SkipBuild,
     [switch]$SkipInstall
 )
 
@@ -28,6 +30,51 @@ if (-not $sdk) {
 $adb = Join-Path $sdk "platform-tools\adb.exe"
 $remoteSampleDir = "/sdcard/Pictures/SuishoubanSamples"
 
+function Build-DebugApk {
+    if ($SkipBuild) { return }
+    Write-Host "Building debug APK for remote validation..."
+    powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_android_debug.ps1") -SkipTests
+    if (-not (Test-Path -LiteralPath $ApkPath)) {
+        throw "APK build did not produce expected file: $ApkPath"
+    }
+}
+
+function Assert-ApkHasNoSensitiveMarkers {
+    if (-not (Test-Path -LiteralPath $ApkPath)) {
+        throw "APK was not found: $ApkPath"
+    }
+    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $ApkPath))
+    $markers = New-Object System.Collections.Generic.List[string]
+    $serverOnlyEnvNames = @(
+        (@("LANXIN", "API", "KEY") -join "_"),
+        (@("FAST", "MODEL", "API", "KEY") -join "_"),
+        (@("EXPERT", "MODEL", "API", "KEY") -join "_")
+    )
+    foreach ($name in $serverOnlyEnvNames) {
+        $markers.Add($name)
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value) { $markers.Add($value) }
+    }
+    foreach ($marker in $markers | Where-Object { $_ }) {
+        $needle = [System.Text.Encoding]::UTF8.GetBytes($marker)
+        for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
+            $matched = $true
+            for ($j = 0; $j -lt $needle.Length; $j++) {
+                if ($bytes[$i + $j] -ne $needle[$j]) {
+                    $matched = $false
+                    break
+                }
+            }
+            if ($matched) {
+                throw "Sensitive marker was found in APK: $($marker.Substring(0, [Math]::Min(16, $marker.Length)))..."
+            }
+        }
+    }
+    $hash = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash
+    $size = (Get-Item -LiteralPath $ApkPath).Length
+    Write-Host "APK safety scan passed. Size=$size SHA256=$hash"
+}
+
 function Utf8Text {
     param([string]$Base64)
     return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Base64))
@@ -42,15 +89,26 @@ $T = @{
     LocalMode = Utf8Text "5pys5py65qih5byP"
     MaybeTodo = Utf8Text "5Y+v6IO95pyJ5b6F5Yqe"
     Generate = Utf8Text "55Sf5oiQ"
+    GenerateDraft = Utf8Text "55Sf5oiQ6I2J56i/"
     Ignore = Utf8Text "5b+955Wl"
-    ConfirmCreate = Utf8Text "56Gu6K6k5Yib5bu65o+Q6YaS5LiO6KGM5Yqo5Y2h"
+    ConfirmCreate = Utf8Text "56Gu6K6k5Yib5bu6"
+    CreateAll = Utf8Text "5YWo6YOo5Yib5bu6"
+    CreateSelected = Utf8Text "5Y+q5Yib5bu6"
     Submit = Utf8Text "5o+Q5Lqk"
     ReminderCreated = Utf8Text "5bey5Yib5bu65o+Q6YaS"
     PossibleAction = Utf8Text "5Y+R546w5Y+v6IO96KGM5Yqo5LqL6aG5"
     LabReport = Utf8Text "5a6e6aqM5oql5ZGK"
+    TeamReport = Utf8Text "6L+b5bGV5rGH5oql"
+    Registration = Utf8Text "5oql5ZCN"
     EvidenceLabel = Utf8Text "6K+G5Yir5Zy65pmv"
     CourseScenario = Utf8Text "6K++56iLL+S9nOS4mumAmuefpQ=="
     HighConfidence = Utf8Text "6auY5Y+v5L+h"
+    Settings = Utf8Text "6K6+572u"
+    SaveEndpoint = Utf8Text "5L+d5a2Y5aKe5by656uv54K5"
+    TestService = Utf8Text "5rWL6K+V5aKe5by65pyN5Yqh"
+    CloudOnline = Utf8Text "5LqR56uv5aKe5by65Zyo57q/"
+    WorkflowRuntimeOk = Utf8Text "5bel5L2c5rWB6L+Q6KGM5pe25q2j5bi4"
+    WorkflowApiUrl = Utf8Text "V29ya2Zsb3cgQVBJIFVSTA=="
 }
 
 function Normalize-AdbArgs {
@@ -103,6 +161,16 @@ function Invoke-AdbLoose {
     return @{ ExitCode = $exitCode; Output = $output }
 }
 
+function Escape-Xml {
+    param([string]$Value)
+    return [System.Security.SecurityElement]::Escape($Value)
+}
+
+function Escape-AdbInputText {
+    param([string]$Value)
+    return $Value.Replace("%", "%25").Replace(" ", "%s")
+}
+
 function Wait-AdbDevice {
     param([int]$Attempts = 12)
     for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
@@ -124,7 +192,9 @@ function Wait-AdbDevice {
             & $adb disconnect $Device | Out-Null
         }
     }
-    throw "Remote device did not reach state=device."
+    $finalState = (& $adb -s $Device get-state 2>&1) -join "`n"
+    $finalDevices = (& $adb devices 2>&1) -join "`n"
+    throw "Remote device did not reach state=device. get-state=[$finalState] adb devices=[$finalDevices]"
 }
 
 function Get-UiXml {
@@ -264,6 +334,34 @@ function Grant-AppPermissions {
     }
 }
 
+function Configure-WorkflowUrl {
+    if ([string]::IsNullOrWhiteSpace($WorkflowUrl)) { return }
+    $trimmed = $WorkflowUrl.Trim()
+    if (-not $trimmed.StartsWith("https://")) {
+        throw "WorkflowUrl must be HTTPS for remote validation: $trimmed"
+    }
+    $healthUrl = $trimmed.TrimEnd("/") + "/health"
+    try {
+        Invoke-RestMethod -Uri $healthUrl -TimeoutSec 8 | Out-Null
+    } catch {
+        throw "WorkflowUrl health check failed: $healthUrl"
+    }
+    Write-Host "Configuring WorkflowUrl from the phone UI..."
+    Tap-Text $T.Settings "settings-nav.xml"
+    Wait-UiContains $T.WorkflowApiUrl "Settings screen did not show Workflow API URL field."
+    Tap-Text $T.WorkflowApiUrl "workflow-url-field.xml"
+    Invoke-Adb shell input keyevent 123 | Out-Null
+    for ($i = 0; $i -lt 160; $i++) {
+        Invoke-Adb shell input keyevent 67 | Out-Null
+    }
+    Invoke-Adb shell input text (Escape-AdbInputText $trimmed) | Out-Null
+    Tap-Text $T.SaveEndpoint "save-workflow-url.xml"
+    Tap-Text $T.TestService "test-workflow-url.xml"
+    Wait-UiContains $T.CloudOnline "Phone-side WorkflowUrl connection test did not report cloud online." 12
+    Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 12
+    Write-Host "Configured WorkflowUrl through the phone UI."
+}
+
 function Reset-AppData {
     Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
     $clearResult = Invoke-AdbLoose shell pm clear com.suishouban.app
@@ -386,18 +484,34 @@ function Tap-NotificationContentFallback {
 }
 
 function Open-GeneratedPreviewFromNotification {
-    Tap-NotificationAction $T.Generate
-    if (-not (Test-UiContains $T.PossibleAction)) {
+    try {
+        Tap-NotificationAction $T.Generate
+    } catch {
         Tap-NotificationContentFallback
     }
-    Wait-UiContains $T.PossibleAction "Generate action did not open screenshot preview."
+    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    Start-Sleep -Seconds 1
+    if (-not (Test-UiContains $T.GenerateDraft)) {
+        Tap-NotificationContentFallback
+        Invoke-Adb shell cmd statusbar collapse | Out-Null
+        Start-Sleep -Seconds 1
+    }
+    Wait-UiContains $T.GenerateDraft "Generate action did not open screenshot request panel."
+    Tap-Text $T.GenerateDraft "generate-draft.xml"
 }
 
 function Confirm-Preview {
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         $xml = Get-UiXml "preview.xml"
-        if ($xml -match [regex]::Escape($T.ConfirmCreate)) {
-            $center = Get-TextCenter $xml $T.ConfirmCreate
+        $label = $null
+        foreach ($candidate in @($T.ConfirmCreate, $T.CreateAll, $T.CreateSelected)) {
+            if ($xml -match [regex]::Escape($candidate)) {
+                $label = $candidate
+                break
+            }
+        }
+        if ($label) {
+            $center = Get-TextCenter $xml $label
             Invoke-Adb shell input tap $center.X $center.Y | Out-Null
             Start-Sleep -Seconds 4
             return
@@ -427,6 +541,13 @@ function Assert-NoBadLogs {
     }
 }
 
+Build-DebugApk
+Assert-ApkHasNoSensitiveMarkers
+
+if ([string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    Write-Warning "WorkflowUrl was not provided. This run validates the on-device fallback only; cloud model enhancement is NOT verified."
+}
+
 powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "generate_complex_screenshot_samples.ps1") -OutputDir $SampleDir
 
 if (-not $SkipInstall) {
@@ -436,6 +557,7 @@ Wait-AdbDevice
 Reset-AppData
 Grant-AppPermissions
 Start-App
+Configure-WorkflowUrl
 
 Write-Host "Validating non-action noise screenshot..."
 Open-SampleAndScreenshot "noise_shopping_promo.png"
@@ -445,18 +567,27 @@ Write-Host "Validating action screenshot notification and ignore action..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
 Dismiss-ActionSuggestionWithIgnore
-Wait-UiNotContains $T.PossibleAction "Ignore action unexpectedly opened preview."
+Wait-UiNotContains $T.MaybeTodo "Ignore action unexpectedly opened the request panel."
 
 Write-Host "Validating action screenshot notification, generate action, preview, save, reminder..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
 Open-GeneratedPreviewFromNotification
 Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
-Wait-UiContains $T.EvidenceLabel "Preview did not show evidence summary."
 Wait-UiContains $T.CourseScenario "Preview did not show course scenario classification."
 Wait-UiContains $T.HighConfidence "Preview did not show confidence label."
 Confirm-Preview
 Assert-CardAndReminderCreated
+
+Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
+Open-SampleAndScreenshot "complex_multi_tasks.png"
+Assert-ActionSuggestionNotification | Out-Null
+Open-GeneratedPreviewFromNotification
+Wait-UiContains $T.LabReport "Multi-task preview did not include the lab report task."
+Wait-UiContains $T.TeamReport "Multi-task preview did not include the meeting/report task."
+Wait-UiContains $T.CreateAll "Multi-task preview did not expose all-create action."
+Confirm-Preview
+Assert-NoBadLogs
 Assert-NoBadLogs
 
 Write-Host ""

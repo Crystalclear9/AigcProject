@@ -18,7 +18,7 @@ from app.schemas.workflow import (
     WorkflowRunResponse,
 )
 from app.schemas.card import ActionCard
-from app.services.workflow_graph import build_workflow_graph
+from app.services.workflow_graph import build_workflow_graph, create_rule_draft
 from app.services.workflow_agents import build_action_graph as create_action_graph
 
 repository = WorkflowRepository()
@@ -579,9 +579,21 @@ def _initial_state(
 async def start_text_workflow(text: str, screenshot_time: str | None = None) -> WorkflowRunResponse:
     run_id = str(uuid.uuid4())
     initial = _initial_state(run_id, "text", text=text, screenshot_time=screenshot_time)
+    primed_state = {
+        **initial,
+        "ocr_text": text.strip(),
+        "ocr_engine": "provided-text",
+        "ocr_quality": 1.0,
+        "ocr_candidates": [{"text": text.strip(), "engine": "provided-text", "confidence": 1.0}],
+    }
+    provisional = await create_rule_draft(primed_state)
+    saved_state = {**initial, **provisional}
+    saved_state["workflow_status"] = "queued"
+    saved_state["pending_action"] = None
+    initial["time_to_first_draft_ms"] = provisional.get("time_to_first_draft_ms")
     repository.create_run(
         run_id,
-        {**initial, "image_bytes": ""},
+        {**saved_state, "image_bytes": ""},
         lease_owner=_worker_id,
         lease_seconds=settings.workflow_lease_seconds,
     )

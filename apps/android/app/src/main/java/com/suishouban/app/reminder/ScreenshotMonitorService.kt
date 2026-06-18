@@ -280,17 +280,11 @@ class ScreenshotMonitorService : Service() {
             return
         }
         val notificationId = uri.hashCode()
-        val intent = buildPreviewIntent(uri, ocrText, gate)
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            notificationId,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val previewIntent = buildPreviewIntent(uri, ocrText, gate)
         val generateIntent = Intent(this, ScreenshotMonitorService::class.java).apply {
             action = ACTION_GENERATE_SCREENSHOT
             data = uri
-            putExtras(intent)
+            putExtras(previewIntent)
             putExtra(EXTRA_MEDIA_ID, mediaId)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
@@ -315,6 +309,9 @@ class ScreenshotMonitorService : Service() {
         val compactView = RemoteViews(packageName, R.layout.notification_action_suggestion).apply {
             setTextViewText(R.id.notification_action_title, "可能有待办")
             setTextViewText(R.id.notification_action_content, content)
+            setOnClickPendingIntent(R.id.notification_action_root, generatePendingIntent)
+            setOnClickPendingIntent(R.id.notification_action_title, generatePendingIntent)
+            setOnClickPendingIntent(R.id.notification_action_content, generatePendingIntent)
             setOnClickPendingIntent(R.id.notification_generate, generatePendingIntent)
             setOnClickPendingIntent(R.id.notification_ignore, ignorePendingIntent)
         }
@@ -322,7 +319,7 @@ class ScreenshotMonitorService : Service() {
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("可能有待办")
             .setContentText(content)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(generatePendingIntent)
             .setCustomContentView(compactView)
             .addAction(R.drawable.ic_launcher_foreground, "生成", generatePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "忽略", ignorePendingIntent)
@@ -333,7 +330,7 @@ class ScreenshotMonitorService : Service() {
             .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setGroup(PROMPT_GROUP_KEY)
             .setGroupSummary(false)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         NotificationManagerCompat.from(this).notify(notificationId, notification)
     }
@@ -390,7 +387,7 @@ class ScreenshotMonitorService : Service() {
             NotificationChannel(
                 PROMPT_CHANNEL_ID,
                 "行动建议",
-                NotificationManager.IMPORTANCE_DEFAULT,
+                NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = "仅在截图里发现明确行动事项时提示"
                 setSound(null, null)
