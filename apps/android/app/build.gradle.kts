@@ -19,7 +19,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Production default is fully local. Configure this per build flavor or in Settings
         // when an optional workflow/AI gateway is available.
-        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"\"")
+        val defaultApiBaseUrl = System.getenv("DEFAULT_API_BASE_URL")
+            ?: System.getenv("WORKFLOW_API_URL")
+            ?: ""
+        buildConfigField("String", "DEFAULT_API_BASE_URL", "\"${escapeBuildConfig(defaultApiBaseUrl)}\"")
     }
 
     buildTypes {
@@ -46,6 +49,9 @@ android {
         buildConfig = true
     }
 }
+
+fun escapeBuildConfig(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"")
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")

@@ -73,6 +73,15 @@ data class AnalyzeResult(
     val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
 )
 
+data class ActionCandidate(
+    val card: ActionCard,
+    val selected: Boolean = true,
+    val confidenceBand: String = "medium",
+    val evidenceSummary: List<String> = emptyList(),
+    val sourceSpan: String? = null,
+    val userLockedFields: Set<String> = emptySet(),
+)
+
 data class NodeTrace(
     val node: String,
     val status: String = "completed",

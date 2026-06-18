@@ -113,6 +113,86 @@ def _extract_json(text: str) -> Any:
         return json.loads(match.group(1))
 
 
+def _provider_rejected_response_format(error: httpx.HTTPStatusError) -> bool:
+    if error.response.status_code not in {400, 422}:
+        return False
+    detail = error.response.text.lower()
+    return any(
+        marker in detail
+        for marker in (
+            "response_format",
+            "json_schema",
+            "schema",
+            "unknown field",
+            "unsupported",
+            "invalid parameter",
+            "extra fields",
+        )
+    )
+
+
+def _without_response_format(payload: dict[str, Any], instruction: str) -> dict[str, Any]:
+    fallback = dict(payload)
+    fallback.pop("response_format", None)
+    messages = [dict(message) for message in payload.get("messages", [])]
+    if messages:
+        messages[0]["content"] = f"{messages[0].get('content', '')}\n{instruction}".strip()
+    fallback["messages"] = messages
+    return fallback
+
+
+async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
+    url = profile.base_url.rstrip("/") + "/chat/completions"
+
+    async def send(body: dict[str, Any]) -> httpx.Response:
+        return await runtime.client.post(
+            url,
+            params={"request_id": str(uuid.uuid4())},
+            json=body,
+            headers=headers,
+            timeout=profile.timeout,
+        )
+
+    try:
+        async with runtime.semaphores[profile.role]:
+            try:
+                response = await send(payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as error:
+                if "response_format" not in payload or not _provider_rejected_response_format(error):
+                    raise
+                response = await send(
+                    _without_response_format(
+                        payload,
+                        "如果服务端不支持 response_format/json_schema，也必须只返回一个严格 JSON 对象；不要输出解释、Markdown 或代码块。",
+                    )
+                )
+                response.raise_for_status()
+    except httpx.HTTPError:
+        runtime.failure(profile.role)
+        raise
+    runtime.success(profile.role)
+    return response.json()
+
+
+def _message_content(response_json: dict[str, Any]) -> str:
+    content = response_json["choices"][0]["message"]["content"]
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                value = item.get("text") or item.get("content")
+                if value:
+                    parts.append(str(value))
+            elif item is not None:
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(content)
+
+
 def _coerce_list(value: Any) -> list[str]:
     if value in (None, ""):
         return []
@@ -243,23 +323,7 @@ async def extract_cards_with_model(
             },
         },
     }
-    headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
-    params = {"request_id": str(uuid.uuid4())}
-    try:
-        async with runtime.semaphores[role]:
-            response = await runtime.client.post(
-                profile.base_url.rstrip("/") + "/chat/completions",
-                params=params,
-                json=payload,
-                headers=headers,
-                timeout=profile.timeout,
-            )
-            response.raise_for_status()
-    except httpx.HTTPError:
-        runtime.failure(role)
-        raise
-    runtime.success(role)
-    content = response.json()["choices"][0]["message"]["content"]
+    content = _message_content(await _post_chat_completion(profile, payload))
     parsed = _extract_json(content)
     raw_cards = parsed.get("cards", parsed) if isinstance(parsed, dict) else parsed
     if not isinstance(raw_cards, list):
@@ -304,22 +368,7 @@ async def structured_completion(
             },
         },
     }
-    headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
-    try:
-        async with runtime.semaphores[role]:
-            response = await runtime.client.post(
-                profile.base_url.rstrip("/") + "/chat/completions",
-                params={"request_id": str(uuid.uuid4())},
-                json=payload,
-                headers=headers,
-                timeout=profile.timeout,
-            )
-            response.raise_for_status()
-    except httpx.HTTPError:
-        runtime.failure(role)
-        raise
-    runtime.success(role)
-    content = response.json()["choices"][0]["message"]["content"]
+    content = _message_content(await _post_chat_completion(profile, payload))
     parsed = _extract_json(content)
     if not isinstance(parsed, dict):
         raise ValueError("structured model response must be an object")

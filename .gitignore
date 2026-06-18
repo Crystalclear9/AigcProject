@@ -32,6 +32,10 @@ remote-*.png
 remote-*.jpg
 remote-*.xml
 remote-*.txt
+remote_*.png
+remote_*.jpg
+remote_*.xml
+remote_*.txt
 serveo.*
 *.tunnel-url
 

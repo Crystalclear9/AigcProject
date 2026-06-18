@@ -135,6 +135,24 @@ def meeting_poster(output_dir: Path) -> None:
     save(image, output_dir, "complex_meeting_poster.png")
 
 
+def multi_tasks_notice(output_dir: Path) -> None:
+    image, draw = canvas("#ECFEFF")
+    status_bar(draw)
+    round_rect(draw, (80, 210, 1180, 2440), 54, "#FFFFFF")
+    draw_text(draw, (150, 330), "课程群公告", 72, "#0F172A", True, 16)
+    round_rect(draw, (140, 520, 1120, 980), 42, "#EFF6FF")
+    draw_text(draw, (190, 580), "① 请在 6 月 20 日 22:00 前", 48, "#1D4ED8", True, 22)
+    draw_text(draw, (190, 680), "提交《实验报告》到学习通，文件名：学号+姓名。", 42, "#111827", False, 23)
+    round_rect(draw, (140, 1080, 1120, 1540), 42, "#FFF7ED")
+    draw_text(draw, (190, 1140), "② 周五 14:30 参加腾讯会议", 48, "#C2410C", True, 22)
+    draw_text(draw, (190, 1240), "并准备本周进展汇报 PPT，会议号 886 210 552。", 42, "#111827", False, 23)
+    round_rect(draw, (140, 1640, 1120, 2040), 42, "#F0FDF4")
+    draw_text(draw, (190, 1700), "③ 报名表下周一前发到指定邮箱，逾期不补。", 44, "#166534", True, 22)
+    draw_text(draw, (190, 1840), "广告：618 文具满减与本通知无关。", 38, "#6B7280", False, 24)
+    bottom_tabs(draw)
+    save(image, output_dir, "complex_multi_tasks.png")
+
+
 def shopping_noise(output_dir: Path) -> None:
     image, draw = canvas("#FFF1F2")
     status_bar(draw)
@@ -179,6 +197,7 @@ def main() -> None:
     chat_promise(output_dir)
     competition_poster(output_dir)
     meeting_poster(output_dir)
+    multi_tasks_notice(output_dir)
     shopping_noise(output_dir)
     status_only(output_dir)
     own_app(output_dir)

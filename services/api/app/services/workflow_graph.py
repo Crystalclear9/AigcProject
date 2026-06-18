@@ -255,11 +255,7 @@ def _rule_confidence(cards: list[ActionCard], text: str, ocr_quality: float) -> 
 
 async def create_rule_draft(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
-    cards = await asyncio.to_thread(
-        extract_cards_with_rules,
-        state["ocr_text"],
-        state.get("screenshot_time"),
-    )
+    cards = extract_cards_with_rules(state["ocr_text"], state.get("screenshot_time"))
     score, reasons = _rule_confidence(cards, state["ocr_text"], float(state.get("ocr_quality", 0.8)))
     card_dicts = _card_dicts(cards)
     confidence = {}
@@ -276,7 +272,12 @@ async def create_rule_draft(state: WorkflowState) -> dict[str, Any]:
             confidence[card.id][field] = round(score if value not in (None, "", []) else 0.3, 3)
             provenance[card.id][field] = "rules"
             field_versions[card.id][field] = 1
-    elapsed = round((time.time() - float(state["started_at"])) * 1000, 2)
+    previous_elapsed = state.get("time_to_first_draft_ms")
+    if previous_elapsed is None:
+        elapsed = round((time.time() - float(state["started_at"])) * 1000, 2)
+    else:
+        elapsed = round(float(previous_elapsed), 2)
+    elapsed = max(1.0, elapsed)
     return {
         "rule_cards": card_dicts,
         "cards": card_dicts,

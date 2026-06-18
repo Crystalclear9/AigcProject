@@ -24,8 +24,29 @@
 .\scripts\deploy_remote_android.ps1
 ```
 
-默认云真机为 `val-vclinner-rt-contest.vivo.com.cn:35109`。vivo 安装器会要求勾选风险提示并确认安装，部署脚本会自动处理该页面。
+默认云真机为 `val-vclinner-rt-contest.vivo.com.cn:35165`。vivo 安装器会要求勾选风险提示并确认安装，部署脚本会自动处理该页面。
 
-部分云真机虽然接受 `adb reverse`，但不会把流量转发到开发机。在线端到端测试应建立临时 HTTPS 隧道，再在 App 设置页写入该地址并使用“测试服务连接”。临时 URL、截图、日志和隧道输出均不得提交。
+部分云真机虽然接受 `adb reverse`，但不会把流量转发到开发机。在线端到端测试应使用公网 HTTPS 后端网关，再在 App 设置页写入该地址并使用“测试服务连接”。临时隧道只能作为阻塞备选；临时 URL、截图、日志和隧道输出均不得提交。
 
 离线回归应关闭隧道，确认文本分析仍走本地规则、图片仍可走 ML Kit，并且同步失败会显示明确错误。
+
+### 蓝心后端代理调试
+
+Android 不再直连蓝心，也不把 API key 写入 APK。蓝心 key 只放在后端或 HTTPS 网关环境变量中；debug APK 最多注入一个非敏感的默认网关 URL：
+
+```powershell
+$env:DEFAULT_API_BASE_URL="https://your-temp-gateway.example.com/"
+cd apps\android
+.\gradlew.bat assembleDebug --no-daemon
+```
+
+默认 Workflow API URL 留空时，App 不访问 `127.0.0.1`、`10.0.2.2` 或开发主机，端侧 ML Kit + 本地规则仍可完成截图判定、小窗确认、保存和提醒。需要验证蓝心增强时，先启动公网 HTTPS 后端代理，再把该 HTTPS 地址通过 App 设置页、`DEFAULT_API_BASE_URL` 或远端脚本的 `-WorkflowUrl` 写入设置。
+
+### 复杂截图远端验收
+
+```powershell
+.\scripts\validate_remote_complex_screenshots.ps1
+.\scripts\validate_remote_complex_screenshots.ps1 -WorkflowUrl "https://your-temp-gateway.example.com/"
+```
+
+脚本会连接 `35165`，清装 APK，授权通知/图片权限，推送复杂样例图，验证广告/系统页不提示，课程截图出现“可能有待办”小窗，多任务截图至少拆出两张候选卡，并检查 WorkManager 截止提醒与 logcat。

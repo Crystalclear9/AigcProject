@@ -292,6 +292,8 @@ enum class ScreenshotWorkflowStage {
     OCR_DETECTED,
     GATE_PASSED,
     PROMPT_SHOWN,
+    ANALYZING,
+    CANDIDATES_READY,
     DRAFT_READY,
     REVIEWING,
     CONFIRMED,

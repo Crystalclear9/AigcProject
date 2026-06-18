@@ -11,7 +11,7 @@ data class AppSettings(
     val privacyMask: Boolean = true,
     val calendarSync: Boolean = false,
     val keepOriginalScreenshot: Boolean = false,
-    val preferCloudModel: Boolean = false,
+    val preferCloudModel: Boolean = BuildConfig.DEFAULT_API_BASE_URL.trim().startsWith("https://"),
 )
 
 class AppSettingsRepository(context: Context) {
@@ -19,14 +19,18 @@ class AppSettingsRepository(context: Context) {
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<AppSettings> = _settings
 
-    private fun load(): AppSettings = AppSettings(
-        apiBaseUrl = prefs.getString("api_base_url", BuildConfig.DEFAULT_API_BASE_URL) ?: BuildConfig.DEFAULT_API_BASE_URL,
-        autoDetectScreenshots = prefs.getBoolean("auto_detect", true),
-        privacyMask = prefs.getBoolean("privacy_mask", true),
-        calendarSync = prefs.getBoolean("calendar_sync", false),
-        keepOriginalScreenshot = prefs.getBoolean("keep_screenshot", false),
-        preferCloudModel = prefs.getBoolean("prefer_cloud", false),
-    )
+    private fun load(): AppSettings {
+        val apiBaseUrl = prefs.getString("api_base_url", BuildConfig.DEFAULT_API_BASE_URL)
+            ?: BuildConfig.DEFAULT_API_BASE_URL
+        return AppSettings(
+            apiBaseUrl = apiBaseUrl,
+            autoDetectScreenshots = prefs.getBoolean("auto_detect", true),
+            privacyMask = prefs.getBoolean("privacy_mask", true),
+            calendarSync = prefs.getBoolean("calendar_sync", false),
+            keepOriginalScreenshot = prefs.getBoolean("keep_screenshot", false),
+            preferCloudModel = prefs.getBoolean("prefer_cloud", apiBaseUrl.trim().startsWith("https://")),
+        )
+    }
 
     fun update(settings: AppSettings) {
         prefs.edit()

@@ -48,3 +48,20 @@ cd services/api
 python -m compileall app
 python -m unittest discover -s tests -v
 ```
+
+## HTTPS gateway deployment
+
+Use this service as the only BlueLM/Lanxin proxy. Android must never receive
+`LANXIN_API_KEY`, `FAST_MODEL_API_KEY`, or `EXPERT_MODEL_API_KEY`.
+
+```powershell
+docker build -t suishouban-workflow-gateway .
+docker run --rm -p 8000:8000 `
+  -e LANXIN_API_KEY="<server-side-key>" `
+  -e FAST_MODEL_API_KEY="<server-side-key>" `
+  -e EXPERT_MODEL_API_KEY="<server-side-key>" `
+  suishouban-workflow-gateway
+```
+
+Expose the container through a public HTTPS host before entering the Workflow
+API URL on the phone.
