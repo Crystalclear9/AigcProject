@@ -28,6 +28,7 @@ services/api/workflow_inputs/
 .DS_Store
 Thumbs.db
 *.log
+artifacts/
 remote-*.png
 remote-*.jpg
 remote-*.xml

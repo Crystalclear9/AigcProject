@@ -179,6 +179,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        openPendingScreenshotPrompt()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) openPendingScreenshotPrompt()
+    }
+
+    private fun openPendingScreenshotPrompt() {
+        ScreenshotMonitorService.consumePendingPreviewIntent(this)?.let { intent ->
+            startActivity(intent)
+        }
+    }
+
     private fun requestRuntimePermissions() {
         val permissions = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
