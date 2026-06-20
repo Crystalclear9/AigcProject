@@ -1,8 +1,9 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35165",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35141",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
+    [int]$AdbWaitSeconds = 300,
     [switch]$SkipBuild,
     [switch]$SkipInstall
 )
@@ -30,6 +31,15 @@ if (-not $sdk) {
 $adb = Join-Path $sdk "platform-tools\adb.exe"
 $remoteSampleDir = "/sdcard/Pictures/SuishoubanSamples"
 
+function Initialize-AdbKeyEnvironment {
+    $androidDir = Join-Path $env:USERPROFILE ".android"
+    if (-not (Test-Path -LiteralPath $androidDir)) {
+        New-Item -ItemType Directory -Path $androidDir | Out-Null
+    }
+    $env:ADB_VENDOR_KEYS = $androidDir
+    Write-Host "ADB_VENDOR_KEYS=$env:ADB_VENDOR_KEYS"
+}
+
 function Build-DebugApk {
     if ($SkipBuild) { return }
     Write-Host "Building debug APK for remote validation..."
@@ -48,12 +58,22 @@ function Assert-ApkHasNoSensitiveMarkers {
     $serverOnlyEnvNames = @(
         (@("LANXIN", "API", "KEY") -join "_"),
         (@("FAST", "MODEL", "API", "KEY") -join "_"),
-        (@("EXPERT", "MODEL", "API", "KEY") -join "_")
+        (@("EXPERT", "MODEL", "API", "KEY") -join "_"),
+        (@("VIVO", "OCR", "APP", "KEY") -join "_"),
+        (@("VIVO", "IMAGE", "GENERATION", "API", "KEY") -join "_")
     )
     foreach ($name in $serverOnlyEnvNames) {
         $markers.Add($name)
         $value = [Environment]::GetEnvironmentVariable($name)
         if ($value) { $markers.Add($value) }
+    }
+    $providerEndpointMarkers = @(
+        "https://api-ai.vivo.com.cn/v1/chat/completions",
+        "https://api-ai.vivo.com.cn/api/v1/image_generation",
+        "http://api-ai.vivo.com.cn/ocr/general_recognition"
+    )
+    foreach ($marker in $providerEndpointMarkers) {
+        $markers.Add($marker)
     }
     foreach ($marker in $markers | Where-Object { $_ }) {
         $needle = [System.Text.Encoding]::UTF8.GetBytes($marker)
@@ -161,6 +181,26 @@ function Invoke-AdbLoose {
     return @{ ExitCode = $exitCode; Output = $output }
 }
 
+function Reset-AdbAuthorization {
+    Write-Host "Resetting local ADB authorization keys and server..."
+    & $adb disconnect $Device | Out-Null
+    & $adb kill-server | Out-Null
+    $androidDir = Join-Path $env:USERPROFILE ".android"
+    foreach ($name in @("adbkey", "adbkey.pub")) {
+        $path = Join-Path $androidDir $name
+        if (Test-Path -LiteralPath $path) {
+            $item = Get-Item -LiteralPath $path
+            if ($item.DirectoryName -ne $androidDir -or $item.Name -notin @("adbkey", "adbkey.pub")) {
+                throw "Refusing to delete unexpected ADB key path: $path"
+            }
+            Remove-Item -LiteralPath $path -Force
+            Write-Host "Deleted $path"
+        }
+    }
+    Initialize-AdbKeyEnvironment
+    & $adb start-server | Out-Null
+}
+
 function Escape-Xml {
     param([string]$Value)
     return [System.Security.SecurityElement]::Escape($Value)
@@ -172,8 +212,15 @@ function Escape-AdbInputText {
 }
 
 function Wait-AdbDevice {
-    param([int]$Attempts = 12)
-    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    param([int]$Attempts = 0)
+    Initialize-AdbKeyEnvironment
+    $deadline = [DateTimeOffset]::Now.AddSeconds([Math]::Max(30, $AdbWaitSeconds))
+    $attempt = 0
+    if ($Attempts -gt 0) {
+        $deadline = [DateTimeOffset]::Now.AddSeconds([Math]::Max(5, $Attempts * 3))
+    }
+    while ([DateTimeOffset]::Now -lt $deadline) {
+        $attempt++
         $oldPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         $connectOutput = & $adb connect $Device 2>&1
@@ -185,15 +232,28 @@ function Wait-AdbDevice {
         if ($connectOutput) { $connectOutput | Out-Host }
         $state = ($stateResult.Output -join "").Trim()
         $devicesText = ($devicesOutput -join "`n")
+        Write-Host "ADB wait attempt $attempt state=[$state]"
         $devicePattern = [regex]::Escape($Device) + "\s+device"
         if ($stateResult.ExitCode -eq 0 -and $state -eq "device") { return }
         if ($devicesText -match $devicePattern) { return }
-        if ($state -match "offline|unauthorized|failed" -or $connectExit -ne 0) {
+        if ($state -match "unauthorized" -or $devicesText -match ([regex]::Escape($Device) + "\s+unauthorized")) {
+            if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
+                Reset-AdbAuthorization
+            } else {
+                & $adb disconnect $Device | Out-Null
+            }
+        } elseif ($state -match "offline|failed" -or $connectExit -ne 0) {
+            if ($attempt % 10 -eq 0) {
+                & $adb reconnect offline 2>$null | Out-Null
+            }
             & $adb disconnect $Device | Out-Null
         }
     }
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $finalState = (& $adb -s $Device get-state 2>&1) -join "`n"
     $finalDevices = (& $adb devices 2>&1) -join "`n"
+    $ErrorActionPreference = $oldPreference
     throw "Remote device did not reach state=device. get-state=[$finalState] adb devices=[$finalDevices]"
 }
 

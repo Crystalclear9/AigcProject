@@ -1,8 +1,9 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35165",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35141",
     [string]$WorkflowUrl = "",
     [string]$BackendUrl = "",
     [string]$ApkPath = "",
+    [int]$AdbWaitSeconds = 300,
     [switch]$SkipBackendCheck,
     [switch]$UseAdbReverse
 )
@@ -22,13 +23,64 @@ if (-not $sdk) {
 
 $adb = Join-Path $sdk "platform-tools\adb.exe"
 
+function Initialize-AdbKeyEnvironment {
+    $androidDir = Join-Path $env:USERPROFILE ".android"
+    if (-not (Test-Path -LiteralPath $androidDir)) {
+        New-Item -ItemType Directory -Path $androidDir | Out-Null
+    }
+    $env:ADB_VENDOR_KEYS = $androidDir
+    Write-Host "ADB_VENDOR_KEYS=$env:ADB_VENDOR_KEYS"
+}
+
+function Reset-AdbAuthorization {
+    Write-Host "Resetting local ADB authorization keys and server..."
+    & $adb disconnect $Device | Out-Null
+    & $adb kill-server | Out-Null
+    $androidDir = Join-Path $env:USERPROFILE ".android"
+    foreach ($name in @("adbkey", "adbkey.pub")) {
+        $path = Join-Path $androidDir $name
+        if (Test-Path -LiteralPath $path) {
+            $item = Get-Item -LiteralPath $path
+            if ($item.DirectoryName -ne $androidDir -or $item.Name -notin @("adbkey", "adbkey.pub")) {
+                throw "Refusing to delete unexpected ADB key path: $path"
+            }
+            Remove-Item -LiteralPath $path -Force
+            Write-Host "Deleted $path"
+        }
+    }
+    Initialize-AdbKeyEnvironment
+    & $adb start-server | Out-Null
+}
+
 function Wait-AdbDevice {
-    param([int]$Attempts = 12)
-    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
-        & $adb connect $Device | Out-Host
+    param([int]$Attempts = 0)
+    Initialize-AdbKeyEnvironment
+    $deadline = [DateTimeOffset]::Now.AddSeconds([Math]::Max(30, $AdbWaitSeconds))
+    if ($Attempts -gt 0) {
+        $deadline = [DateTimeOffset]::Now.AddSeconds([Math]::Max(5, $Attempts * 3))
+    }
+    $attempt = 0
+    while ([DateTimeOffset]::Now -lt $deadline) {
+        $attempt++
+        $connectOutput = & $adb connect $Device 2>&1
+        if ($connectOutput) { $connectOutput | Out-Host }
         Start-Sleep -Seconds 2
         $state = (& $adb -s $Device get-state 2>&1) -join ""
+        Write-Host "ADB wait attempt $attempt state=[$state]"
         if ($state.Trim() -eq "device") { return }
+        $devices = (& $adb devices 2>&1) -join "`n"
+        if ($state -match "unauthorized" -or $devices -match ([regex]::Escape($Device) + "\s+unauthorized")) {
+            if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
+                Reset-AdbAuthorization
+            } else {
+                & $adb disconnect $Device | Out-Null
+            }
+        } elseif ($state -match "offline|failed|not found") {
+            if ($attempt % 10 -eq 0) {
+                & $adb reconnect offline 2>$null | Out-Null
+            }
+            & $adb disconnect $Device | Out-Null
+        }
     }
     $finalState = (& $adb -s $Device get-state 2>&1) -join "`n"
     $finalDevices = (& $adb devices 2>&1) -join "`n"

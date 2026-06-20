@@ -143,7 +143,7 @@ def _without_response_format(payload: dict[str, Any], instruction: str) -> dict[
 
 async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
-    url = profile.base_url.rstrip("/") + "/chat/completions"
+    url = _chat_completion_url(profile.base_url)
 
     async def send(body: dict[str, Any]) -> httpx.Response:
         return await runtime.client.post(
@@ -174,6 +174,13 @@ async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) 
         raise
     runtime.success(profile.role)
     return response.json()
+
+
+def _chat_completion_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        return normalized
+    return normalized + "/chat/completions"
 
 
 def _message_content(response_json: dict[str, Any]) -> str:

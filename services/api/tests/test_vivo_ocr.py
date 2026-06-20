@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 
 from app.schemas.card import AnalyzeScreenshotTextRequest
 from app.services.analyzer import analyze_screenshot_text
 from app.services.demo_scenarios import evaluate_demo_scenarios
-from app.services.llm_client import _extract_json
+from app.services.image_generation import generate_demo_image
+from app.services.llm_client import _chat_completion_url, _extract_json
 from app.services.rule_extractor import extract_cards_with_rules
 from app.services.vivo_ocr import (
     OcrLine,
+    VivoOcrClient,
     VivoOcrError,
     _format_http_error,
     _format_request_error,
@@ -21,7 +25,27 @@ from app.services.vivo_ocr import (
 )
 
 
+class FakeAsyncPostClient:
+    def __init__(self, response: httpx.Response) -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    async def post(self, url: str, **kwargs: object) -> httpx.Response:
+        self.calls.append({"url": url, **kwargs})
+        return self.response
+
+
 class VivoOcrTest(unittest.TestCase):
+    def test_chat_completion_url_accepts_base_or_full_endpoint(self) -> None:
+        self.assertEqual(
+            _chat_completion_url("https://api-ai.vivo.com.cn/v1"),
+            "https://api-ai.vivo.com.cn/v1/chat/completions",
+        )
+        self.assertEqual(
+            _chat_completion_url("https://api-ai.vivo.com.cn/v1/chat/completions"),
+            "https://api-ai.vivo.com.cn/v1/chat/completions",
+        )
+
     def test_cleaning_removes_status_and_file_noise(self) -> None:
         lines = [
             OcrLine("10:54", 50, 55, 130, 80),
@@ -55,6 +79,38 @@ class VivoOcrTest(unittest.TestCase):
         pos0 = {"error_code": 0, "result": {"words": [{"words": "提交报告"}]}}
         self.assertEqual(parse_vivo_ocr_lines(pos0)[0].text, "提交报告")
 
+    def test_vivo_ocr_uses_configured_provider_url_and_auth(self) -> None:
+        response = httpx.Response(
+            200,
+            json={"error_code": 0, "result": {"OCR": [{"words": "submit report"}]}},
+            request=httpx.Request("POST", "http://provider.test/ocr"),
+        )
+        fake_client = FakeAsyncPostClient(response)
+        fake_settings = SimpleNamespace(
+            has_vivo_ocr_config=True,
+            vivo_ocr_app_key="server-side-key",
+            vivo_ocr_url="http://provider.test/ocr",
+            vivo_ocr_business_id="aigc-test-app",
+            vivo_ocr_timeout_seconds=5,
+        )
+
+        async def run() -> None:
+            with patch("app.services.vivo_ocr.settings", fake_settings), patch(
+                "app.services.vivo_ocr.runtime.client",
+                fake_client,
+            ):
+                lines = await VivoOcrClient().recognize(b"image")
+            self.assertEqual(lines[0].text, "submit report")
+
+        asyncio.run(run())
+
+        call = fake_client.calls[0]
+        self.assertEqual(call["url"], "http://provider.test/ocr")
+        self.assertEqual(call["headers"]["Authorization"], "Bearer server-side-key")
+        self.assertEqual(call["data"]["businessid"], "aigc-test-app")
+        self.assertEqual(call["data"]["pos"], 2)
+        self.assertIn("requestId", call["params"])
+
     def test_ocr_errors_are_mapped(self) -> None:
         with self.assertRaisesRegex(VivoOcrError, "returned no text"):
             parse_successful_vivo_ocr_body({"error_code": 0, "result": {"OCR": []}})
@@ -72,6 +128,42 @@ class StructuredOutputTest(unittest.TestCase):
         self.assertEqual(_extract_json('[{"title":"报告"}]')[0]["title"], "报告")
         self.assertEqual(_extract_json('{"cards":[{"title":"报告"}]}')["cards"][0]["title"], "报告")
         self.assertEqual(_extract_json('result: [{"title":"报告"}]')[0]["title"], "报告")
+
+
+class ImageGenerationProviderTest(unittest.TestCase):
+    def test_image_generation_posts_provider_contract_without_leaking_key(self) -> None:
+        response = httpx.Response(
+            200,
+            json={"code": 0, "message": "success", "data": {"images": []}},
+            request=httpx.Request("POST", "https://provider.test/image_generation"),
+        )
+        fake_client = FakeAsyncPostClient(response)
+        fake_settings = SimpleNamespace(
+            has_image_generation_config=True,
+            vivo_image_generation_api_key="server-side-key",
+            vivo_image_generation_url="https://provider.test/image_generation",
+            vivo_image_generation_model="Doubao-Seedream-4.5",
+            vivo_image_generation_timeout_seconds=60,
+        )
+
+        async def run() -> dict[str, object]:
+            with patch("app.services.image_generation.settings", fake_settings), patch(
+                "app.services.image_generation.runtime.client",
+                fake_client,
+            ):
+                return await generate_demo_image("complex schedule poster", size="1024x1024")
+
+        body = asyncio.run(run())
+
+        self.assertEqual(body["code"], 0)
+        call = fake_client.calls[0]
+        self.assertEqual(call["url"], "https://provider.test/image_generation")
+        self.assertEqual(call["headers"]["Authorization"], "Bearer server-side-key")
+        self.assertEqual(call["json"]["model"], "Doubao-Seedream-4.5")
+        self.assertEqual(call["json"]["parameters"]["size"], "1024x1024")
+        self.assertEqual(call["params"]["module"], "aigc")
+        self.assertIn("request_id", call["params"])
+        self.assertIn("system_time", call["params"])
 
 
 class AnalyzerAndRulesTest(unittest.TestCase):

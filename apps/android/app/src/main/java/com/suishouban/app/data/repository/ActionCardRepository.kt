@@ -372,28 +372,8 @@ class ActionCardRepository(
     }
 
     private fun remoteApiOrNull(settings: AppSettings = settingsRepository.settings.value): com.suishouban.app.data.remote.SuiShouBanApi? {
-        val baseUrl = validatedRemoteBaseUrl(settings.apiBaseUrl) ?: return null
+        val baseUrl = WorkflowUrlPolicy.normalize(settings.apiBaseUrl) ?: return null
         return ApiFactory.create(baseUrl)
-    }
-
-    private fun validatedRemoteBaseUrl(rawBaseUrl: String): String? {
-        val url = rawBaseUrl.trim().takeIf { it.isNotBlank() }?.toHttpUrlOrNull() ?: return null
-        if (url.scheme != "https") return null
-        val host = url.host.lowercase()
-        val blockedHosts = setOf("localhost", "127.0.0.1", "0.0.0.0", "10.0.2.2", "::1")
-        if (host in blockedHosts || host.endsWith(".local") || isPrivateIpHost(host)) return null
-        return url.toString()
-    }
-
-    private fun isPrivateIpHost(host: String): Boolean {
-        val parts = host.split(".").mapNotNull { it.toIntOrNull() }
-        if (parts.size != 4) return false
-        val first = parts[0]
-        val second = parts[1]
-        return first == 10 ||
-            (first == 172 && second in 16..31) ||
-            (first == 192 && second == 168) ||
-            (first == 169 && second == 254)
     }
 
     private fun requireRemoteApi(): com.suishouban.app.data.remote.SuiShouBanApi {

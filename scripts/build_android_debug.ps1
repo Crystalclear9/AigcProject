@@ -1,7 +1,8 @@
 param(
     [string]$SdkPath = "",
     [string]$GradlePath = "",
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$Online
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,15 +54,19 @@ try {
             Select-Object -First 1 -ExpandProperty FullName
         $gradle = if ($cachedGradle) { $cachedGradle } else { ".\gradlew.bat" }
     }
+    $gradleArgs = @("--no-daemon")
+    if (-not $Online) {
+        $gradleArgs += "--offline"
+    }
 
     if (-not $SkipTests) {
-        & $gradle testDebugUnitTest
+        & $gradle testDebugUnitTest @gradleArgs
         if ($LASTEXITCODE -ne 0) {
             throw "Android unit tests failed with exit code $LASTEXITCODE"
         }
     }
 
-    & $gradle assembleDebug
+    & $gradle assembleDebug @gradleArgs
     if ($LASTEXITCODE -ne 0) {
         throw "APK build failed with exit code $LASTEXITCODE"
     }

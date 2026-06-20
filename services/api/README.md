@@ -21,8 +21,12 @@ LANXIN_BASE_URL=https://api-ai.vivo.com.cn/v1
 LANXIN_MODEL=Doubao-Seed-2.0-mini
 VIVO_OCR_APP_ID=
 VIVO_OCR_APP_KEY=
+VIVO_OCR_URL=http://api-ai.vivo.com.cn/ocr/general_recognition
 VIVO_OCR_BUSINESS_PROFILE=rotatable
 VIVO_OCR_TIMEOUT_SECONDS=5
+VIVO_IMAGE_GENERATION_API_KEY=
+VIVO_IMAGE_GENERATION_URL=https://api-ai.vivo.com.cn/api/v1/image_generation
+VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 MAX_UPLOAD_IMAGE_BYTES=5242880
 DATABASE_PATH=./suishouban.db
 CORS_ORIGINS=*
@@ -65,3 +69,7 @@ docker run --rm -p 8000:8000 `
 
 Expose the container through a public HTTPS host before entering the Workflow
 API URL on the phone.
+
+Phone settings must use this service's public HTTPS Workflow gateway URL, not
+the raw vivo provider endpoints. The chat, OCR, and image-generation provider
+URLs stay server-side and are read only from environment variables.

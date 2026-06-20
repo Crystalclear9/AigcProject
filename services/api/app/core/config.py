@@ -51,8 +51,27 @@ class Settings:
     legacy_sync_wait_seconds: float = float(os.getenv("LEGACY_SYNC_WAIT_SECONDS", "1.5"))
     vivo_ocr_app_id: str = os.getenv("VIVO_OCR_APP_ID", "")
     vivo_ocr_app_key: str = os.getenv("VIVO_OCR_APP_KEY", "")
+    vivo_ocr_url: str = os.getenv(
+        "VIVO_OCR_URL",
+        "http://api-ai.vivo.com.cn/ocr/general_recognition",
+    )
     vivo_ocr_business_profile: str = os.getenv("VIVO_OCR_BUSINESS_PROFILE", "rotatable")
     vivo_ocr_timeout_seconds: float = float(os.getenv("VIVO_OCR_TIMEOUT_SECONDS", "5"))
+    vivo_image_generation_api_key: str = os.getenv(
+        "VIVO_IMAGE_GENERATION_API_KEY",
+        os.getenv("LANXIN_API_KEY", ""),
+    )
+    vivo_image_generation_url: str = os.getenv(
+        "VIVO_IMAGE_GENERATION_URL",
+        "https://api-ai.vivo.com.cn/api/v1/image_generation",
+    )
+    vivo_image_generation_model: str = os.getenv(
+        "VIVO_IMAGE_GENERATION_MODEL",
+        "Doubao-Seedream-4.5",
+    )
+    vivo_image_generation_timeout_seconds: float = float(
+        os.getenv("VIVO_IMAGE_GENERATION_TIMEOUT_SECONDS", "60")
+    )
     max_upload_image_bytes: int = int(os.getenv("MAX_UPLOAD_IMAGE_BYTES", str(5 * 1024 * 1024)))
 
     @property
@@ -70,6 +89,10 @@ class Settings:
     @property
     def has_vivo_ocr_config(self) -> bool:
         return bool(self.vivo_ocr_app_key)
+
+    @property
+    def has_image_generation_config(self) -> bool:
+        return bool(self.vivo_image_generation_api_key and self.vivo_image_generation_url)
 
     @property
     def vivo_ocr_business_id(self) -> str:

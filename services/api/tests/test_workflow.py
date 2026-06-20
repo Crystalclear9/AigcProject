@@ -400,6 +400,9 @@ class WorkflowApiTest(unittest.TestCase):
             ready = client.get("/ready").json()
         self.assertEqual(health["status"], "ok")
         self.assertTrue(health["sqlite_checkpointer_available"])
+        self.assertIn("chat_configured", health)
+        self.assertIn("ocr_configured", health)
+        self.assertIn("image_generation_configured", health)
         self.assertTrue(ready["ready"])
 
 
