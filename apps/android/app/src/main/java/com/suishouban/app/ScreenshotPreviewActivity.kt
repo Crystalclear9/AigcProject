@@ -9,6 +9,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
+import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.ui.components.DraftEditor
 import com.suishouban.app.ui.components.PreviewActionsCard
 import com.suishouban.app.ui.theme.BrandBlue
@@ -76,6 +78,10 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         val confidenceBand = intent.getStringExtra(EXTRA_CONFIDENCE_BAND)
         val scenarioType = intent.getStringExtra(EXTRA_SCENARIO_TYPE)
         val primaryEvidence = intent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
+        intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
+            .takeIf { it != 0 }
+            ?.let { NotificationManagerCompat.from(this).cancel(it) }
+        ScreenshotMonitorService.clearPendingPreview(this)
 
         setContent {
             SuiShouBanTheme {
@@ -146,6 +152,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_CONFIDENCE_BAND = "com.suishouban.app.extra.CONFIDENCE_BAND"
         const val EXTRA_SCENARIO_TYPE = "com.suishouban.app.extra.SCENARIO_TYPE"
         const val EXTRA_PRIMARY_EVIDENCE = "com.suishouban.app.extra.PRIMARY_EVIDENCE"
+        const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
     }
 }
 
@@ -304,53 +311,73 @@ private fun DraftPane(
     onConfirm: () -> Unit,
 ) {
     val selectedCount = state.selectedDraftIds.size
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            EvidenceSummary(state = state)
-        }
-        if (state.previewActions.isNotEmpty()) {
-            item { PreviewActionsCard(previewActions = state.previewActions.take(4)) }
-        }
-        items(state.draftCards, key = { it.id }) { card ->
-            val selected = card.id in state.selectedDraftIds
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = ComposeColor.White,
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, if (selected) BrandBlue.copy(alpha = 0.42f) else Line),
-                shadowElevation = if (selected) 6.dp else 1.dp,
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        LazyColumn(
+            modifier = Modifier.weight(1f, fill = false),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                EvidenceSummary(state = state)
+            }
+            if (state.previewActions.isNotEmpty()) {
+                item { PreviewActionsCard(previewActions = state.previewActions.take(4)) }
+            }
+            items(state.draftCards, key = { it.id }) { card ->
+                val selected = card.id in state.selectedDraftIds
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = ComposeColor.White,
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, if (selected) BrandBlue.copy(alpha = 0.42f) else Line),
+                    shadowElevation = if (selected) 6.dp else 1.dp,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = selected, onCheckedChange = { onToggleDraft(card.id) })
-                        Column(Modifier.weight(1f)) {
-                            Text(card.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                text = listOfNotNull(card.deadline ?: card.startTime, card.location, card.submitMethod)
-                                    .joinToString(" · ")
-                                    .ifBlank { "需要确认字段后创建" },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = selected, onCheckedChange = { onToggleDraft(card.id) })
+                            Column(Modifier.weight(1f)) {
+                                Text(card.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = listOfNotNull(card.deadline ?: card.startTime, card.location, card.submitMethod)
+                                        .joinToString(" · ")
+                                        .ifBlank { "需要确认字段后创建" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (selected) {
+                            DraftEditor(
+                                card = card,
+                                onChange = onUpdateDraft,
+                                onRemove = { onRemoveDraft(card.id) },
                             )
                         }
-                    }
-                    if (selected) {
-                        DraftEditor(
-                            card = card,
-                            onChange = onUpdateDraft,
-                            onRemove = { onRemoveDraft(card.id) },
-                        )
                     }
                 }
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = ComposeColor.White.copy(alpha = 0.94f),
+            shape = RoundedCornerShape(22.dp),
+            border = BorderStroke(1.dp, Line),
+            shadowElevation = 4.dp,
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp),
+            ) {
                 if (state.draftCards.size > 1) {
                     OutlinedButton(
                         onClick = onSelectAll,

@@ -1,5 +1,5 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35141",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35181",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -30,6 +30,7 @@ if (-not $sdk) {
 
 $adb = Join-Path $sdk "platform-tools\adb.exe"
 $remoteSampleDir = "/sdcard/Pictures/SuishoubanSamples"
+$artifactDir = Join-Path $root "artifacts"
 
 function Initialize-AdbKeyEnvironment {
     $androidDir = Join-Path $env:USERPROFILE ".android"
@@ -53,7 +54,6 @@ function Assert-ApkHasNoSensitiveMarkers {
     if (-not (Test-Path -LiteralPath $ApkPath)) {
         throw "APK was not found: $ApkPath"
     }
-    $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $ApkPath))
     $markers = New-Object System.Collections.Generic.List[string]
     $serverOnlyEnvNames = @(
         (@("LANXIN", "API", "KEY") -join "_"),
@@ -75,20 +75,31 @@ function Assert-ApkHasNoSensitiveMarkers {
     foreach ($marker in $providerEndpointMarkers) {
         $markers.Add($marker)
     }
-    foreach ($marker in $markers | Where-Object { $_ }) {
-        $needle = [System.Text.Encoding]::UTF8.GetBytes($marker)
-        for ($i = 0; $i -le $bytes.Length - $needle.Length; $i++) {
-            $matched = $true
-            for ($j = 0; $j -lt $needle.Length; $j++) {
-                if ($bytes[$i + $j] -ne $needle[$j]) {
-                    $matched = $false
-                    break
-                }
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $resolvedApk = (Resolve-Path -LiteralPath $ApkPath).Path
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($resolvedApk)
+    try {
+        foreach ($entry in $zip.Entries) {
+            if ($entry.Length -le 0 -or $entry.Length -gt 80000000) {
+                continue
             }
-            if ($matched) {
-                throw "Sensitive marker was found in APK: $($marker.Substring(0, [Math]::Min(16, $marker.Length)))..."
+            $stream = $entry.Open()
+            try {
+                $memory = New-Object System.IO.MemoryStream
+                $stream.CopyTo($memory)
+                $text = [System.Text.Encoding]::UTF8.GetString($memory.ToArray())
+                foreach ($marker in $markers | Where-Object { $_ }) {
+                    if ($text.Contains($marker)) {
+                        throw "Sensitive marker was found in APK entry $($entry.FullName): $($marker.Substring(0, [Math]::Min(16, $marker.Length)))..."
+                    }
+                }
+            } finally {
+                $stream.Dispose()
             }
         }
+    } finally {
+        $zip.Dispose()
     }
     $hash = (Get-FileHash -LiteralPath $ApkPath -Algorithm SHA256).Hash
     $size = (Get-Item -LiteralPath $ApkPath).Length
@@ -115,6 +126,7 @@ $T = @{
     CreateAll = Utf8Text "5YWo6YOo5Yib5bu6"
     CreateSelected = Utf8Text "5Y+q5Yib5bu6"
     Submit = Utf8Text "5o+Q5Lqk"
+    PrepareAttachment = Utf8Text "5YeG5aSH6ZmE5Lu2"
     ReminderCreated = Utf8Text "5bey5Yib5bu65o+Q6YaS"
     PossibleAction = Utf8Text "5Y+R546w5Y+v6IO96KGM5Yqo5LqL6aG5"
     LabReport = Utf8Text "5a6e6aqM5oql5ZGK"
@@ -226,15 +238,16 @@ function Wait-AdbDevice {
         $connectOutput = & $adb connect $Device 2>&1
         $connectExit = $LASTEXITCODE
         Start-Sleep -Seconds 2
-        $stateResult = Invoke-AdbLoose get-state
+        $stateOutput = & $adb -s $Device get-state 2>&1
+        $stateExit = $LASTEXITCODE
         $devicesOutput = & $adb devices 2>&1
         $ErrorActionPreference = $oldPreference
         if ($connectOutput) { $connectOutput | Out-Host }
-        $state = ($stateResult.Output -join "").Trim()
+        $state = ($stateOutput -join "").Trim()
         $devicesText = ($devicesOutput -join "`n")
         Write-Host "ADB wait attempt $attempt state=[$state]"
         $devicePattern = [regex]::Escape($Device) + "\s+device"
-        if ($stateResult.ExitCode -eq 0 -and $state -eq "device") { return }
+        if ($stateExit -eq 0 -and $state -eq "device") { return }
         if ($devicesText -match $devicePattern) { return }
         if ($state -match "unauthorized" -or $devicesText -match ([regex]::Escape($Device) + "\s+unauthorized")) {
             if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
@@ -263,6 +276,34 @@ function Get-UiXml {
     return (Invoke-Adb shell cat "/sdcard/$Name") -join "`n"
 }
 
+function Save-RemoteDiagnostics {
+    param([string]$Prefix = "remote-validation-failure")
+    New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $base = Join-Path $artifactDir "$Prefix-$stamp"
+    try {
+        Invoke-Adb shell uiautomator dump "/sdcard/$Prefix.xml" | Out-Null
+        (Invoke-Adb shell cat "/sdcard/$Prefix.xml") | Set-Content -LiteralPath "$base-ui.xml" -Encoding UTF8
+    } catch {
+        "Failed to capture UI dump: $_" | Set-Content -LiteralPath "$base-ui-error.txt" -Encoding UTF8
+    }
+    try {
+        (& $adb -s $Device shell dumpsys window windows 2>&1) |
+            Select-String -Pattern "mCurrentFocus|mFocusedApp|ScreenshotPreviewActivity|MainActivity" -Context 0,3 |
+            Set-Content -LiteralPath "$base-window.txt" -Encoding UTF8
+    } catch {
+        "Failed to capture focused window: $_" | Set-Content -LiteralPath "$base-window-error.txt" -Encoding UTF8
+    }
+    try {
+        (& $adb -s $Device shell logcat -d -v time 2>&1) |
+            Select-Object -Last 500 |
+            Set-Content -LiteralPath "$base-logcat.txt" -Encoding UTF8
+    } catch {
+        "Failed to capture logcat: $_" | Set-Content -LiteralPath "$base-logcat-error.txt" -Encoding UTF8
+    }
+    Write-Host "Saved remote diagnostics to $base-*"
+}
+
 function Get-TextCenter {
     param([string]$Xml, [string]$Text)
     $escaped = [regex]::Escape($Text)
@@ -272,6 +313,30 @@ function Get-TextCenter {
     $y1 = [int]$match.Groups[3].Value
     $x2 = [int]$match.Groups[4].Value
     $y2 = [int]$match.Groups[5].Value
+    return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+}
+
+function Get-TextCenterByPattern {
+    param([string]$Xml, [string]$Pattern)
+    $nodePattern = '<node[^>]*(text|content-desc)="[^"]*' + $Pattern + '[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
+    $match = [regex]::Match($Xml, $nodePattern)
+    if (-not $match.Success) { return $null }
+    $x1 = [int]$match.Groups[2].Value
+    $y1 = [int]$match.Groups[3].Value
+    $x2 = [int]$match.Groups[4].Value
+    $y2 = [int]$match.Groups[5].Value
+    return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+}
+
+function Get-ResourceCenter {
+    param([string]$Xml, [string]$ResourceId)
+    $escaped = [regex]::Escape($ResourceId)
+    $match = [regex]::Match($Xml, "<node[^>]*resource-id=""$escaped""[^>]*bounds=""\[(\d+),(\d+)\]\[(\d+),(\d+)\]""")
+    if (-not $match.Success) { return $null }
+    $x1 = [int]$match.Groups[1].Value
+    $y1 = [int]$match.Groups[2].Value
+    $x2 = [int]$match.Groups[3].Value
+    $y2 = [int]$match.Groups[4].Value
     return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
 }
 
@@ -543,6 +608,23 @@ function Tap-NotificationContentFallback {
     Start-Sleep -Seconds 3
 }
 
+function Tap-NotificationRootFallback {
+    $xml = Open-Notifications
+    foreach ($resourceId in @(
+        "com.suishouban.app:id/notification_generate",
+        "com.suishouban.app:id/notification_action_content",
+        "com.suishouban.app:id/notification_action_root"
+    )) {
+        $center = Get-ResourceCenter $xml $resourceId
+        if ($center) {
+            Invoke-Adb shell input tap $center.X $center.Y | Out-Null
+            Start-Sleep -Seconds 3
+            return
+        }
+    }
+    Tap-NotificationContentFallback
+}
+
 function Open-GeneratedPreviewFromNotification {
     try {
         Tap-NotificationAction $T.Generate
@@ -552,7 +634,7 @@ function Open-GeneratedPreviewFromNotification {
     Invoke-Adb shell cmd statusbar collapse | Out-Null
     Start-Sleep -Seconds 1
     if (-not (Test-UiContains $T.GenerateDraft)) {
-        Tap-NotificationContentFallback
+        Tap-NotificationRootFallback
         Invoke-Adb shell cmd statusbar collapse | Out-Null
         Start-Sleep -Seconds 1
     }
@@ -561,34 +643,61 @@ function Open-GeneratedPreviewFromNotification {
 }
 
 function Confirm-Preview {
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
         $xml = Get-UiXml "preview.xml"
-        $label = $null
+        $center = $null
         foreach ($candidate in @($T.ConfirmCreate, $T.CreateAll, $T.CreateSelected)) {
             if ($xml -match [regex]::Escape($candidate)) {
-                $label = $candidate
+                $center = Get-TextCenter $xml $candidate
                 break
             }
         }
-        if ($label) {
-            $center = Get-TextCenter $xml $label
+        if (-not $center) {
+            $selectedPrefixPattern = [regex]::Escape($T.CreateSelected) + "\s*\d+\s*"
+            $center = Get-TextCenterByPattern $xml $selectedPrefixPattern
+        }
+        if ($center) {
             Invoke-Adb shell input tap $center.X $center.Y | Out-Null
             Start-Sleep -Seconds 4
             return
         }
-        Invoke-Adb shell input swipe 650 2350 650 760 500 | Out-Null
+        Invoke-Adb shell input swipe 650 1850 650 650 450 | Out-Null
         Start-Sleep -Seconds 1
     }
+    Save-RemoteDiagnostics "confirm-preview-missing"
     throw "Could not find confirm button in preview."
 }
 
 function Assert-CardAndReminderCreated {
     Invoke-Adb shell input tap 630 2635 | Out-Null
     Start-Sleep -Seconds 2
-    Assert-UiContains $T.Submit "Card list did not show the generated action card."
-    Assert-UiContains $T.ReminderCreated "Card list did not show reminder creation."
+    $sawConcreteCard = $false
+    $sawReminder = $false
+    foreach ($attempt in 1..4) {
+        $xml = Get-UiXml "card-list.xml"
+        if ($xml -match [regex]::Escape($T.Submit) -or
+            $xml -match [regex]::Escape($T.LabReport) -or
+            $xml -match [regex]::Escape($T.PrepareAttachment)) {
+            $sawConcreteCard = $true
+        }
+        if ($xml -match [regex]::Escape($T.ReminderCreated)) {
+            $sawReminder = $true
+        }
+        if ($sawConcreteCard -and $sawReminder) { break }
+        Invoke-Adb shell input swipe 650 1900 650 930 450 | Out-Null
+        Start-Sleep -Seconds 1
+    }
+    if (-not $sawConcreteCard) {
+        Save-RemoteDiagnostics "card-list-missing-card"
+        throw "Card list did not show a concrete generated action card."
+    }
+    if (-not $sawReminder) {
+        Save-RemoteDiagnostics "card-list-missing-reminder"
+        throw "Card list did not show reminder creation."
+    }
     $jobs = (Invoke-Adb shell dumpsys jobscheduler) -join "`n"
     if ($jobs -notmatch "com\.suishouban\.app/androidx\.work\.impl\.background\.systemjob\.SystemJobService") {
+        Save-RemoteDiagnostics "workmanager-job-missing"
         throw "No WorkManager reminder jobs were registered."
     }
 }

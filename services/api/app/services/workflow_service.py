@@ -18,7 +18,7 @@ from app.schemas.workflow import (
     WorkflowRunResponse,
 )
 from app.schemas.card import ActionCard
-from app.services.workflow_graph import build_workflow_graph, create_rule_draft
+from app.services.workflow_graph import build_workflow_graph, create_rule_draft, finalize_rules_fast
 from app.services.workflow_agents import build_action_graph as create_action_graph
 
 repository = WorkflowRepository()
@@ -78,8 +78,20 @@ async def initialize_workflow_runtime() -> None:
 
 async def close_workflow_runtime() -> None:
     global _durable_graph, _checkpointer_context, _graph_loop
+    current_loop = asyncio.get_running_loop()
     async with _task_lock:
-        tasks = list(_tasks.values())
+        tasks = [
+            task
+            for task in _tasks.values()
+            if task.get_loop() is current_loop and not task.done() and not task.get_loop().is_closed()
+        ]
+        stale = [
+            run_id
+            for run_id, task in _tasks.items()
+            if task.done() or task.get_loop().is_closed() or task.get_loop() is not current_loop
+        ]
+        for run_id in stale:
+            _tasks.pop(run_id, None)
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     if _checkpointer_context is not None:
@@ -515,6 +527,79 @@ async def _schedule(run_id: str, initial: dict[str, Any], preclaimed: bool = Fal
         _tasks[run_id] = task
 
 
+def _can_complete_rules_inline(state: dict[str, Any]) -> bool:
+    return (
+        state.get("input_kind") == "text"
+        and len(state.get("rule_cards", [])) == 1
+        and float(state.get("overall_confidence", 0)) >= 0.85
+        and not state.get("complexity_reasons", [])
+        and not settings.has_fast_model_config
+        and not settings.has_expert_model_config
+    )
+
+
+def _complete_rules_inline(run_id: str, state: dict[str, Any]) -> None:
+    final_update = finalize_rules_fast(state)
+    node_trace = list(state.get("node_trace", [])) + list(final_update.get("node_trace", []))
+    final_state = {**state, **final_update, "node_trace": node_trace}
+    revision = int(final_state.get("revision", 0))
+    snapshot = _event_snapshot(run_id, final_state)
+    graph = final_state.get("action_graph", {})
+    events = [
+        (
+            "draft_created",
+            {
+                "revision": 1,
+                "stage": "provisional",
+                "cards": state.get("cards", []),
+                "overall_confidence": state.get("overall_confidence", 0),
+                "time_to_first_draft_ms": state.get("time_to_first_draft_ms"),
+                "snapshot": snapshot,
+            },
+            "draft-created:1",
+        ),
+        (
+            "action_graph_updated",
+            {
+                "version": graph.get("version", 1),
+                "actions": len(graph.get("actions", [])),
+                "dependencies": len(graph.get("dependencies", [])),
+            },
+            f"graph:{revision}:{graph.get('version', 1)}:inline",
+        ),
+        (
+            "decision_made",
+            {
+                "risk_level": final_state.get("risk_level", "low"),
+                "errors": final_state.get("validation_errors", []),
+                "overall_confidence": final_state.get("overall_confidence", 0),
+            },
+            f"decision:{revision}:inline",
+        ),
+        (
+            "draft_updated",
+            {
+                "revision": revision,
+                "stage": final_state.get("result_stage"),
+                "cards": final_state.get("cards", []),
+                "snapshot": snapshot,
+            },
+            f"draft-updated:{revision}",
+        ),
+        (
+            "review_required",
+            {
+                "revision": revision,
+                "pending_action": final_state.get("pending_action"),
+                "validation_errors": final_state.get("validation_errors", []),
+                "snapshot": snapshot,
+            },
+            f"review:{revision}",
+        ),
+    ]
+    repository.save_with_events(run_id, final_state, events)
+
+
 def _initial_state(
     run_id: str,
     input_kind: str,
@@ -587,7 +672,7 @@ async def start_text_workflow(text: str, screenshot_time: str | None = None) -> 
         "ocr_candidates": [{"text": text.strip(), "engine": "provided-text", "confidence": 1.0}],
     }
     provisional = await create_rule_draft(primed_state)
-    saved_state = {**initial, **provisional}
+    saved_state = {**primed_state, **provisional}
     saved_state["workflow_status"] = "queued"
     saved_state["pending_action"] = None
     initial["time_to_first_draft_ms"] = provisional.get("time_to_first_draft_ms")
@@ -597,8 +682,13 @@ async def start_text_workflow(text: str, screenshot_time: str | None = None) -> 
         lease_owner=_worker_id,
         lease_seconds=settings.workflow_lease_seconds,
     )
+    started_response = repository.response(run_id)
+    if _can_complete_rules_inline(saved_state):
+        _complete_rules_inline(run_id, saved_state)
+        repository.release_job(run_id, _worker_id)
+        return started_response
     await _schedule(run_id, initial, preclaimed=True)
-    return repository.response(run_id)
+    return started_response
 
 
 async def start_image_workflow(image_bytes: bytes, screenshot_time: str | None = None) -> WorkflowRunResponse:
@@ -629,14 +719,6 @@ async def wait_for_result(
     while time.monotonic() < deadline:
         response = repository.response(run_id)
         if response.workflow_status in {"completed", "awaiting_review", "failed", "cancelled"}:
-            async with _task_lock:
-                task = _tasks.get(run_id)
-            if task is not None and task is not asyncio.current_task() and not task.done():
-                remaining = max(0.01, deadline - time.monotonic())
-                try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=min(remaining, 0.5))
-                except asyncio.TimeoutError:
-                    pass
             return repository.response(run_id)
         if accept_provisional and response.revision > 0:
             return response

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -8,6 +9,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 WIDTH = 1260
 HEIGHT = 2800
+
+
+def future_day(days: int) -> datetime:
+    return datetime.now() + timedelta(days=days)
+
+
+def cn_date(days: int) -> str:
+    value = future_day(days)
+    return f"{value.month} 月 {value.day} 日"
+
+
+def dot_date(days: int) -> str:
+    value = future_day(days)
+    return f"{value.year}.{value.month:02d}.{value.day:02d}"
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -85,9 +100,9 @@ def course_notice(output_dir: Path) -> None:
     draw_text(draw, (190, 365), "✨ 课程通知 ✨", 64, "#FFFFFF", True, 18)
     round_rect(draw, (140, 710, 1120, 1470), 36, "#F8FAFC")
     draw_text(draw, (190, 790), "请各位同学注意：", 52, "#1F2937", True, 18)
-    draw_text(draw, (190, 910), "6 月 20 日 22：00 前", 72, "#EF4444", True, 18)
+    draw_text(draw, (190, 910), f"{cn_date(5)} 22：00 前", 72, "#EF4444", True, 18)
     draw_text(draw, (190, 1060), "提交《实验报告》", 66, "#111827", True, 18)
-    draw_text(draw, (190, 1210), "提交至学习通，文件命名为：学号 + 姓名。", 44, "#374151", False, 22)
+    draw_text(draw, (190, 1210), "实验报告提交至学习通，文件命名为：学号 + 姓名。", 44, "#374151", False, 22)
     draw_text(draw, (160, 1650), "老师提醒：逾期无法补交，请提前准备附件。", 42, "#475569", False, 24)
     bottom_tabs(draw)
     save(image, output_dir, "complex_course_notice.png")
@@ -114,7 +129,7 @@ def competition_poster(output_dir: Path) -> None:
     draw_text(draw, (160, 390), "AIGC 创新赛", 88, "#FDE68A", True, 18)
     draw_text(draw, (160, 560), "报 名 通 道 已 开 启", 60, "#FFFFFF", True, 20)
     round_rect(draw, (150, 780, 1110, 1140), 48, "#FFFFFF")
-    draw_text(draw, (210, 850), "D D L：2026.06.18 23:59", 56, "#DC2626", True, 24)
+    draw_text(draw, (210, 850), f"D D L：{dot_date(7)} 23:59", 56, "#DC2626", True, 24)
     draw_text(draw, (210, 960), "上传作品说明书、团队信息表", 42, "#111827", False, 24)
     draw_text(draw, (210, 1040), "点击官网链接提交，逾期系统关闭。", 42, "#111827", False, 24)
     draw_text(draw, (160, 1320), "主办方：学院创新中心", 38, "#C4B5FD", False, 24)
@@ -127,7 +142,7 @@ def meeting_poster(output_dir: Path) -> None:
     status_bar(draw)
     round_rect(draw, (90, 250, 1170, 2310), 54, "#FFFFFF")
     draw_text(draw, (160, 390), "团队周会安排", 76, "#7C2D12", True, 18)
-    draw_text(draw, (160, 560), "周五 14:30  腾讯会议", 58, "#EA580C", True, 22)
+    draw_text(draw, (160, 560), f"{cn_date(4)} 14:30  腾讯会议", 58, "#EA580C", True, 22)
     draw_text(draw, (160, 720), "请参加会议并准备本周进展汇报 PPT。", 46, "#111827", False, 23)
     draw_text(draw, (160, 860), "会议号：886 210 552", 42, "#475569", False, 24)
     draw_text(draw, (160, 980), "需要提前 10 分钟签到。", 42, "#475569", False, 24)
@@ -141,13 +156,13 @@ def multi_tasks_notice(output_dir: Path) -> None:
     round_rect(draw, (80, 210, 1180, 2440), 54, "#FFFFFF")
     draw_text(draw, (150, 330), "课程群公告", 72, "#0F172A", True, 16)
     round_rect(draw, (140, 520, 1120, 980), 42, "#EFF6FF")
-    draw_text(draw, (190, 580), "① 请在 6 月 20 日 22:00 前", 48, "#1D4ED8", True, 22)
+    draw_text(draw, (190, 580), f"① 请在 {cn_date(5)} 22:00 前", 48, "#1D4ED8", True, 22)
     draw_text(draw, (190, 680), "提交《实验报告》到学习通，文件名：学号+姓名。", 42, "#111827", False, 23)
     round_rect(draw, (140, 1080, 1120, 1540), 42, "#FFF7ED")
-    draw_text(draw, (190, 1140), "② 周五 14:30 参加腾讯会议", 48, "#C2410C", True, 22)
+    draw_text(draw, (190, 1140), f"② {cn_date(6)} 14:30 参加腾讯会议", 48, "#C2410C", True, 22)
     draw_text(draw, (190, 1240), "并准备本周进展汇报 PPT，会议号 886 210 552。", 42, "#111827", False, 23)
     round_rect(draw, (140, 1640, 1120, 2040), 42, "#F0FDF4")
-    draw_text(draw, (190, 1700), "③ 报名表下周一前发到指定邮箱，逾期不补。", 44, "#166534", True, 22)
+    draw_text(draw, (190, 1700), f"③ 报名表 {cn_date(7)} 前发到指定邮箱，逾期不补。", 44, "#166534", True, 22)
     draw_text(draw, (190, 1840), "广告：618 文具满减与本通知无关。", 38, "#6B7280", False, 24)
     bottom_tabs(draw)
     save(image, output_dir, "complex_multi_tasks.png")

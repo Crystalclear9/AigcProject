@@ -20,6 +20,7 @@ from app.schemas.workflow import (
     WorkflowResumeRequest,
 )
 from app.services.workflow_service import (
+    _can_complete_rules_inline,
     close_workflow_runtime,
     confirm_workflow,
     get_workflow,
@@ -184,6 +185,38 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertGreaterEqual(len(WorkflowRepository().get_state(started.run_id)["ocr_candidates"]), 2)
         self.assertTrue(any("OCR candidates conflict" in warning for warning in updated.warnings))
+
+    async def test_multi_card_text_still_uses_full_workflow_path(self) -> None:
+        started = await start_text_workflow(
+            "6月10日22:00前提交实验报告；6月11日10:00参加组会并准备进展汇报",
+            "2026-06-07T10:00:00+08:00",
+        )
+        initial_state = WorkflowRepository().get_state(started.run_id)
+        self.assertEqual(initial_state["workflow_status"], "queued")
+        self.assertIn("multiple_cards", initial_state.get("complexity_reasons", []))
+
+        completed = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
+
+        self.assertEqual(completed.workflow_status, "awaiting_review")
+        self.assertGreaterEqual(len(completed.cards), 2)
+        self.assertNotIn("rules-fast-path", [trace.engine for trace in completed.node_trace])
+
+    async def test_inline_rules_fast_path_is_disabled_when_cloud_models_are_configured(self) -> None:
+        state = {
+            "input_kind": "text",
+            "rule_cards": [{"title": "提交实验报告"}],
+            "overall_confidence": 0.95,
+            "complexity_reasons": [],
+        }
+        original_fast_key = settings.fast_model_api_key
+        original_expert_key = settings.expert_model_api_key
+        try:
+            object.__setattr__(settings, "fast_model_api_key", "configured-on-server")
+            object.__setattr__(settings, "expert_model_api_key", "")
+            self.assertFalse(_can_complete_rules_inline(state))
+        finally:
+            object.__setattr__(settings, "fast_model_api_key", original_fast_key)
+            object.__setattr__(settings, "expert_model_api_key", original_expert_key)
 
 
 class PerformanceWorkflowTest(unittest.TestCase):
