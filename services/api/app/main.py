@@ -31,6 +31,9 @@ def runtime_health() -> tuple[bool, dict[str, object]]:
         "fast_model_configured": settings.has_fast_model_config,
         "expert_model_configured": settings.has_expert_model_config,
         "vivo_ocr_configured": settings.has_vivo_ocr_config,
+        "chat_configured": settings.has_fast_model_config or settings.has_expert_model_config,
+        "ocr_configured": settings.has_vivo_ocr_config,
+        "image_generation_configured": settings.has_image_generation_config,
     }
     ready = bool(checks["langgraph_version_match"] and sqlite_available and database_writable)
     return ready, checks

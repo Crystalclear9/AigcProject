@@ -11,9 +11,6 @@ import httpx
 from app.core.config import settings
 from app.services.provider_runtime import runtime
 
-VIVO_OCR_URL = "http://api-ai.vivo.com.cn/ocr/general_recognition"
-
-
 @dataclass(frozen=True)
 class OcrLine:
     text: str
@@ -76,7 +73,7 @@ class VivoOcrClient:
         try:
             async with runtime.semaphores["ocr"]:
                 response = await runtime.client.post(
-                    VIVO_OCR_URL,
+                    settings.vivo_ocr_url,
                     data=payload,
                     params=params,
                     headers=headers,

@@ -87,7 +87,7 @@ cd apps\android
 复杂截图链路的功能验收以云真机为准，默认设备为：
 
 ```text
-val-vclinner-rt-contest.vivo.com.cn:35165
+val-vclinner-rt-contest.vivo.com.cn:35141
 ```
 
 执行：
@@ -159,7 +159,11 @@ EXPERT_MODEL_NAME=Doubao-Seed-2.0
 # 云 OCR，可选；Android 端侧 OCR 始终可用
 VIVO_OCR_APP_ID=
 VIVO_OCR_APP_KEY=
+VIVO_OCR_URL=http://api-ai.vivo.com.cn/ocr/general_recognition
 VIVO_OCR_BUSINESS_PROFILE=rotatable
+VIVO_IMAGE_GENERATION_API_KEY=
+VIVO_IMAGE_GENERATION_URL=https://api-ai.vivo.com.cn/api/v1/image_generation
+VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 
 REQUEST_TIMEOUT_SECONDS=20
 MAX_UPLOAD_IMAGE_BYTES=5242880

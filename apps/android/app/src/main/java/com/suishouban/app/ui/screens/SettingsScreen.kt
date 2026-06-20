@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.repository.AppSettings
+import com.suishouban.app.data.repository.WorkflowUrlPolicy
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
@@ -56,7 +57,7 @@ fun SettingsScreen(
 ) {
     var apiBaseUrl by remember(state.settings.apiBaseUrl) { mutableStateOf(state.settings.apiBaseUrl) }
     val trimmedApiBaseUrl = apiBaseUrl.trim()
-    val apiUrlAccepted = trimmedApiBaseUrl.isBlank() || isAcceptedWorkflowUrl(trimmedApiBaseUrl)
+    val apiUrlAccepted = trimmedApiBaseUrl.isBlank() || WorkflowUrlPolicy.isAccepted(trimmedApiBaseUrl)
     val modeLabel = when {
         trimmedApiBaseUrl.isBlank() -> "当前为本机模式：不访问开发主机，端侧 OCR + 本地规则可完整运行。"
         apiUrlAccepted -> "将使用手机可直接访问的 HTTPS 网关。蓝心 key 只应放在后端/网关，不进入 APK。"
@@ -191,26 +192,6 @@ fun SettingsScreen(
             Spacer(Modifier.height(92.dp))
         }
     }
-}
-
-private fun isAcceptedWorkflowUrl(value: String): Boolean {
-    val lower = value.lowercase()
-    if (!lower.startsWith("https://")) return false
-    val host = lower.removePrefix("https://").substringBefore("/").substringBefore(":")
-    return host !in setOf("localhost", "127.0.0.1", "0.0.0.0", "10.0.2.2", "::1") &&
-        !host.endsWith(".local") &&
-        !isPrivateIpHost(host)
-}
-
-private fun isPrivateIpHost(host: String): Boolean {
-    val parts = host.split(".").mapNotNull { it.toIntOrNull() }
-    if (parts.size != 4) return false
-    val first = parts[0]
-    val second = parts[1]
-    return first == 10 ||
-        (first == 172 && second in 16..31) ||
-        (first == 192 && second == 168) ||
-        (first == 169 && second == 254)
 }
 
 @Composable
