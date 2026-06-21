@@ -22,7 +22,7 @@ class LocalActionExtractor {
         val rawCards = segments
             .flatMap { segment -> extractCardsFromSegment(segment) }
             .ifEmpty { extractCardsFromSegment(normalized) }
-        val cards = mergeSimilarCandidates(rawCards)
+        val cards = mergeSimilarCandidates(rawCards + extractEvidenceBackfillCards(normalized, rawCards))
         return AnalyzeResult(
             ocrText = normalized,
             cards = cards,
@@ -34,6 +34,14 @@ class LocalActionExtractor {
     private fun extractCardsFromSegment(segment: String): List<ActionCard> {
         val text = segment.trim()
         if (!isActionableText(text)) return emptyList()
+        val clauses = splitAtomicActionClauses(text)
+        if (clauses.size > 1) {
+            return clauses.flatMap { clause -> extractCardsFromAtomicSegment(clause) }
+        }
+        return extractCardsFromAtomicSegment(text)
+    }
+
+    private fun extractCardsFromAtomicSegment(text: String): List<ActionCard> {
         if (hasMeetingPreparation(text)) {
             return listOf(
                 buildCard(text, CardTypes.EVENT, title = if ("组会" in text) "参加组会" else "参加会议"),
@@ -42,6 +50,38 @@ class LocalActionExtractor {
         }
         val cardType = classify(text) ?: return emptyList()
         return listOf(buildCard(text, cardType))
+    }
+
+    private fun extractEvidenceBackfillCards(text: String, existingCards: List<ActionCard>): List<ActionCard> {
+        val cards = mutableListOf<ActionCard>()
+        val hasRegistration = existingCards.any { "报名" in it.title || "报名表" in it.title }
+        val hasRegistrationTiming = hasTimeSignal(text) ||
+            Regex("\\d").containsMatchIn(text) ||
+            listOf("截止", "逾期", "前").any { it in text }
+        if (!hasRegistration && "报名表" in text && ("邮箱" in text || "发到" in text || "发送" in text) && hasRegistrationTiming) {
+            cards += buildCard(
+                focusedEvidenceWindow(text, "报名表"),
+                CardTypes.TASK,
+                title = "发送报名表",
+            )
+        }
+        return cards
+    }
+
+    private fun focusedEvidenceWindow(text: String, keyword: String): String {
+        val index = text.indexOf(keyword).takeIf { it >= 0 } ?: return text.take(120)
+        val start = index
+        val end = (index + 96).coerceAtMost(text.length)
+        return text.substring(start, end).trim()
+    }
+
+    private fun splitAtomicActionClauses(text: String): List<String> {
+        return insertActionBreaks(text)
+            .split(Regex("[\\n；;。]+"))
+            .map { it.trim(' ', '，', ',', '-', '—') }
+            .filter { it.length >= 6 }
+            .filter { isActionableText(it) }
+            .distinctBy { it.normalizedKey() }
     }
 
     private fun mergeSimilarCandidates(cards: List<ActionCard>): List<ActionCard> {
@@ -59,12 +99,26 @@ class LocalActionExtractor {
 
     private fun areSameAction(left: ActionCard, right: ActionCard): Boolean {
         if (left.cardType != right.cardType) return false
+        val leftSignals = titleActionSignals(left.title)
+        val rightSignals = titleActionSignals(right.title)
+        if (leftSignals.isNotEmpty() && rightSignals.isNotEmpty() && leftSignals.intersect(rightSignals).isEmpty()) {
+            return false
+        }
         val sameTime = left.primaryTimeKey().isNotBlank() && left.primaryTimeKey() == right.primaryTimeKey()
         val sharedMaterials = left.materials.intersect(right.materials.toSet()).isNotEmpty()
         val sameSubmitMethod = left.submitMethod != null && left.submitMethod == right.submitMethod
         val sourceOverlap = textOverlap(left.sourceText, right.sourceText) >= 0.48
         val titleOverlap = textOverlap(left.title, right.title) >= 0.58
         return sourceOverlap && (sameTime || sharedMaterials || sameSubmitMethod || titleOverlap)
+    }
+
+    private fun titleActionSignals(title: String): Set<String> {
+        return buildSet {
+            if ("实验报告" in title) add("lab_report")
+            if ("报名" in title || "报名表" in title) add("registration")
+            if ("会议" in title) add("meeting")
+            if ("汇报" in title || "PPT" in title) add("report")
+        }
     }
 
     private fun cardEvidenceScore(card: ActionCard): Int {
@@ -107,10 +161,7 @@ class LocalActionExtractor {
             }
         }
 
-        val splitText = fullText
-            .replace(Regex("([①②③④⑤⑥⑦⑧⑨])"), "\n$1")
-            .replace(Regex("(?<!\\d)([1-9][、.．)]\\s*)"), "\n$1")
-            .replace(Regex("(另外|同时|还有|并且|以及|请各位|各组需|注意[:：])"), "\n$1")
+        val splitText = insertActionBreaks(fullText)
         splitText
             .split(Regex("[\\n；;。]+"))
             .map { it.trim(' ', '，', ',', '-', '—') }
@@ -125,6 +176,15 @@ class LocalActionExtractor {
             .sortedByDescending { segmentEvidenceScore(it) }
             .distinctBy { it.normalizedKey() }
             .take(MAX_SEGMENTS)
+    }
+
+    private fun insertActionBreaks(text: String): String {
+        return text
+            .replace(Regex("([①②③④⑤⑥⑦⑧⑨])"), "\n$1")
+            .replace(Regex("(?<!\\d)([1-9][、.．)]\\s*)"), "\n$1")
+            .replace(Regex("(另外|同时|还有|并且|以及|请各位|各组需|注意[:：])"), "\n$1")
+            .replace(Regex("\\s+(?=(?:请在\\s*)?\\d{1,2}\\s*月\\s*\\d{1,2}\\s*[日号]?\\s*(?:\\d{1,2}[:：]\\d{2})?\\s*(?:前)?\\s*(?:提交|参加|报名|发送|发到|准备))"), "\n")
+            .replace(Regex("\\s+(?=(?:报名表|实验报告|项目\\s*PPT|PPT)\\s*\\d{1,2}\\s*月\\s*\\d{1,2})"), "\n")
     }
 
     private fun segmentEvidenceScore(text: String): Int {
@@ -241,10 +301,13 @@ class LocalActionExtractor {
     }
 
     private fun inferTitle(text: String, cardType: String): String = when {
+        "实验报告" in text -> "提交实验报告"
+        "报名表" in text && ("邮箱" in text || "发送" in text || "发到" in text) -> "发送报名表"
+        "进展汇报" in text && ("准备" in text || "PPT" in text) -> "准备进展汇报"
+        "腾讯会议" in text || ("会议" in text && "参加" in text) -> "参加会议"
         Regex("(提交|上传|完成|填写|报名|准备|参加|发送|缴费|复习|整理)[^，。；;！？!?\n]{2,20}").find(text) != null ->
             Regex("(提交|上传|完成|填写|报名|准备|参加|发送|缴费|复习|整理)[^，。；;！？!?\n]{2,20}")
                 .find(text)!!.value.trim().take(28)
-        "实验报告" in text -> "提交实验报告"
         "AIGC" in text -> "完成 AIGC 创新赛报名"
         "比赛" in text && "报名" in text -> "完成比赛报名"
         "组会" in text -> "参加组会"
@@ -295,6 +358,7 @@ class LocalActionExtractor {
         if (!inline.isNullOrBlank()) return inline
         return when {
             "学习通" in text -> "学习通"
+            "腾讯会议" in text -> "腾讯会议"
             "官网" in text -> "官网"
             else -> null
         }

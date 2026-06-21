@@ -3,6 +3,7 @@ package com.suishouban.app
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.util.Base64
 import android.view.Gravity
 import android.view.Window
 import android.view.WindowManager
@@ -69,19 +70,25 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         configureFloatingWindow()
+        viewModel.beginFreshScreenshotPrompt()
 
-        val screenshotUri = intent.data
-        val ocrText = intent.getStringExtra(EXTRA_OCR_TEXT)
-        val gateReason = intent.getStringExtra(EXTRA_GATE_REASON)
-        val deadlineHint = intent.getStringExtra(EXTRA_DEADLINE_HINT)
-        val promptSummary = intent.getStringExtra(EXTRA_PROMPT_SUMMARY)
-        val confidenceBand = intent.getStringExtra(EXTRA_CONFIDENCE_BAND)
-        val scenarioType = intent.getStringExtra(EXTRA_SCENARIO_TYPE)
-        val primaryEvidence = intent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
-        intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
+        val recoveredIntent = ScreenshotMonitorService.consumePendingPreviewIntent(this)
+        val sourceIntent = recoveredIntent ?: intent
+        val screenshotUri = sourceIntent.data
+        val ocrText = sourceIntent.getStringExtra(EXTRA_OCR_TEXT)
+            ?: sourceIntent.getStringExtra(EXTRA_OCR_TEXT_BASE64)?.let(::decodeUtf8Base64)
+        val gateReason = sourceIntent.getStringExtra(EXTRA_GATE_REASON)
+        val deadlineHint = sourceIntent.getStringExtra(EXTRA_DEADLINE_HINT)
+        val promptSummary = sourceIntent.getStringExtra(EXTRA_PROMPT_SUMMARY)
+        val confidenceBand = sourceIntent.getStringExtra(EXTRA_CONFIDENCE_BAND)
+        val scenarioType = sourceIntent.getStringExtra(EXTRA_SCENARIO_TYPE)
+        val primaryEvidence = sourceIntent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
+        sourceIntent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
             .takeIf { it != 0 }
             ?.let { NotificationManagerCompat.from(this).cancel(it) }
-        ScreenshotMonitorService.clearPendingPreview(this)
+        if (recoveredIntent == null) {
+            ScreenshotMonitorService.clearPendingPreview(this)
+        }
 
         setContent {
             SuiShouBanTheme {
@@ -144,6 +151,15 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         window.attributes = params
     }
 
+    private fun decodeUtf8Base64(value: String): String? {
+        return runCatching {
+            val padded = value.padEnd(value.length + (4 - value.length % 4) % 4, '=')
+            String(Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
+        }.recoverCatching {
+            String(Base64.decode(value, Base64.DEFAULT), Charsets.UTF_8)
+        }.getOrNull()
+    }
+
     companion object {
         const val EXTRA_OCR_TEXT = "com.suishouban.app.extra.OCR_TEXT"
         const val EXTRA_GATE_REASON = "com.suishouban.app.extra.GATE_REASON"
@@ -153,6 +169,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_SCENARIO_TYPE = "com.suishouban.app.extra.SCENARIO_TYPE"
         const val EXTRA_PRIMARY_EVIDENCE = "com.suishouban.app.extra.PRIMARY_EVIDENCE"
         const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
+        const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
     }
 }
 
@@ -167,7 +184,7 @@ private fun ScreenshotFloatingPanel(
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
-    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.65f).dp
+    val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -353,7 +370,7 @@ private fun DraftPane(
                                 )
                             }
                         }
-                        if (selected) {
+                        if (selected && state.draftCards.size == 1) {
                             DraftEditor(
                                 card = card,
                                 onChange = onUpdateDraft,

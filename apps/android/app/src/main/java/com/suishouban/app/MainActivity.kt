@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
@@ -50,11 +51,13 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
+    private var skipPendingPromptOnce: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestRuntimePermissions()
-        val sharedImageUri = extractSharedImage(intent)
+        val openedScreenshotPrompt = openProcessScreenshotIntent(intent)
+        val sharedImageUri = if (openedScreenshotPrompt) null else extractSharedImage(intent)
 
         setContent {
             SuiShouBanTheme {
@@ -181,7 +184,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (skipPendingPromptOnce) {
+            skipPendingPromptOnce = false
+            return
+        }
         openPendingScreenshotPrompt()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openProcessScreenshotIntent(intent)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -193,6 +206,32 @@ class MainActivity : ComponentActivity() {
         ScreenshotMonitorService.consumePendingPreviewIntent(this)?.let { intent ->
             startActivity(intent)
         }
+    }
+
+    private fun openProcessScreenshotIntent(source: Intent?): Boolean {
+        if (source?.action != ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT) return false
+        skipPendingPromptOnce = true
+        ScreenshotMonitorService.clearPendingPreview(this)
+        val previewIntent = Intent(this, ScreenshotPreviewActivity::class.java).apply {
+            action = ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT
+            data = source.data
+            putExtras(source)
+            source.getStringExtra(EXTRA_OCR_TEXT_BASE64)
+                ?.let(::decodeUtf8Base64)
+                ?.takeIf { it.isNotBlank() }
+                ?.let { putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TEXT, it) }
+        }
+        startActivity(previewIntent)
+        return true
+    }
+
+    private fun decodeUtf8Base64(value: String): String? {
+        return runCatching {
+            val padded = value.padEnd(value.length + (4 - value.length % 4) % 4, '=')
+            String(Base64.decode(padded, Base64.URL_SAFE or Base64.NO_WRAP), Charsets.UTF_8)
+        }.recoverCatching {
+            String(Base64.decode(value, Base64.DEFAULT), Charsets.UTF_8)
+        }.getOrNull()
     }
 
     private fun requestRuntimePermissions() {
@@ -213,7 +252,6 @@ class MainActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun extractSharedImage(intent: Intent?): Uri? {
-        if (intent?.action == ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT) return intent.data
         if (intent?.action != Intent.ACTION_SEND) return null
         return intent.getParcelableExtra(Intent.EXTRA_STREAM)
     }
@@ -225,6 +263,8 @@ class MainActivity : ComponentActivity() {
         return FileProvider.getUriForFile(this, "$packageName.fileprovider", imageFile)
     }
 }
+
+private const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
 
 private sealed class Screen(
     val route: String,

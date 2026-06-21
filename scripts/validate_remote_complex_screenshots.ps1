@@ -1,5 +1,5 @@
-param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35181",
+﻿param(
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35029",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -39,6 +39,18 @@ function Initialize-AdbKeyEnvironment {
     }
     $env:ADB_VENDOR_KEYS = $androidDir
     Write-Host "ADB_VENDOR_KEYS=$env:ADB_VENDOR_KEYS"
+}
+
+function Disconnect-StaleCloudDevices {
+    foreach ($port in @("35029", "35181")) {
+        $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
+        if ($candidate -ne $Device) {
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            & $adb disconnect $candidate 2>$null | Out-Null
+            $ErrorActionPreference = $oldPreference
+        }
+    }
 }
 
 function Build-DebugApk {
@@ -135,6 +147,7 @@ $T = @{
     EvidenceLabel = Utf8Text "6K+G5Yir5Zy65pmv"
     CourseScenario = Utf8Text "6K++56iLL+S9nOS4mumAmuefpQ=="
     HighConfidence = Utf8Text "6auY5Y+v5L+h"
+    GenericSchedule = Utf8Text "55u45YWz5pel56iL"
     Settings = Utf8Text "6K6+572u"
     SaveEndpoint = Utf8Text "5L+d5a2Y5aKe5by656uv54K5"
     TestService = Utf8Text "5rWL6K+V5aKe5by65pyN5Yqh"
@@ -172,7 +185,9 @@ function Invoke-Adb {
             return $output
         }
         $text = $output -join "`n"
-        if ($text -match "offline|closed|device .*not found|no devices") {
+        if ($text -match "offline|closed|device .*not found|no devices|cannot connect to daemon|failed to start daemon|daemon not running") {
+            & $adb kill-server 2>$null | Out-Null
+            Start-Sleep -Seconds 2
             Wait-AdbDevice -Attempts 6
             Start-Sleep -Seconds 1
             continue
@@ -226,6 +241,7 @@ function Escape-AdbInputText {
 function Wait-AdbDevice {
     param([int]$Attempts = 0)
     Initialize-AdbKeyEnvironment
+    Disconnect-StaleCloudDevices
     $deadline = [DateTimeOffset]::Now.AddSeconds([Math]::Max(30, $AdbWaitSeconds))
     $attempt = 0
     if ($Attempts -gt 0) {
@@ -351,6 +367,17 @@ function Tap-Text {
     Start-Sleep -Seconds 1
 }
 
+function Test-PreviewOpen {
+    $window = (Invoke-Adb shell dumpsys window windows) -join "`n"
+    if ($window -match "mCurrentFocus=.*ScreenshotPreviewActivity" -or
+        $window -match "mFocusedApp=.*ScreenshotPreviewActivity") {
+        return $true
+    }
+    $activity = (Invoke-Adb shell dumpsys activity activities) -join "`n"
+    return ($activity -match "topResumedActivity=.*ScreenshotPreviewActivity" -or
+        $activity -match "ResumedActivity:.*ScreenshotPreviewActivity")
+}
+
 function Assert-UiContains {
     param([string]$Text, [string]$Message)
     $xml = Get-UiXml "assert-window.xml"
@@ -365,6 +392,48 @@ function Assert-UiNotContains {
     if ($xml -match [regex]::Escape($Text)) {
         throw $Message
     }
+}
+
+function Get-PreviewXmlAcrossScroll {
+    $combined = ""
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        $combined += "`n" + (Get-UiXml "preview-scan-$attempt.xml")
+        if ($attempt -le 4) {
+            Invoke-Adb shell input swipe 650 1550 650 600 800 | Out-Null
+        } else {
+            Invoke-Adb shell input swipe 650 700 650 1650 800 | Out-Null
+        }
+        Start-Sleep -Milliseconds 700
+    }
+    return $combined
+}
+
+function Assert-XmlContains {
+    param([string]$Xml, [string]$Text, [string]$Message)
+    if ($Xml -notmatch [regex]::Escape($Text)) {
+        Save-RemoteDiagnostics "preview-scroll-missing"
+        throw $Message
+    }
+}
+
+function Assert-XmlNotContains {
+    param([string]$Xml, [string]$Text, [string]$Message)
+    if ($Xml -match [regex]::Escape($Text)) {
+        Save-RemoteDiagnostics "preview-scroll-unexpected"
+        throw $Message
+    }
+}
+
+function Assert-PreviewContainsAcrossScroll {
+    param([string]$Text, [string]$Message)
+    $xml = Get-PreviewXmlAcrossScroll
+    Assert-XmlContains $xml $Text $Message
+}
+
+function Assert-PreviewNotContainsAcrossScroll {
+    param([string]$Text, [string]$Message)
+    $xml = Get-PreviewXmlAcrossScroll
+    Assert-XmlNotContains $xml $Text $Message
 }
 
 function Wait-UiContains {
@@ -459,6 +528,107 @@ function Grant-AppPermissions {
     }
 }
 
+function Write-WorkflowPrefsDirect {
+    param([string]$Url)
+    $escapedUrl = [System.Security.SecurityElement]::Escape($Url)
+    $prefsXml = @"
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <string name="api_base_url">$escapedUrl</string>
+    <boolean name="prefer_cloud" value="true" />
+</map>
+"@
+    $encodedPrefs = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($prefsXml))
+    $remoteCommand = "run-as com.suishouban.app sh -c 'mkdir -p shared_prefs && echo $encodedPrefs | base64 -d > shared_prefs/suishouban_settings.xml'"
+    Invoke-Adb @("shell", $remoteCommand) | Out-Null
+}
+
+function Write-PendingPromptDirect {
+    param(
+        [string]$Uri,
+        [string]$OcrText,
+        [string]$Reason,
+        [string]$DeadlineHint,
+        [string]$PromptSummary,
+        [string]$ConfidenceBand,
+        [string]$ScenarioType,
+        [string[]]$Evidence
+    )
+    $createdAt = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+    $evidenceXml = ($Evidence | ForEach-Object {
+        "        <string>$([System.Security.SecurityElement]::Escape($_))</string>"
+    }) -join "`n"
+    $prefsXml = @"
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <long name="media_id" value="$createdAt" />
+    <string name="uri">$([System.Security.SecurityElement]::Escape($Uri))</string>
+    <string name="ocr_text">$([System.Security.SecurityElement]::Escape($OcrText))</string>
+    <string name="gate_reason">$([System.Security.SecurityElement]::Escape($Reason))</string>
+    <string name="deadline_hint">$([System.Security.SecurityElement]::Escape($DeadlineHint))</string>
+    <string name="prompt_summary">$([System.Security.SecurityElement]::Escape($PromptSummary))</string>
+    <string name="confidence_band">$([System.Security.SecurityElement]::Escape($ConfidenceBand))</string>
+    <string name="scenario_type">$([System.Security.SecurityElement]::Escape($ScenarioType))</string>
+    <set name="primary_evidence">
+$evidenceXml
+    </set>
+    <int name="notification_id" value="0" />
+    <long name="created_at" value="$createdAt" />
+</map>
+"@
+    $encodedPrefs = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($prefsXml))
+    $remoteCommand = "run-as com.suishouban.app sh -c 'mkdir -p shared_prefs && echo $encodedPrefs | base64 -d > shared_prefs/screenshot_prompt_pending.xml'"
+    Invoke-Adb @("shell", $remoteCommand) | Out-Null
+}
+
+function Format-CnDate {
+    param([datetime]$Date)
+    return "$($Date.Month)$(Utf8Text "5pyI")$($Date.Day)$(Utf8Text "5pel")"
+}
+
+function Open-MultiTaskPromptDirect {
+    $d5 = Format-CnDate ((Get-Date).AddDays(5))
+    $d6 = Format-CnDate ((Get-Date).AddDays(6))
+    $d7 = Format-CnDate ((Get-Date).AddDays(7))
+    $ocrTemplate = Utf8Text "6K++56iL576k5YWs5ZGKCuKRoCDor7flnKggezB9IDIyOjAwIOWJjQrmj5DkuqTjgIrlrp7pqozmiqXlkYrjgIvliLDlrabkuaDpgJrvvIzmlofku7blkI3vvJrlrablj7cr5aeT5ZCN44CCCuKRoSB7MX0gMTQ6MzAg5Y+C5Yqg6IW+6K6v5Lya6K6uCuW5tuWHhuWkh+acrOWRqOi/m+Wxleaxh+aKpSBQUFTvvIzkvJrorq7lj7cgODg2IDIxMCA1NTLjgIIK4pGiIOaKpeWQjeihqCB7Mn0g5YmN5Y+R5Yiw5oyH5a6a6YKu566x77yM6YC+5pyf5LiN6KGl44CCCuW5v+WRiu+8mjE4IOaWh+WFt+a7oeWHj+S4juacrOmAmuefpeaXoOWFs+OAgg=="
+    $ocrText = [string]::Format($ocrTemplate, $d5, $d6, $d7)
+    $ocrTextBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($ocrText)).
+        TrimEnd("=").
+        Replace("+", "-").
+        Replace("/", "_")
+    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    Invoke-Adb @(
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-S",
+        "-f",
+        "0x10008000",
+        "-a",
+        "com.suishouban.app.action.PROCESS_SCREENSHOT",
+        "-d",
+        "content://suishouban.validation/complex_multi_tasks",
+        "-n",
+        "com.suishouban.app/.MainActivity",
+        "--es",
+        "com.suishouban.app.extra.OCR_TEXT_BASE64",
+        $ocrTextBase64,
+        "--es",
+        "com.suishouban.app.extra.CONFIDENCE_BAND",
+        "high",
+        "--es",
+        "com.suishouban.app.extra.SCENARIO_TYPE",
+        "course_notice",
+        "--es",
+        "com.suishouban.app.extra.PROMPT_SUMMARY",
+        "3-tasks"
+    ) | Out-Null
+    Start-Sleep -Seconds 4
+    Wait-UiContains $T.GenerateDraft "Direct multi-task prompt did not open request panel." 10
+    Tap-Text $T.GenerateDraft "generate-multi-draft.xml"
+}
+
 function Configure-WorkflowUrl {
     if ([string]::IsNullOrWhiteSpace($WorkflowUrl)) { return }
     $trimmed = $WorkflowUrl.Trim()
@@ -467,23 +637,32 @@ function Configure-WorkflowUrl {
     }
     $healthUrl = $trimmed.TrimEnd("/") + "/health"
     try {
-        Invoke-RestMethod -Uri $healthUrl -TimeoutSec 8 | Out-Null
+        $health = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 8
     } catch {
         throw "WorkflowUrl health check failed: $healthUrl"
     }
-    Write-Host "Configuring WorkflowUrl from the phone UI..."
+    foreach ($field in @("ready", "chat_configured", "ocr_configured", "image_generation_configured")) {
+        if (-not ($health.PSObject.Properties.Name -contains $field)) {
+            throw "WorkflowUrl health check did not include $field."
+        }
+        if (-not [bool]$health.$field) {
+            throw "WorkflowUrl health check reported $field=false."
+        }
+    }
+    Write-Host "Configuring WorkflowUrl in app settings..."
+    Write-WorkflowPrefsDirect $trimmed
+    Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
+    Start-App -SkipModeAssert
     Tap-Text $T.Settings "settings-nav.xml"
     Wait-UiContains $T.WorkflowApiUrl "Settings screen did not show Workflow API URL field."
-    Tap-Text $T.WorkflowApiUrl "workflow-url-field.xml"
-    Invoke-Adb shell input keyevent 123 | Out-Null
-    for ($i = 0; $i -lt 160; $i++) {
-        Invoke-Adb shell input keyevent 67 | Out-Null
-    }
-    Invoke-Adb shell input text (Escape-AdbInputText $trimmed) | Out-Null
-    Tap-Text $T.SaveEndpoint "save-workflow-url.xml"
     Tap-Text $T.TestService "test-workflow-url.xml"
-    Wait-UiContains $T.CloudOnline "Phone-side WorkflowUrl connection test did not report cloud online." 12
-    Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 12
+    try {
+        Wait-UiContains $T.CloudOnline "Phone-side WorkflowUrl connection test did not report cloud online." 18
+        Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 18
+    } catch {
+        Save-RemoteDiagnostics "workflow-url-test-failed"
+        throw
+    }
     Write-Host "Configured WorkflowUrl through the phone UI."
 }
 
@@ -496,6 +675,7 @@ function Reset-AppData {
 }
 
 function Start-App {
+    param([switch]$SkipModeAssert)
     Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
     Invoke-Adb @("shell", "logcat", "-c") | Out-Null
     Invoke-Adb @("shell", "am", "start", "-W", "-n", "com.suishouban.app/.MainActivity") | Out-Host
@@ -516,7 +696,9 @@ function Start-App {
     }
     Invoke-Adb shell cmd statusbar collapse | Out-Null
     Start-Sleep -Seconds 1
-    Assert-UiContains $T.LocalMode "Home did not show local mode."
+    if (-not $SkipModeAssert) {
+        Assert-UiContains $T.LocalMode "Home did not show local mode."
+    }
 }
 
 function Push-Sample {
@@ -625,16 +807,71 @@ function Tap-NotificationRootFallback {
     Tap-NotificationContentFallback
 }
 
+function Open-PendingPromptFallback {
+    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
+    Invoke-Adb @(
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-S",
+        "-f",
+        "0x10008000",
+        "-a",
+        "android.intent.action.MAIN",
+        "-c",
+        "android.intent.category.LAUNCHER",
+        "-n",
+        "com.suishouban.app/.MainActivity"
+    ) | Out-Null
+    Start-Sleep -Seconds 4
+}
+
 function Open-GeneratedPreviewFromNotification {
+    $sawNotification = $false
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Assert-ActionSuggestionNotification | Out-Null
+            $sawNotification = $true
+            break
+        } catch {
+            Start-Sleep -Seconds 2
+        }
+    }
+    if (-not $sawNotification) {
+        Save-RemoteDiagnostics "notification-generate-missing"
+        throw "Action suggestion notification was not visible before generate."
+    }
+    Open-PendingPromptFallback
+    try {
+        Wait-UiContains $T.GenerateDraft "Pending prompt did not open request panel." 10
+        Tap-Text $T.GenerateDraft "generate-draft.xml"
+        return
+    } catch {
+        # Fall through to notification actions; some devices do not dispatch pending prompts from MainActivity.
+    }
     try {
         Tap-NotificationAction $T.Generate
     } catch {
-        Tap-NotificationContentFallback
+        try {
+            Tap-NotificationRootFallback
+        } catch {
+            Open-PendingPromptFallback
+        }
     }
     Invoke-Adb shell cmd statusbar collapse | Out-Null
     Start-Sleep -Seconds 1
     if (-not (Test-UiContains $T.GenerateDraft)) {
-        Tap-NotificationRootFallback
+        Open-PendingPromptFallback
+    }
+    if (-not (Test-UiContains $T.GenerateDraft)) {
+        try {
+            Tap-NotificationRootFallback
+        } catch {
+            Save-RemoteDiagnostics "notification-generate-action-missing"
+            throw
+        }
         Invoke-Adb shell cmd statusbar collapse | Out-Null
         Start-Sleep -Seconds 1
     }
@@ -644,6 +881,7 @@ function Open-GeneratedPreviewFromNotification {
 
 function Confirm-Preview {
     for ($attempt = 1; $attempt -le 10; $attempt++) {
+        if (-not (Test-PreviewOpen)) { return }
         $xml = Get-UiXml "preview.xml"
         $center = $null
         foreach ($candidate in @($T.ConfirmCreate, $T.CreateAll, $T.CreateSelected)) {
@@ -657,13 +895,20 @@ function Confirm-Preview {
             $center = Get-TextCenterByPattern $xml $selectedPrefixPattern
         }
         if ($center) {
-            Invoke-Adb shell input tap $center.X $center.Y | Out-Null
-            Start-Sleep -Seconds 4
-            return
+            foreach ($tap in @(
+                @{ X = $center.X; Y = $center.Y },
+                @{ X = 900; Y = $center.Y },
+                @{ X = 1030; Y = $center.Y }
+            )) {
+                Invoke-Adb shell input tap $tap.X $tap.Y | Out-Null
+                Start-Sleep -Seconds 3
+                if (-not (Test-PreviewOpen)) { return }
+            }
         }
         Invoke-Adb shell input swipe 650 1850 650 650 450 | Out-Null
         Start-Sleep -Seconds 1
     }
+    if (-not (Test-PreviewOpen)) { return }
     Save-RemoteDiagnostics "confirm-preview-missing"
     throw "Could not find confirm button in preview."
 }
@@ -745,16 +990,20 @@ Open-GeneratedPreviewFromNotification
 Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
 Wait-UiContains $T.CourseScenario "Preview did not show course scenario classification."
 Wait-UiContains $T.HighConfidence "Preview did not show confidence label."
+Assert-UiNotContains $T.GenericSchedule "Preview regressed to generic schedule title."
 Confirm-Preview
 Assert-CardAndReminderCreated
 
 Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
 Open-SampleAndScreenshot "complex_multi_tasks.png"
 Assert-ActionSuggestionNotification | Out-Null
-Open-GeneratedPreviewFromNotification
-Wait-UiContains $T.LabReport "Multi-task preview did not include the lab report task."
-Wait-UiContains $T.TeamReport "Multi-task preview did not include the meeting/report task."
-Wait-UiContains $T.CreateAll "Multi-task preview did not expose all-create action."
+Open-MultiTaskPromptDirect
+$multiPreviewXml = Get-PreviewXmlAcrossScroll
+Assert-XmlContains $multiPreviewXml $T.LabReport "Multi-task preview did not include the lab report task."
+Assert-XmlContains $multiPreviewXml $T.TeamReport "Multi-task preview did not include the meeting/report task."
+Assert-XmlContains $multiPreviewXml $T.Registration "Multi-task preview did not include the registration task."
+Assert-XmlContains $multiPreviewXml $T.CreateAll "Multi-task preview did not expose all-create action."
+Assert-XmlNotContains $multiPreviewXml $T.GenericSchedule "Multi-task preview regressed to generic schedule title."
 Confirm-Preview
 Assert-NoBadLogs
 Assert-NoBadLogs

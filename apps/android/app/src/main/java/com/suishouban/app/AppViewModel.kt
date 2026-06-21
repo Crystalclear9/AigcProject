@@ -15,6 +15,8 @@ import com.suishouban.app.domain.ocr.OcrRaceController
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -70,6 +72,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val calendarSyncer = app.calendarSyncer
     private val ocrRaceController = OcrRaceController
     private val locallyEditedDraftIds = mutableSetOf<String>()
+    private var ignoreActiveWorkflowRestore: Boolean = false
+    private var restoreWorkflowJob: Job? = null
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
     val uiState: StateFlow<AppUiState> = _uiState
@@ -86,15 +90,66 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         repository.activeRunId()?.let { runId ->
-            viewModelScope.launch {
+            restoreWorkflowJob = viewModelScope.launch {
                 runCatching {
-                    repository.followWorkflow(runId) { applyAnalyzeResult(it) }
+                    repository.followWorkflow(runId) {
+                        if (!ignoreActiveWorkflowRestore) {
+                            applyAnalyzeResult(it)
+                        }
+                    }
                 }.onFailure {
+                    if (it is CancellationException || ignoreActiveWorkflowRestore) return@onFailure
                     _uiState.update { state ->
                         state.copy(error = userVisibleWorkflowError(it, "恢复上次工作流失败"))
                     }
                 }
             }
+        }
+    }
+
+    fun beginFreshScreenshotPrompt() {
+        ignoreActiveWorkflowRestore = true
+        restoreWorkflowJob?.cancel()
+        restoreWorkflowJob = null
+        repository.clearActiveWorkflow()
+        locallyEditedDraftIds.clear()
+        _uiState.update {
+            it.copy(
+                loading = false,
+                draftCards = emptyList(),
+                actionCandidates = emptyList(),
+                selectedDraftIds = emptySet(),
+                previewActions = emptyList(),
+                ocrText = "",
+                engine = "",
+                traceId = "",
+                fallbackReason = null,
+                warnings = emptyList(),
+                workflowStatus = "",
+                pendingAction = null,
+                nodeTrace = emptyList(),
+                revision = 0,
+                resultStage = "",
+                overallConfidence = 0.0,
+                route = "",
+                timeToFirstDraftMs = null,
+                timeToFinalMs = null,
+                activeAgents = emptyList(),
+                decisionReasons = emptyList(),
+                riskLevel = "low",
+                validationErrors = emptyList(),
+                fieldConflicts = emptyList(),
+                fieldVersions = emptyMap(),
+                screenshotGateReason = null,
+                screenshotDeadlineHint = null,
+                screenshotPromptSummary = null,
+                screenshotConfidenceBand = null,
+                screenshotScenarioType = null,
+                screenshotPrimaryEvidence = emptyList(),
+                screenshotWorkflowStage = null,
+                ocrArbitrationReason = null,
+                error = null,
+            )
         }
     }
 
@@ -267,8 +322,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
-            val remoteImageWorkflow = screenshotUri?.let { uri ->
-                async { runCatching { repository.analyzeImage(uri, screenshotTime) }.getOrNull() }
+            val remoteWorkflow = async {
+                runCatching {
+                    repository.analyzeText(
+                        text = ocrText,
+                        screenshotTime = screenshotTime,
+                        enginePrefix = "mlkit",
+                    )
+                }.getOrNull()
             }
             val localResult = runCatching {
                 repository.analyzeTextLocal(
@@ -284,21 +345,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 localResult.copy(warnings = warnings + localResult.warnings),
                 notifyWhenEmpty = true,
             )
+            val localCandidateFloor = localResult.cards
             onDone(hasLocalCards)
 
-            val cloudStart = remoteImageWorkflow?.await()
+            val cloudStart = remoteWorkflow.await()
             if (cloudStart?.traceId.isNullOrBlank()) return@launch
             applyAnalyzeResult(
                 cloudStart!!.copy(
                     engine = EngineLabels.withPrefix(cloudStart.engine, "mlkit"),
+                    cards = mergeRemoteWithLocalCandidateFloor(localCandidateFloor, cloudStart.cards),
                     warnings = warnings + listOf("云端增强正在校验截图和补全候选字段") + cloudStart.warnings,
                 ),
             )
             runCatching {
-                repository.submitOcrCandidate(cloudStart.traceId, ocrText)
                 repository.followWorkflow(cloudStart.traceId) { update ->
                     val enhanced = update.copy(
                         engine = EngineLabels.withPrefix(update.engine, "mlkit"),
+                        cards = mergeRemoteWithLocalCandidateFloor(localCandidateFloor, update.cards),
                         warnings = warnings + listOf("云端增强结果已合入候选；用户编辑字段保持锁定") + update.warnings,
                     )
                     applyAnalyzeResult(enhanced)
@@ -356,7 +419,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val incomingDrafts = result.cards
             val mergedDrafts = when {
                 incomingDrafts.isEmpty() && it.draftCards.isNotEmpty() -> it.draftCards
-                locallyEditedDraftIds.isNotEmpty() -> mergeIncomingWithoutOverwritingUserDrafts(
+                incomingDrafts.isNotEmpty() && it.draftCards.isNotEmpty() -> mergeIncomingWithoutOverwritingUserDrafts(
                     localDrafts = it.draftCards,
                     incomingDrafts = incomingDrafts,
                 )
@@ -427,7 +490,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val sameIndex = merged.indexOfFirst { existing -> sameActionCandidate(existing, incoming) }
             when {
                 sameIndex < 0 -> merged += incoming
-                merged[sameIndex].id !in locallyEditedDraftIds -> merged[sameIndex] = incoming
                 else -> merged[sameIndex] = fillEmptyFields(merged[sameIndex], incoming)
             }
         }
@@ -448,14 +510,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private fun mergeRemoteWithLocalCandidateFloor(
+        localCards: List<ActionCard>,
+        remoteCards: List<ActionCard>,
+    ): List<ActionCard> {
+        if (localCards.isEmpty()) return remoteCards
+        if (remoteCards.isEmpty()) return localCards
+        val merged = localCards.toMutableList()
+        remoteCards.forEach { incoming ->
+            val sameIndex = merged.indexOfFirst { existing -> sameActionCandidate(existing, incoming) }
+            if (sameIndex < 0) {
+                merged += incoming
+            } else {
+                merged[sameIndex] = fillEmptyFields(merged[sameIndex], incoming)
+            }
+        }
+        return merged
+    }
+
     private fun sameActionCandidate(left: ActionCard, right: ActionCard): Boolean {
         if (left.cardType != right.cardType) return false
+        val leftSignals = titleActionSignals(left.title)
+        val rightSignals = titleActionSignals(right.title)
+        if (leftSignals.isNotEmpty() && rightSignals.isNotEmpty() && leftSignals.intersect(rightSignals).isEmpty()) {
+            return false
+        }
         val leftTime = left.deadline ?: left.startTime
         val rightTime = right.deadline ?: right.startTime
         val sameTime = !leftTime.isNullOrBlank() && leftTime.take(16) == rightTime?.take(16)
         val sharedMaterials = left.materials.intersect(right.materials.toSet()).isNotEmpty()
         val titleOverlap = tokenOverlap(left.title, right.title) >= 0.55
         return sameTime || sharedMaterials || titleOverlap
+    }
+
+    private fun titleActionSignals(title: String): Set<String> = buildSet {
+        if ("实验报告" in title) add("lab_report")
+        if ("报名" in title || "报名表" in title) add("registration")
+        if ("会议" in title) add("meeting")
+        if ("汇报" in title || "PPT" in title) add("report")
     }
 
     private fun tokenOverlap(left: String, right: String): Double {
@@ -546,7 +638,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(error = "没有需要确认的行动卡") }
                 return@launch
             }
+            val shouldConfirmRemoteWorkflowBeforeLocalSave = false
             val cardsToSave = if (
+                shouldConfirmRemoteWorkflowBeforeLocalSave &&
                 _uiState.value.workflowStatus in setOf("queued", "running", "awaiting_review") &&
                 _uiState.value.traceId.isNotBlank()
             ) {
