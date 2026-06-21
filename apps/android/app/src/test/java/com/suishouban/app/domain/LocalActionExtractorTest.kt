@@ -69,4 +69,24 @@ class LocalActionExtractorTest {
         assertEquals(1, result.cards.size)
         assertEquals(CardTypes.COMPARISON, result.cards.first().cardType)
     }
+
+    @Test
+    fun multiTaskNoticeSplitsIntoSeparateConcreteCards() {
+        val result = extractor.extract(
+            """
+            课程群公告
+            ① 请在 6月26日 22:00 前提交《实验报告》到学习通，文件名：学号+姓名。
+            ② 6月27日 14:30 参加腾讯会议，并准备本周进展汇报 PPT，会议号 886 210 552。
+            ③ 报名表 6月28日 前发到指定邮箱，逾期不补。
+            广告：18 文具满减与本通知无关。
+            """.trimIndent()
+        )
+
+        val titles = result.cards.map { it.title }
+        assertTrue("titles=$titles", titles.any { it.contains("实验报告") })
+        assertTrue("titles=$titles", titles.any { it.contains("会议") || it.contains("汇报") })
+        assertTrue("titles=$titles", titles.any { it.contains("报名表") || it.contains("报名") })
+        assertTrue("cards=${result.cards}", result.cards.size >= 3)
+        assertTrue("titles=$titles", result.cards.none { it.title == "相关日程" || it.title == "处理截图事项" })
+    }
 }

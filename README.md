@@ -106,7 +106,7 @@ VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 复杂截图链路的功能验收以云真机为准，默认设备为：
 
 ```text
-val-vclinner-rt-contest.vivo.com.cn:35181
+val-vclinner-rt-contest.vivo.com.cn:35029
 ```
 
 执行：
@@ -117,6 +117,8 @@ val-vclinner-rt-contest.vivo.com.cn:35181
 ```
 
 验收覆盖：无行动截图不提示、行动截图出现低打扰“可能有待办”小窗、点击生成后展示候选卡、多任务截图拆出多张卡、选择后保存 Room、注册 WorkManager 截止提醒、logcat 无崩溃/DTO/Room/WorkManager/本机地址连接错误。
+
+未传 `-WorkflowUrl` 时脚本只验证端侧 ML Kit + 本地规则闭环；传入公网 HTTPS Workflow 网关后，才会验证 vivo API/蓝心增强。
 
 ## 后端启动
 

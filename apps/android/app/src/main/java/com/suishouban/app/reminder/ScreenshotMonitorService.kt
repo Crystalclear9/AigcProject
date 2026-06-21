@@ -349,7 +349,7 @@ class ScreenshotMonitorService : Service() {
                 ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE,
                 ArrayList(gate.primaryEvidence),
             )
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
 
@@ -358,7 +358,7 @@ class ScreenshotMonitorService : Service() {
             action = ACTION_PROCESS_SCREENSHOT
             data = source.data
             source.extras?.let { putExtras(it) }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
 
@@ -445,7 +445,7 @@ class ScreenshotMonitorService : Service() {
                 putExtra(ScreenshotPreviewActivity.EXTRA_SCENARIO_TYPE, prefs.getString(KEY_PENDING_SCENARIO_TYPE, null))
                 putStringArrayListExtra(ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE, ArrayList(evidence.toList()))
                 putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, prefs.getInt(KEY_PENDING_NOTIFICATION_ID, 0))
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             prefs.edit().clear().apply()
             return intent
