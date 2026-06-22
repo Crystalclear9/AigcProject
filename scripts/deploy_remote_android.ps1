@@ -1,5 +1,5 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35029",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35121",
     [string]$WorkflowUrl = "",
     [string]$BackendUrl = "",
     [string]$ApkPath = "",

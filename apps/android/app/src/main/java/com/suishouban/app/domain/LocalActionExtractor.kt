@@ -58,11 +58,18 @@ class LocalActionExtractor {
         val hasRegistrationTiming = hasTimeSignal(text) ||
             Regex("\\d").containsMatchIn(text) ||
             listOf("截止", "逾期", "前").any { it in text }
-        if (!hasRegistration && "报名表" in text && ("邮箱" in text || "发到" in text || "发送" in text) && hasRegistrationTiming) {
+        val hasRegistrationEvidence = "报名表" in text ||
+            Regex("报名\\s*(表|材料|信息)").containsMatchIn(text) ||
+            ("报名" in text && listOf("邮箱", "发到", "发送", "提交", "逾期").any { it in text })
+        if (!hasRegistration && hasRegistrationEvidence && hasRegistrationTiming) {
+            val registrationWindow = focusedEvidenceWindow(
+                text,
+                if ("报名表" in text) "报名表" else "报名",
+            )
             cards += buildCard(
-                focusedEvidenceWindow(text, "报名表"),
+                registrationWindow,
                 CardTypes.TASK,
-                title = "发送报名表",
+                title = if (listOf("邮箱", "发到", "发送").any { it in registrationWindow }) "发送报名表" else "提交报名表",
             )
         }
         return cards
@@ -148,15 +155,23 @@ class LocalActionExtractor {
         val candidates = mutableListOf<String>()
         val usefulLines = lines.filter { line -> line.length >= 4 && !looksLikeChromeOnly(line) }
         usefulLines.forEachIndexed { index, line ->
+            val previous = usefulLines.getOrNull(index - 1)
+            val next = usefulLines.getOrNull(index + 1)
+            if (previous != null && hasTimeSignal(previous) && isActionableText("$previous $line")) {
+                candidates += "$previous $line"
+            }
+            if (next != null && hasTimeSignal(line) && isActionableText("$line $next")) {
+                candidates += "$line $next"
+            }
             val contextWindow = usefulLines
                 .subList((index - 1).coerceAtLeast(0), (index + 3).coerceAtMost(usefulLines.size))
                 .joinToString(" ")
             when {
                 isActionableText(contextWindow) -> candidates += contextWindow
                 isActionableText(line) -> {
-                    val next = usefulLines.getOrNull(index + 1)
+                    val following = next
                         ?.takeIf { !isActionableText(it) && hasKeySignal("$line $it") }
-                    candidates += listOfNotNull(line, next).joinToString(" ")
+                    candidates += listOfNotNull(line, following).joinToString(" ")
                 }
             }
         }
@@ -258,11 +273,17 @@ class LocalActionExtractor {
         val hasTime = time.value != null
         val priority = if (listOf("截止", "逾期", "前提交", "考试", "报名").any { it in text }) Priority.HIGH else Priority.NORMAL
         val location = extractLocation(text)
-        val submitMethod = extractSubmitMethod(text)
+        val submitMethod = if (cardType == CardTypes.EVENT) null else extractSubmitMethod(text)
         val needConfirm = buildList {
-            if (time.fuzzy) add("时间")
-            if ("指定邮箱" in text || "指定平台" in text) add("提交方式")
-            if (cardType == CardTypes.EVENT && location == null) add("地点")
+            if (time.fuzzy && cardType != CardTypes.TASK) add("时间")
+            if (cardType != CardTypes.EVENT && ("指定邮箱" in text || "指定平台" in text) && submitMethod == null) add("提交方式")
+            if (
+                cardType == CardTypes.EVENT &&
+                location == null &&
+                "会议号" !in text &&
+                "腾讯会议" !in text &&
+                "线上" !in text
+            ) add("地点")
             if ("表格" in text && "位置" !in text) add("表格位置")
         }
         return ActionCard(

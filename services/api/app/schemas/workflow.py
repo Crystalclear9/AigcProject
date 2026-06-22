@@ -11,6 +11,7 @@ from app.schemas.agent_workflow import (
     AgentPlan,
     AgentResult,
     BudgetUsage,
+    ReActSession,
     RetrievalSource,
     VerificationSummary,
 )
@@ -27,6 +28,7 @@ WorkflowStatus = Literal[
 ResumeCommand = Literal["provide_ocr_text", "review_cards", "cancel"]
 ResultStage = Literal["provisional", "enhanced", "final"]
 WorkflowRoute = Literal["rules", "fast_model", "expert_model", "fast_and_expert", "supervisor_agents"]
+EnhancementStatus = Literal["not_configured", "attempted", "succeeded", "degraded"]
 
 
 class NodeTrace(BaseModel):
@@ -71,6 +73,12 @@ class DraftFieldOperation(BaseModel):
 
 class ConfirmWorkflowRequest(BaseModel):
     revision: int = Field(ge=0)
+
+
+class WorkflowReactRequest(BaseModel):
+    base_revision: int = Field(ge=0)
+    instruction: str = Field(default="", max_length=600)
+    selected_card_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class WorkflowResumeRequest(BaseModel):
@@ -129,6 +137,12 @@ class WorkflowRunResponse(BaseModel):
     retrieval_sources: list[RetrievalSource] = Field(default_factory=list)
     verification_summary: VerificationSummary = Field(default_factory=VerificationSummary)
     replan_count: int = 0
+    provider_usage: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    model_enhancement_status: EnhancementStatus = "not_configured"
+    ocr_enhancement_status: EnhancementStatus = "not_configured"
+    image_generation_status: EnhancementStatus = "not_configured"
+    react_session: ReActSession | None = None
+    react_suggestions: list[str] = Field(default_factory=list)
 
 
 class WorkflowEvent(BaseModel):

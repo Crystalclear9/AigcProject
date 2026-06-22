@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35029",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35121",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -9,6 +9,7 @@
 )
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $ApkPath) {
     $ApkPath = Join-Path $root "apps\android\app\build\outputs\apk\debug\app-debug.apk"
@@ -42,7 +43,7 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35181")) {
+    foreach ($port in @("35029", "35121", "35173", "35181", "35185")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $oldPreference = $ErrorActionPreference
@@ -137,6 +138,12 @@ $T = @{
     ConfirmCreate = Utf8Text "56Gu6K6k5Yib5bu6"
     CreateAll = Utf8Text "5YWo6YOo5Yib5bu6"
     CreateSelected = Utf8Text "5Y+q5Yib5bu6"
+    AiRefine = Utf8Text "57un57ut6K6pIEFJIOWujOWWhA=="
+    AiRefineTitle = Utf8Text "6K6pIEFJIOe7p+e7reWujOWWhA=="
+    AiRefineRunning = Utf8Text "QUkg5q2j5Zyo6KeC5a+f6K+B5o2u"
+    AiRefineDone = Utf8Text "QUkg5bey5a6M5oiQ5LiA5qyh5Y+X5o6nIFJlQWN0IOWujOWWhA=="
+    AiRechecked = Utf8Text "QUkg5bey6YeN5paw5qOA5p+l5YCZ6YCJ6I2J56i/"
+    LocalRuleReview = Utf8Text "56uv5L6n6KeE5YiZ5aSN5qOA"
     Submit = Utf8Text "5o+Q5Lqk"
     PrepareAttachment = Utf8Text "5YeG5aSH6ZmE5Lu2"
     ReminderCreated = Utf8Text "5bey5Yib5bu65o+Q6YaS"
@@ -152,6 +159,13 @@ $T = @{
     SaveEndpoint = Utf8Text "5L+d5a2Y5aKe5by656uv54K5"
     TestService = Utf8Text "5rWL6K+V5aKe5by65pyN5Yqh"
     CloudOnline = Utf8Text "5LqR56uv5aKe5by65Zyo57q/"
+    CloudConfigured = Utf8Text "5LqR56uv6YWN572u5Y+v55So"
+    VivoModelCalled = Utf8Text "dml2byDmqKHlnovlt7Llrp7pmYXosIPnlKg="
+    VivoOcrCalled = Utf8Text "dml2byBPQ1Ig5bey5a6e6ZmF6LCD55So"
+    ImageProbePassed = Utf8Text "5Zu+54mH55Sf5oiQ5o6i6ZKI5bey6YCa6L+H"
+    CloudModelParticipated = Utf8Text "5LqR56uv5qih5Z6L5bey5Y+C5LiO"
+    VivoOcrParticipated = Utf8Text "dml2byBPQ1Ig5bey5Y+C5LiO"
+    CloudEnhancementDegraded = Utf8Text "5LqR56uv5aKe5by65bey6ZmN57qn"
     WorkflowRuntimeOk = Utf8Text "5bel5L2c5rWB6L+Q6KGM5pe25q2j5bi4"
     WorkflowApiUrl = Utf8Text "V29ya2Zsb3cgQVBJIFVSTA=="
 }
@@ -175,7 +189,7 @@ function Normalize-AdbArgs {
 function Invoke-Adb {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
     $normalizedArgs = Normalize-AdbArgs $Args
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
         $oldPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         $output = & $adb -s $Device @normalizedArgs 2>&1
@@ -185,10 +199,13 @@ function Invoke-Adb {
             return $output
         }
         $text = $output -join "`n"
-        if ($text -match "offline|closed|device .*not found|no devices|cannot connect to daemon|failed to start daemon|daemon not running") {
+        if ($normalizedArgs.Count -ge 1 -and $normalizedArgs[0] -eq "push" -and $text -match "file pushed") {
+            return $output
+        }
+        if ($text -match "offline|closed|device .*not found|no devices|cannot connect to daemon|failed to start daemon|daemon not running|failed to read copy response|EOF|protocol fault") {
             & $adb kill-server 2>$null | Out-Null
             Start-Sleep -Seconds 2
-            Wait-AdbDevice -Attempts 6
+            Wait-AdbDevice -Attempts 20
             Start-Sleep -Seconds 1
             continue
         }
@@ -263,8 +280,19 @@ function Wait-AdbDevice {
         $devicesText = ($devicesOutput -join "`n")
         Write-Host "ADB wait attempt $attempt state=[$state]"
         $devicePattern = [regex]::Escape($Device) + "\s+device"
-        if ($stateExit -eq 0 -and $state -eq "device") { return }
-        if ($devicesText -match $devicePattern) { return }
+        if (($stateExit -eq 0 -and $state -eq "device") -or ($devicesText -match $devicePattern)) {
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            $probeOutput = & $adb -s $Device shell echo adb-ready 2>&1
+            $probeExit = $LASTEXITCODE
+            $ErrorActionPreference = $oldPreference
+            if ($probeExit -eq 0 -and (($probeOutput -join "`n") -match "adb-ready")) {
+                return
+            }
+            & $adb disconnect $Device | Out-Null
+            Start-Sleep -Seconds 2
+            continue
+        }
         if ($state -match "unauthorized" -or $devicesText -match ([regex]::Escape($Device) + "\s+unauthorized")) {
             if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
                 Reset-AdbAuthorization
@@ -344,6 +372,30 @@ function Get-TextCenterByPattern {
     return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
 }
 
+function Get-ExactTextCenter {
+    param([string]$Xml, [string]$Text)
+    $escaped = [regex]::Escape($Text)
+    $match = [regex]::Match($Xml, "<node[^>]*(text|content-desc)=""$escaped""[^>]*bounds=""\[(\d+),(\d+)\]\[(\d+),(\d+)\]""")
+    if (-not $match.Success) { return $null }
+    $x1 = [int]$match.Groups[2].Value
+    $y1 = [int]$match.Groups[3].Value
+    $x2 = [int]$match.Groups[4].Value
+    $y2 = [int]$match.Groups[5].Value
+    return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+}
+
+function Get-ClickableTextCenter {
+    param([string]$Xml, [string]$Text)
+    $escaped = [regex]::Escape($Text)
+    $match = [regex]::Match($Xml, "<node(?=[^>]*clickable=""true"")[^>]*(text|content-desc)=""[^""]*$escaped[^""]*""[^>]*bounds=""\[(\d+),(\d+)\]\[(\d+),(\d+)\]""")
+    if (-not $match.Success) { return $null }
+    $x1 = [int]$match.Groups[2].Value
+    $y1 = [int]$match.Groups[3].Value
+    $x2 = [int]$match.Groups[4].Value
+    $y2 = [int]$match.Groups[5].Value
+    return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+}
+
 function Get-ResourceCenter {
     param([string]$Xml, [string]$ResourceId)
     $escaped = [regex]::Escape($ResourceId)
@@ -365,6 +417,12 @@ function Tap-Text {
     }
     Invoke-Adb shell input tap $center.X $center.Y | Out-Null
     Start-Sleep -Seconds 1
+}
+
+function Tap-RemotePoint {
+    param([int]$X, [int]$Y)
+    & $adb -s $Device shell input tap $X $Y 2>$null | Out-Null
+    Start-Sleep -Milliseconds 650
 }
 
 function Test-PreviewOpen {
@@ -399,9 +457,9 @@ function Get-PreviewXmlAcrossScroll {
     for ($attempt = 1; $attempt -le 8; $attempt++) {
         $combined += "`n" + (Get-UiXml "preview-scan-$attempt.xml")
         if ($attempt -le 4) {
-            Invoke-Adb shell input swipe 650 1550 650 600 800 | Out-Null
+            Invoke-Adb shell input swipe 650 1350 650 560 800 | Out-Null
         } else {
-            Invoke-Adb shell input swipe 650 700 650 1650 800 | Out-Null
+            Invoke-Adb shell input swipe 650 650 650 1350 800 | Out-Null
         }
         Start-Sleep -Milliseconds 700
     }
@@ -442,6 +500,20 @@ function Wait-UiContains {
         $xml = Get-UiXml "wait-window.xml"
         if ($xml -match [regex]::Escape($Text)) {
             return
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw $Message
+}
+
+function Wait-UiContainsAny {
+    param([string[]]$Texts, [string]$Message, [int]$Attempts = 12)
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        $xml = Get-UiXml "wait-any-window.xml"
+        foreach ($text in $Texts) {
+            if ($xml -match [regex]::Escape($text)) {
+                return $text
+            }
         }
         Start-Sleep -Seconds 1
     }
@@ -499,19 +571,23 @@ function Install-App {
         throw "APK was not found: $ApkPath"
     }
     Wait-AdbDevice
-    & $adb -s $Device uninstall com.suishouban.app | Out-Host
+    $uninstallResult = Invoke-AdbLoose uninstall com.suishouban.app
+    $uninstallText = ($uninstallResult.Output -join "`n")
+    if ($uninstallText) { $uninstallText | Out-Host }
+    if ($uninstallText -match "offline|device .*not found|EOF|failed to read copy response") {
+        Wait-AdbDevice -Attempts 20
+    }
     $remoteApk = "/data/local/tmp/suishouban-debug.apk"
-    & $adb -s $Device push $ApkPath $remoteApk | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "APK push failed." }
+    Invoke-Adb push $ApkPath $remoteApk | Out-Host
+    Wait-AdbDevice -Attempts 30
     $apkSize = (Get-Item -LiteralPath $ApkPath).Length
-    $createResult = (& $adb -s $Device shell pm install-create -r -t -S $apkSize 2>&1) -join "`n"
+    $createResult = (Invoke-Adb shell pm install-create -r -t -S $apkSize) -join "`n"
     if ($createResult -notmatch "\[(\d+)\]") {
         throw "Could not create package installer session: $createResult"
     }
     $sessionId = $Matches[1]
-    & $adb -s $Device shell pm install-write -S $apkSize $sessionId base.apk $remoteApk | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Could not write APK into install session." }
-    & $adb -s $Device shell cmd package install-commit $sessionId | Out-Host
+    Invoke-Adb shell pm install-write -S $apkSize $sessionId base.apk $remoteApk | Out-Host
+    Invoke-Adb shell cmd package install-commit $sessionId | Out-Host
     Wait-AdbDevice -Attempts 8
     Confirm-VivoInstaller
     Invoke-Adb @("shell", "rm", "-f", $remoteApk) | Out-Null
@@ -629,6 +705,111 @@ function Open-MultiTaskPromptDirect {
     Tap-Text $T.GenerateDraft "generate-multi-draft.xml"
 }
 
+function Invoke-WorkflowPostJson {
+    param(
+        [string]$Url,
+        [hashtable]$Payload
+    )
+    $body = $Payload | ConvertTo-Json -Depth 8
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+    return Invoke-RestMethod -Method Post -Uri $Url -ContentType "application/json; charset=utf-8" -Body $bytes -TimeoutSec 15
+}
+
+function Wait-WorkflowResult {
+    param(
+        [string]$BaseUrl,
+        [string]$RunId,
+        [int]$TimeoutSeconds = 45
+    )
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    do {
+        $result = Invoke-RestMethod -Uri ($BaseUrl.TrimEnd("/") + "/api/workflows/$RunId") -TimeoutSec 10
+        if ($result.workflow_status -in @("awaiting_review", "completed", "failed", "cancelled")) {
+            return $result
+        }
+        Start-Sleep -Milliseconds 500
+    } while ((Get-Date) -lt $deadline)
+    throw "Workflow $RunId did not reach a review or terminal state within $TimeoutSeconds seconds."
+}
+
+function Get-ProviderSuccessDelta {
+    param(
+        [object]$Workflow,
+        [string[]]$Providers
+    )
+    $sum = 0
+    foreach ($provider in $Providers) {
+        $usage = $Workflow.provider_usage.$provider
+        if ($usage -and ($usage.PSObject.Properties.Name -contains "success_count_delta")) {
+            $sum += [int]$usage.success_count_delta
+        }
+    }
+    return $sum
+}
+
+function Assert-ProviderProbe {
+    param([string]$BaseUrl)
+    $probeUrl = $BaseUrl.TrimEnd("/") + "/api/providers/probe"
+    try {
+        $probe = Invoke-RestMethod -Method Post -Uri $probeUrl -TimeoutSec 90
+    } catch {
+        throw "Provider probe failed. ENABLE_PROVIDER_PROBE must be true and vivo credentials must be valid: $probeUrl"
+    }
+    foreach ($provider in @("chat", "ocr", "image_generation")) {
+        if (-not ($probe.results.PSObject.Properties.Name -contains $provider)) {
+            throw "Provider probe response did not include $provider."
+        }
+        if (-not [bool]$probe.results.$provider.succeeded) {
+            $errorType = $probe.results.$provider.error_type
+            throw "Provider probe for $provider did not succeed. error_type=$errorType"
+        }
+    }
+    if (-not [bool]$probe.all_succeeded) {
+        throw "Provider probe did not report all_succeeded=true."
+    }
+    Write-Host "Provider probe proved chat/OCR/image_generation calls succeeded."
+}
+
+function Assert-ProviderWorkflowParticipation {
+    param([string]$BaseUrl)
+    $complexText = Utf8Text "6K+35ZyoNuaciDEw5pelMjI6MDDliY3mj5DkuqTlrp7pqozmiqXlkYrvvIzmj5DkuqTliLDlrabkuaDpgJrjgIIK6K+35ZyoNuaciDEx5pelMTQ6MzDlj4LliqDpobnnm67ov5vlsZXmsYfmiqXkvJrvvIzlnLDngrnkvJrorq7lrqQyMDPjgIIK6K+35ZyoNuaciDEy5pelMjA6MDDliY3miormr5TotZvmiqXlkI3ooajlj5HliLDmjIflrprpgq7nrrHjgII="
+    $textRun = Invoke-WorkflowPostJson `
+        -Url ($BaseUrl.TrimEnd("/") + "/api/workflows/screenshot-text") `
+        -Payload @{ text = $complexText; screenshot_time = "2026-06-07T10:00:00+08:00" }
+    $textResult = Wait-WorkflowResult $BaseUrl $textRun.run_id
+    if ($textResult.model_enhancement_status -ne "succeeded") {
+        throw "Text workflow did not report model_enhancement_status=succeeded. actual=$($textResult.model_enhancement_status)"
+    }
+    if ((Get-ProviderSuccessDelta $textResult @("fast_model", "expert_model")) -lt 1) {
+        throw "Text workflow provider_usage did not show a successful model call."
+    }
+    if ($textResult.route -eq "rules" -and @($textResult.active_agents).Count -eq 0) {
+        throw "Text workflow stayed on rules route despite cloud model configuration."
+    }
+
+    $imagePath = Join-Path $SampleDir "complex_multi_tasks.png"
+    if (-not (Test-Path -LiteralPath $imagePath)) {
+        throw "Complex OCR sample was not found: $imagePath"
+    }
+    $imageUrl = $BaseUrl.TrimEnd("/") + "/api/workflows/screenshot-image"
+    $imageJson = & curl.exe -sS -X POST `
+        -F "image=@$imagePath;type=image/png" `
+        -F "screenshot_time=2026-06-07T10:00:00+08:00" `
+        $imageUrl
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($imageJson)) {
+        throw "Image workflow upload failed through curl.exe."
+    }
+    $imageRun = $imageJson | ConvertFrom-Json
+    $imageResult = Wait-WorkflowResult $BaseUrl $imageRun.run_id 60
+    if ($imageResult.ocr_enhancement_status -ne "succeeded") {
+        throw "Image workflow did not report ocr_enhancement_status=succeeded. actual=$($imageResult.ocr_enhancement_status)"
+    }
+    if ((Get-ProviderSuccessDelta $imageResult @("ocr")) -lt 1) {
+        throw "Image workflow provider_usage did not show a successful vivo OCR call."
+    }
+    Write-Host "Direct workflow participation proved model and vivo OCR calls affected workflow responses."
+}
+
 function Configure-WorkflowUrl {
     if ([string]::IsNullOrWhiteSpace($WorkflowUrl)) { return }
     $trimmed = $WorkflowUrl.Trim()
@@ -649,6 +830,8 @@ function Configure-WorkflowUrl {
             throw "WorkflowUrl health check reported $field=false."
         }
     }
+    Assert-ProviderProbe $trimmed
+    Assert-ProviderWorkflowParticipation $trimmed
     Write-Host "Configuring WorkflowUrl in app settings..."
     Write-WorkflowPrefsDirect $trimmed
     Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
@@ -657,8 +840,11 @@ function Configure-WorkflowUrl {
     Wait-UiContains $T.WorkflowApiUrl "Settings screen did not show Workflow API URL field."
     Tap-Text $T.TestService "test-workflow-url.xml"
     try {
-        Wait-UiContains $T.CloudOnline "Phone-side WorkflowUrl connection test did not report cloud online." 18
-        Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 18
+        Wait-UiContains $T.CloudConfigured "Phone-side WorkflowUrl connection test did not report cloud configured." 60
+        Wait-UiContains $T.VivoModelCalled "Phone-side provider probe did not report vivo model call." 60
+        Wait-UiContains $T.VivoOcrCalled "Phone-side provider probe did not report vivo OCR call." 60
+        Wait-UiContains $T.ImageProbePassed "Phone-side provider probe did not report image generation call." 60
+        Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 60
     } catch {
         Save-RemoteDiagnostics "workflow-url-test-failed"
         throw
@@ -708,8 +894,7 @@ function Push-Sample {
         throw "Sample image missing: $localPath"
     }
     Invoke-Adb @("shell", "mkdir", "-p", $remoteSampleDir) | Out-Null
-    & $adb -s $Device push $localPath "$remoteSampleDir/$Name" | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw "Could not push sample $Name." }
+    Invoke-Adb push $localPath "$remoteSampleDir/$Name" | Out-Host
     Invoke-Adb @("shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", "file://$remoteSampleDir/$Name") | Out-Null
 }
 
@@ -879,6 +1064,68 @@ function Open-GeneratedPreviewFromNotification {
     Tap-Text $T.GenerateDraft "generate-draft.xml"
 }
 
+function Trigger-ReActRefinement {
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        $xml = Get-UiXml "react-entry.xml"
+        $center = Get-ClickableTextCenter $xml $T.AiRefine
+        if (-not $center) {
+            $center = Get-ClickableTextCenter $xml $T.AiRefineTitle
+        }
+        if (-not $center) {
+            $center = Get-ExactTextCenter $xml $T.AiRefine
+        }
+        if (-not $center) {
+            $center = Get-ExactTextCenter $xml $T.AiRefineTitle
+        }
+        if (-not $center) {
+            $center = Get-TextCenter $xml $T.AiRefine
+        }
+        if (-not $center) {
+            $center = Get-TextCenter $xml $T.AiRefineTitle
+        }
+        if ($center) {
+            Write-Host "Tapping ReAct action at $($center.X),$($center.Y)"
+            for ($tapAttempt = 1; $tapAttempt -le 3; $tapAttempt++) {
+                Tap-RemotePoint -X $center.X -Y $center.Y
+                try {
+                    $seen = Wait-UiContainsAny @(
+                        $T.AiRefineDone,
+                        $T.AiRechecked,
+                        $T.LocalRuleReview
+                    ) "ReAct refinement did not produce a visible completion or fallback state." 8
+                    Write-Host "ReAct refinement visible state: $seen"
+                    return
+                } catch {
+                    if (Test-UiContains $T.AiRefineRunning) {
+                        Start-Sleep -Seconds 2
+                        try {
+                            $seen = Wait-UiContainsAny @(
+                                $T.AiRefineDone,
+                                $T.AiRechecked,
+                                $T.LocalRuleReview
+                            ) "ReAct refinement did not finish after running state." 8
+                            Write-Host "ReAct refinement visible state: $seen"
+                            return
+                        } catch {
+                            if ($tapAttempt -eq 3) {
+                                Save-RemoteDiagnostics "react-refine-timeout"
+                                throw
+                            }
+                        }
+                    } elseif ($tapAttempt -eq 3) {
+                        Save-RemoteDiagnostics "react-refine-timeout"
+                        throw
+                    }
+                }
+            }
+        }
+        Invoke-Adb shell input swipe 650 1850 650 650 450 | Out-Null
+        Start-Sleep -Seconds 1
+    }
+    Save-RemoteDiagnostics "react-refine-missing"
+    throw "Could not find ReAct refinement action in preview."
+}
+
 function Confirm-Preview {
     for ($attempt = 1; $attempt -le 10; $attempt++) {
         if (-not (Test-PreviewOpen)) { return }
@@ -990,7 +1237,11 @@ Open-GeneratedPreviewFromNotification
 Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
 Wait-UiContains $T.CourseScenario "Preview did not show course scenario classification."
 Wait-UiContains $T.HighConfidence "Preview did not show confidence label."
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    Wait-UiContains $T.CloudModelParticipated "Preview did not show cloud model participation."
+}
 Assert-UiNotContains $T.GenericSchedule "Preview regressed to generic schedule title."
+Trigger-ReActRefinement
 Confirm-Preview
 Assert-CardAndReminderCreated
 
@@ -1003,7 +1254,11 @@ Assert-XmlContains $multiPreviewXml $T.LabReport "Multi-task preview did not inc
 Assert-XmlContains $multiPreviewXml $T.TeamReport "Multi-task preview did not include the meeting/report task."
 Assert-XmlContains $multiPreviewXml $T.Registration "Multi-task preview did not include the registration task."
 Assert-XmlContains $multiPreviewXml $T.CreateAll "Multi-task preview did not expose all-create action."
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    Assert-XmlContains $multiPreviewXml $T.CloudModelParticipated "Multi-task preview did not show cloud model participation."
+}
 Assert-XmlNotContains $multiPreviewXml $T.GenericSchedule "Multi-task preview regressed to generic schedule title."
+Trigger-ReActRefinement
 Confirm-Preview
 Assert-NoBadLogs
 Assert-NoBadLogs

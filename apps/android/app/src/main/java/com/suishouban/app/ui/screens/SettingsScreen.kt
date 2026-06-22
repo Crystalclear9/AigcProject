@@ -95,6 +95,11 @@ fun SettingsScreen(
                     },
                     shape = RoundedCornerShape(16.dp),
                 )
+                Text(
+                    state.connectionStatus,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(
                     onClick = {
                         onUpdate(
@@ -125,11 +130,6 @@ fun SettingsScreen(
                 ) {
                     Text("测试增强服务")
                 }
-                Text(
-                    state.connectionStatus,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
         item {

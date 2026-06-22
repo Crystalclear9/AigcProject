@@ -241,10 +241,14 @@ def _title_for(text: str, card_type: str) -> str:
         return "完成比赛报名"
     if "AIGC" in text:
         return "完成 AIGC 创新赛报名"
+    if "报名表" in text:
+        return "提交报名表"
     if "组会" in text:
         return "参加组会"
     if "进展汇报" in text:
         return "准备进展汇报"
+    if "汇报会" in text or ("项目" in text and "汇报" in text):
+        return "参加项目汇报"
     if "社团" in text or "集合" in text:
         return "社团活动集合"
     if "表格" in text and "老师" in text:
@@ -381,10 +385,11 @@ def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> l
             cards.append(build_card(normalized, "event", screenshot_time, title="参加比赛活动"))
         return cards
 
-    task_segments = _split_task_segments(normalized)
-    if len(task_segments) > 1:
-        for segment in task_segments:
-            cards.append(build_card(segment, "task", screenshot_time, title=_title_for(segment, "task")))
+    action_segments = _split_action_segments(normalized)
+    if len(action_segments) > 1:
+        for segment in action_segments:
+            segment_type = _classify(segment) or "task"
+            cards.append(build_card(segment, segment_type, screenshot_time, title=_title_for(segment, segment_type)))
         return cards
 
     card_type = _classify(normalized)
@@ -394,15 +399,20 @@ def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> l
     return cards
 
 
-def _split_task_segments(text: str) -> list[str]:
-    pieces = [piece.strip(" ，,。；;") for piece in re.split(r"[；;。]", text) if piece.strip()]
-    task_pieces = [
-        piece
-        for piece in pieces
-        if any(word in piece for word in ["提交", "发送", "上传", "填写", "截止", "前"])
-        and any(word in piece for word in ["报告", "PPT", "材料", "表格", "计划书", "信息表"])
-    ]
-    return task_pieces if len(task_pieces) > 1 else []
+def _split_action_segments(text: str) -> list[str]:
+    pieces = [piece.strip(" ，,。；;、") for piece in re.split(r"[；;。]", text) if piece.strip()]
+    action_pieces: list[str] = []
+    for piece in pieces:
+        if len(piece) < 4:
+            continue
+        if is_actionable_text(piece):
+            action_pieces.append(piece)
+            continue
+        has_action = any(word in piece for word in TASK_WORDS + EVENT_WORDS + PROMISE_WORDS)
+        has_object = any(word in piece for word in OBJECT_WORDS + ["汇报", "汇报会", "报名"])
+        if has_action and (has_object or _has_time_signal(piece)):
+            action_pieces.append(piece)
+    return action_pieces if len(action_pieces) > 1 else []
 
 
 def preview_actions_for(cards: list[ActionCard]) -> list[str]:

@@ -11,12 +11,31 @@ from typing import Any
 
 from app.core.config import settings
 from app.schemas.workflow import WorkflowEvent, WorkflowRunResponse
+from app.services.provider_runtime import provider_usage_delta
 
 _schema_lock = RLock()
 _connection_lock = RLock()
 _schema_ready = False
 _connection: sqlite3.Connection | None = None
 _event_condition = Condition()
+
+
+def _enhancement_status(
+    provider_usage: dict[str, dict[str, Any]],
+    providers: tuple[str, ...],
+    *,
+    configured: bool,
+) -> str:
+    if not configured:
+        return "not_configured"
+    success = sum(int(provider_usage.get(provider, {}).get("success_count_delta", 0)) for provider in providers)
+    failures = sum(int(provider_usage.get(provider, {}).get("failure_count_delta", 0)) for provider in providers)
+    attempts = sum(int(provider_usage.get(provider, {}).get("request_count_delta", 0)) for provider in providers)
+    if success > 0:
+        return "succeeded"
+    if attempts > 0 or failures > 0:
+        return "degraded"
+    return "attempted"
 
 
 def close_workflow_repository() -> None:
@@ -503,6 +522,24 @@ class WorkflowRepository:
 
     def response(self, run_id: str) -> WorkflowRunResponse:
         state = self.get_state(run_id)
+        provider_usage = state.get("provider_usage") or provider_usage_delta(
+            state.get("provider_usage_baseline")
+        )
+        model_status = _enhancement_status(
+            provider_usage,
+            ("fast_model", "expert_model"),
+            configured=bool(state.get("has_fast_model") or state.get("has_expert_model")),
+        )
+        ocr_status = _enhancement_status(
+            provider_usage,
+            ("ocr",),
+            configured=bool(state.get("input_kind") == "image" and state.get("has_vivo_ocr")),
+        )
+        image_generation_status = _enhancement_status(
+            provider_usage,
+            ("image_generation",),
+            configured=bool(state.get("has_image_generation")),
+        )
         return WorkflowRunResponse(
             run_id=run_id,
             trace_id=run_id,
@@ -545,6 +582,12 @@ class WorkflowRepository:
             retrieval_sources=state.get("retrieval_sources", []),
             verification_summary=state.get("verification_summary", {}),
             replan_count=int(state.get("replan_count", 0)),
+            provider_usage=provider_usage,
+            model_enhancement_status=state.get("model_enhancement_status") or model_status,
+            ocr_enhancement_status=state.get("ocr_enhancement_status") or ocr_status,
+            image_generation_status=state.get("image_generation_status") or image_generation_status,
+            react_session=state.get("react_session"),
+            react_suggestions=state.get("react_suggestions", []),
         )
 
     def get_cache(self, key: str) -> dict[str, Any] | None:

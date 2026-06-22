@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
+import asyncio
 from typing import Any
 
 import httpx
@@ -14,7 +15,7 @@ class ImageGenerationError(RuntimeError):
     pass
 
 
-async def generate_demo_image(prompt: str, *, size: str = "1024x1024") -> dict[str, Any]:
+async def generate_demo_image(prompt: str, *, size: str = "2K") -> dict[str, Any]:
     if not settings.has_image_generation_config:
         raise ImageGenerationError("vivo image generation is not configured")
     payload = {
@@ -37,8 +38,10 @@ async def generate_demo_image(prompt: str, *, size: str = "1024x1024") -> dict[s
     }
     if not runtime.allow("image_generation"):
         raise ImageGenerationError("vivo image generation circuit is open")
+    telemetry_started: float | None = None
     try:
         async with runtime.semaphores["image_generation"]:
+            telemetry_started = runtime.attempt("image_generation")
             response = await runtime.client.post(
                 settings.vivo_image_generation_url,
                 params=params,
@@ -47,12 +50,15 @@ async def generate_demo_image(prompt: str, *, size: str = "1024x1024") -> dict[s
                 timeout=settings.vivo_image_generation_timeout_seconds,
             )
             response.raise_for_status()
+    except asyncio.CancelledError:
+        runtime.failure("image_generation", "CancelledError", telemetry_started)
+        raise
     except httpx.HTTPError as error:
-        runtime.failure("image_generation")
+        runtime.failure("image_generation", type(error).__name__, telemetry_started)
         raise ImageGenerationError(f"vivo image generation failed: {error}") from error
     body = response.json()
     if body.get("code") not in (0, "0", None):
-        runtime.failure("image_generation")
+        runtime.failure("image_generation", f"ProviderCode{body.get('code')}", telemetry_started)
         raise ImageGenerationError(f"vivo image generation error: {body.get('message') or body.get('code')}")
-    runtime.success("image_generation")
+    runtime.success("image_generation", telemetry_started)
     return body

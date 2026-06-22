@@ -83,6 +83,8 @@ def create_plan(state: dict[str, Any], recommended: list[str] | None = None) -> 
         not requested
         and float(state.get("overall_confidence", 0)) >= 0.85
         and not reasons
+        and not state.get("has_fast_model")
+        and not state.get("has_expert_model")
     ):
         return AgentPlan(
             id=stable_id("plan", run_id, round_number, "rules-only"),

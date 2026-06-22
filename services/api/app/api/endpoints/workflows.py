@@ -14,11 +14,13 @@ from app.schemas.workflow import (
     OcrCandidateRequest,
     DraftPatchRequest,
     ConfirmWorkflowRequest,
+    WorkflowReactRequest,
 )
 from app.services.workflow_service import (
     confirm_workflow,
     get_workflow,
     patch_draft,
+    refine_workflow_with_react,
     resume_workflow,
     start_image_workflow,
     start_text_workflow,
@@ -109,6 +111,16 @@ def add_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowRunR
 def update_draft(run_id: str, request: DraftPatchRequest) -> WorkflowRunResponse:
     try:
         return patch_draft(run_id, request)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="workflow not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{run_id}/react", response_model=WorkflowRunResponse)
+async def react_refine(run_id: str, request: WorkflowReactRequest) -> WorkflowRunResponse:
+    try:
+        return await refine_workflow_with_react(run_id, request)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="workflow not found") from error
     except ValueError as error:

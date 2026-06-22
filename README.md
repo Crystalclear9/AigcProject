@@ -106,7 +106,7 @@ VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 复杂截图链路的功能验收以云真机为准，默认设备为：
 
 ```text
-val-vclinner-rt-contest.vivo.com.cn:35029
+val-vclinner-rt-contest.vivo.com.cn:35121
 ```
 
 执行：

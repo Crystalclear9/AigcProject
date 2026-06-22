@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import re
 import uuid
 from dataclasses import dataclass
@@ -70,8 +71,10 @@ class VivoOcrClient:
         }
         if not runtime.allow("ocr"):
             raise VivoOcrError("vivo OCR circuit is open")
+        telemetry_started: float | None = None
         try:
             async with runtime.semaphores["ocr"]:
+                telemetry_started = runtime.attempt("ocr")
                 response = await runtime.client.post(
                     settings.vivo_ocr_url,
                     data=payload,
@@ -80,15 +83,23 @@ class VivoOcrClient:
                     timeout=settings.vivo_ocr_timeout_seconds,
                 )
                 response.raise_for_status()
+        except asyncio.CancelledError:
+            runtime.failure("ocr", "CancelledError", telemetry_started)
+            raise
         except httpx.HTTPStatusError as error:
-            runtime.failure("ocr")
+            runtime.failure("ocr", type(error).__name__, telemetry_started)
             raise VivoOcrError(_format_http_error(error)) from error
         except httpx.HTTPError as error:
-            runtime.failure("ocr")
+            runtime.failure("ocr", type(error).__name__, telemetry_started)
             raise VivoOcrError(_format_request_error(error)) from error
 
-        runtime.success("ocr")
-        return parse_successful_vivo_ocr_body(response.json())
+        try:
+            lines = parse_successful_vivo_ocr_body(response.json())
+        except VivoOcrError as error:
+            runtime.failure("ocr", type(error).__name__, telemetry_started)
+            raise
+        runtime.success("ocr", telemetry_started)
+        return lines
 
 
 def parse_vivo_ocr_lines(body: dict[str, Any]) -> list[OcrLine]:

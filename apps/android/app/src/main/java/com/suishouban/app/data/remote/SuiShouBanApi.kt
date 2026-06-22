@@ -52,6 +52,12 @@ interface SuiShouBanApi {
         @Body request: ConfirmWorkflowRequest,
     ): AnalyzeScreenshotTextResponse
 
+    @POST("api/workflows/{run_id}/react")
+    suspend fun reactWorkflow(
+        @Path("run_id") runId: String,
+        @Body request: WorkflowReactRequest,
+    ): AnalyzeScreenshotTextResponse
+
     @Streaming
     @GET("api/workflows/{run_id}/events")
     suspend fun workflowEvents(
@@ -61,6 +67,9 @@ interface SuiShouBanApi {
 
     @GET("health")
     suspend fun health(): HealthResponse
+
+    @POST("api/providers/probe")
+    suspend fun providerProbe(): ProviderProbeResponse
 
     @POST("api/analyze/screenshot-text")
     suspend fun analyzeScreenshotText(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse

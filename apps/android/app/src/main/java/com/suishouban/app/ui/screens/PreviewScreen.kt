@@ -100,6 +100,17 @@ fun PreviewScreen(
                                 NeutralPill(text = if (state.riskLevel == "high") "高风险" else "需留意")
                             }
                         }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            when (state.modelEnhancementStatus) {
+                                "succeeded" -> NeutralPill(text = "\u4e91\u7aef\u6a21\u578b\u5df2\u53c2\u4e0e", selected = true)
+                                "degraded" -> NeutralPill(text = "\u4e91\u7aef\u589e\u5f3a\u5df2\u964d\u7ea7")
+                                "attempted" -> NeutralPill(text = "\u7b49\u5f85\u4e91\u7aef\u589e\u5f3a")
+                            }
+                            when (state.ocrEnhancementStatus) {
+                                "succeeded" -> NeutralPill(text = "vivo OCR \u5df2\u53c2\u4e0e", selected = true)
+                                "degraded" -> NeutralPill(text = "vivo OCR \u5df2\u964d\u7ea7")
+                            }
+                        }
                         val reviewItems = (
                             state.validationErrors +
                                 state.fieldConflicts.mapNotNull { it["field"]?.toString() } +
@@ -175,6 +186,8 @@ fun PreviewScreen(
                                 buildString {
                                     append("运行 ${state.traceId.take(8)} · ${state.route}")
                                     if (state.activeAgents.isNotEmpty()) append(" · ${state.activeAgents.size} 个任务")
+                                    append(" · model=${state.modelEnhancementStatus}")
+                                    append(" · ocr=${state.ocrEnhancementStatus}")
                                     state.timeToFirstDraftMs?.let { append(" · 首稿 ${it.toInt()} ms") }
                                     if (state.nodeTrace.isNotEmpty()) {
                                         append("\n")

@@ -71,6 +71,21 @@ data class AnalyzeResult(
     val validationErrors: List<String> = emptyList(),
     val fieldConflicts: List<Map<String, Any?>> = emptyList(),
     val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
+    val providerUsage: Map<String, ProviderUsage> = emptyMap(),
+    val modelEnhancementStatus: String = "not_configured",
+    val ocrEnhancementStatus: String = "not_configured",
+    val imageGenerationStatus: String = "not_configured",
+    val reactSuggestions: List<String> = emptyList(),
+)
+
+data class ProviderUsage(
+    val requestCountDelta: Int = 0,
+    val successCountDelta: Int = 0,
+    val failureCountDelta: Int = 0,
+    val lastSuccessAt: String? = null,
+    val lastErrorType: String? = null,
+    val latencyMs: Double? = null,
+    val circuitOpen: Boolean = false,
 )
 
 data class ActionCandidate(
