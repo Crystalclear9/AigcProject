@@ -67,6 +67,7 @@ class ActionCardRepository(
     fun observeAll(): Flow<List<ActionCard>> = dao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
     suspend fun analyzeImage(uri: Uri, screenshotTime: String? = null): AnalyzeResult? {
+        if (!settingsRepository.settings.value.keepOriginalScreenshot) return null
         val api = workflowApiOrNull() ?: return null
 
         return runCatching {
@@ -80,7 +81,7 @@ class ActionCardRepository(
         val api = workflowApiOrNull()
         if (api != null) {
             val remoteResult = runCatching {
-                val response = api.startTextWorkflow(AnalyzeScreenshotTextRequest(text, screenshotTime))
+                val response = api.startTextWorkflow(AnalyzeScreenshotTextRequest(text.cloudSafe(), screenshotTime))
                 responseToResult(response).copy(engine = prefixEngine(response.engine, enginePrefix))
             }.getOrNull()
             if (remoteResult != null) return remoteResult
@@ -111,14 +112,14 @@ class ActionCardRepository(
         return responseToResult(
             api.resumeWorkflow(
                 runId,
-                WorkflowResumeRequest(command = "provide_ocr_text", ocrText = text),
+                WorkflowResumeRequest(command = "provide_ocr_text", ocrText = text.cloudSafe()),
             )
         )
     }
 
     suspend fun submitOcrCandidate(runId: String, text: String): AnalyzeResult {
         val api = requireRemoteApi()
-        return responseToResult(api.submitOcrCandidate(runId, OcrCandidateRequest(text)))
+        return responseToResult(api.submitOcrCandidate(runId, OcrCandidateRequest(text.cloudSafe())))
     }
 
     suspend fun followWorkflow(runId: String, onUpdate: (AnalyzeResult) -> Unit): AnalyzeResult {
@@ -197,7 +198,7 @@ class ActionCardRepository(
         fieldVersions: Map<String, Map<String, Int>>,
     ): AnalyzeResult {
         val api = requireRemoteApi()
-        val operations = cards.flatMap { card ->
+        val operations = cards.map { it.safeForCloud() }.flatMap { card ->
             editableFields(card).flatMap { (field, value) ->
                 listOf(
                     DraftFieldOperation(
@@ -368,7 +369,7 @@ class ActionCardRepository(
     }
 
     suspend fun saveConfirmed(card: ActionCard): SaveConfirmedResult {
-        val confirmed = card.copy(status = CardStatus.CONFIRMED)
+        val confirmed = card.safeForLocalStorage().copy(status = CardStatus.CONFIRMED)
         dao.upsert(confirmed.toEntity())
         val api = remoteApiOrNull()
         if (api == null) return SaveConfirmedResult(confirmed)
@@ -384,12 +385,13 @@ class ActionCardRepository(
     }
 
     suspend fun saveDraft(card: ActionCard) {
-        dao.upsert(card.toEntity())
+        dao.upsert(card.safeForLocalStorage().toEntity())
     }
 
     suspend fun update(card: ActionCard) {
-        dao.upsert(card.toEntity())
-        remoteApiOrNull()?.let { api -> runCatching { api.updateCard(card.id, card.toDto()) } }
+        val safeCard = card.safeForLocalStorage()
+        dao.upsert(safeCard.toEntity())
+        remoteApiOrNull()?.let { api -> runCatching { api.updateCard(safeCard.id, safeCard.safeForCloud().toDto()) } }
     }
 
     suspend fun complete(id: String) {
@@ -423,6 +425,39 @@ class ActionCardRepository(
         return remoteApiOrNull() ?: error("未配置云端增强端点")
     }
 
+    private fun String.cloudSafe(): String {
+        return if (settingsRepository.settings.value.privacyMask) maskSensitiveText() else this
+    }
+
+    private fun ActionCard.safeForCloud(): ActionCard {
+        return if (settingsRepository.settings.value.privacyMask) {
+            copy(
+                sourceText = sourceText.maskSensitiveText(),
+                summary = summary.maskSensitiveText(),
+                evidenceSummary = evidenceSummary.map { it.maskSensitiveText() },
+            )
+        } else {
+            this
+        }
+    }
+
+    private fun ActionCard.safeForLocalStorage(): ActionCard {
+        return if (settingsRepository.settings.value.privacyMask) {
+            copy(sourceText = sourceText.maskSensitiveText())
+        } else {
+            this
+        }
+    }
+
+}
+
+private fun String.maskSensitiveText(): String {
+    if (isBlank()) return this
+    return this
+        .replace(Regex("""(?<!\d)1[3-9]\d{9}(?!\d)"""), "手机号[已脱敏]")
+        .replace(Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"""), "邮箱[已脱敏]")
+        .replace(Regex("""\b(?:\d[ -]?){15,19}\b"""), "账号[已脱敏]")
+        .replace(Regex("""((?:微信|QQ|账号|学号|工号)[:：]?\s*)[A-Za-z0-9_\-]{5,}"""), "$1[已脱敏]")
 }
 
 private val terminalWorkflowStatuses = setOf("completed", "failed", "cancelled")

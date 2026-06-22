@@ -6,6 +6,7 @@ import statistics
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +21,8 @@ from app.schemas.workflow import (
     WorkflowResumeRequest,
     WorkflowReactRequest,
 )
+from app.schemas.card import ActionCard
+from app.services.react_refiner import refine_state_with_react
 from app.services.workflow_service import (
     _can_complete_rules_inline,
     close_workflow_runtime,
@@ -138,6 +141,53 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(refined.react_suggestions)
         self.assertEqual(refined.cards[0].title, "用户锁定标题")
         self.assertIn("react", refined.engine)
+
+    async def test_react_refinement_does_not_overwrite_unselected_cards(self) -> None:
+        selected = ActionCard(
+            id="selected-card",
+            created_at=datetime.now(timezone.utc),
+            title="提交实验报告",
+            deadline="2026-06-10T22:00:00+08:00",
+            submit_method=None,
+            source_text="请提交实验报告",
+        )
+        unselected = ActionCard(
+            id="unselected-card",
+            created_at=datetime.now(timezone.utc),
+            title="进展汇报",
+            deadline=None,
+            submit_method=None,
+            source_text="参加进展汇报",
+        )
+        incoming = ActionCard(
+            id="incoming-card",
+            created_at=datetime.now(timezone.utc),
+            title="进展汇报",
+            deadline="2026-06-11T14:30:00+08:00",
+            submit_method="腾讯会议",
+            source_text="参加进展汇报，腾讯会议",
+        )
+
+        with patch("app.services.react_refiner.extract_cards_with_rules", return_value=[incoming]):
+            refined = await refine_state_with_react(
+                {
+                    "cards": [
+                        selected.model_dump(mode="json"),
+                        unselected.model_dump(mode="json"),
+                    ],
+                    "ocr_text": "请提交实验报告；参加进展汇报，腾讯会议。",
+                    "has_fast_model": False,
+                    "has_expert_model": False,
+                },
+                instruction="只完善选中的实验报告",
+                selected_card_ids=[selected.id],
+            )
+
+        cards = {card["id"]: card for card in refined["cards"]}
+        self.assertIsNone(cards[unselected.id]["deadline"])
+        self.assertIsNone(cards[unselected.id]["submit_method"])
+        self.assertEqual(refined["suggestions"][unselected.id]["deadline"], incoming.deadline)
+        self.assertEqual(refined["suggestions"][unselected.id]["submit_method"], incoming.submit_method)
 
     async def test_field_operations_use_independent_versions(self) -> None:
         started = await start_text_workflow(

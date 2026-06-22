@@ -299,10 +299,11 @@ function Wait-AdbDevice {
             } else {
                 & $adb disconnect $Device | Out-Null
             }
-        } elseif ($state -match "offline|failed" -or $connectExit -ne 0) {
-            if ($attempt % 10 -eq 0) {
-                & $adb reconnect offline 2>$null | Out-Null
-            }
+        } elseif ($state -match "offline|failed|not found" -or $devicesText -match "offline" -or $connectExit -ne 0) {
+            & $adb disconnect $Device 2>$null | Out-Null
+            & $adb kill-server 2>$null | Out-Null
+            Start-Sleep -Seconds 2
+            & $adb start-server 2>$null | Out-Null
             & $adb disconnect $Device | Out-Null
         }
     }
@@ -579,7 +580,7 @@ function Install-App {
     }
     $remoteApk = "/data/local/tmp/suishouban-debug.apk"
     Invoke-Adb push $ApkPath $remoteApk | Out-Host
-    Wait-AdbDevice -Attempts 30
+    Wait-AdbDevice -Attempts 80
     $apkSize = (Get-Item -LiteralPath $ApkPath).Length
     $createResult = (Invoke-Adb shell pm install-create -r -t -S $apkSize) -join "`n"
     if ($createResult -notmatch "\[(\d+)\]") {
@@ -588,7 +589,7 @@ function Install-App {
     $sessionId = $Matches[1]
     Invoke-Adb shell pm install-write -S $apkSize $sessionId base.apk $remoteApk | Out-Host
     Invoke-Adb shell cmd package install-commit $sessionId | Out-Host
-    Wait-AdbDevice -Attempts 8
+    Wait-AdbDevice -Attempts 80
     Confirm-VivoInstaller
     Invoke-Adb @("shell", "rm", "-f", $remoteApk) | Out-Null
     $packagePath = (Invoke-Adb shell pm path com.suishouban.app) -join ""
@@ -612,6 +613,23 @@ function Write-WorkflowPrefsDirect {
 <map>
     <string name="api_base_url">$escapedUrl</string>
     <boolean name="prefer_cloud" value="true" />
+    <boolean name="auto_detect" value="true" />
+    <boolean name="privacy_mask" value="true" />
+    <boolean name="keep_screenshot" value="false" />
+</map>
+"@
+    $encodedPrefs = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($prefsXml))
+    $remoteCommand = "run-as com.suishouban.app sh -c 'mkdir -p shared_prefs && echo $encodedPrefs | base64 -d > shared_prefs/suishouban_settings.xml'"
+    Invoke-Adb @("shell", $remoteCommand) | Out-Null
+}
+
+function Write-ValidationPrefsDirect {
+    $prefsXml = @"
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <boolean name="auto_detect" value="true" />
+    <boolean name="privacy_mask" value="true" />
+    <boolean name="keep_screenshot" value="false" />
 </map>
 "@
     $encodedPrefs = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($prefsXml))
@@ -1028,22 +1046,23 @@ function Open-GeneratedPreviewFromNotification {
         Save-RemoteDiagnostics "notification-generate-missing"
         throw "Action suggestion notification was not visible before generate."
     }
-    Open-PendingPromptFallback
     try {
-        Wait-UiContains $T.GenerateDraft "Pending prompt did not open request panel." 10
+        Tap-NotificationAction $T.Generate
+        Invoke-Adb shell cmd statusbar collapse | Out-Null
+        Wait-UiContains $T.GenerateDraft "Generate action did not open request panel." 10
         Tap-Text $T.GenerateDraft "generate-draft.xml"
         return
     } catch {
-        # Fall through to notification actions; some devices do not dispatch pending prompts from MainActivity.
+        # Fall through; some system skins hide notification action text.
     }
     try {
-        Tap-NotificationAction $T.Generate
+        Tap-NotificationRootFallback
+        Invoke-Adb shell cmd statusbar collapse | Out-Null
+        Wait-UiContains $T.GenerateDraft "Notification root did not open request panel." 10
+        Tap-Text $T.GenerateDraft "generate-draft.xml"
+        return
     } catch {
-        try {
-            Tap-NotificationRootFallback
-        } catch {
-            Open-PendingPromptFallback
-        }
+        Open-PendingPromptFallback
     }
     Invoke-Adb shell cmd statusbar collapse | Out-Null
     Start-Sleep -Seconds 1
@@ -1160,6 +1179,46 @@ function Confirm-Preview {
     throw "Could not find confirm button in preview."
 }
 
+function Toggle-PreviewCardSelectionByText {
+    param([string]$Text)
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        $xml = Get-UiXml "preview-toggle-$attempt.xml"
+        $center = Get-TextCenter $xml $Text
+        if ($center) {
+            Invoke-Adb shell input tap 112 $center.Y | Out-Null
+            Start-Sleep -Seconds 1
+            return
+        }
+        Invoke-Adb shell input swipe 650 1850 650 650 450 | Out-Null
+        Start-Sleep -Seconds 1
+    }
+    Save-RemoteDiagnostics "preview-toggle-missing"
+    throw "Could not find preview card to toggle: $Text"
+}
+
+function Get-CardsXmlAcrossScroll {
+    $combined = ""
+    Invoke-Adb shell input tap 630 2635 | Out-Null
+    Start-Sleep -Seconds 2
+    for ($attempt = 1; $attempt -le 6; $attempt++) {
+        $combined += "`n" + (Get-UiXml "cards-scan-$attempt.xml")
+        Invoke-Adb shell input swipe 650 1900 650 930 450 | Out-Null
+        Start-Sleep -Seconds 1
+    }
+    return $combined
+}
+
+function Assert-MultiSelectionSavedWithoutRegistration {
+    $cardsXml = Get-CardsXmlAcrossScroll
+    Assert-XmlContains $cardsXml $T.TeamReport "Selected meeting/report card was not saved."
+    Assert-XmlNotContains $cardsXml $T.Registration "Unselected registration card was saved unexpectedly."
+    $jobs = (Invoke-Adb shell dumpsys jobscheduler) -join "`n"
+    if ($jobs -notmatch "com\.suishouban\.app/androidx\.work\.impl\.background\.systemjob\.SystemJobService") {
+        Save-RemoteDiagnostics "multi-workmanager-job-missing"
+        throw "No WorkManager reminder jobs were registered after selective creation."
+    }
+}
+
 function Assert-CardAndReminderCreated {
     Invoke-Adb shell input tap 630 2635 | Out-Null
     Start-Sleep -Seconds 2
@@ -1217,6 +1276,7 @@ if (-not $SkipInstall) {
 Wait-AdbDevice
 Reset-AppData
 Grant-AppPermissions
+Write-ValidationPrefsDirect
 Start-App
 Configure-WorkflowUrl
 
@@ -1248,7 +1308,7 @@ Assert-CardAndReminderCreated
 Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
 Open-SampleAndScreenshot "complex_multi_tasks.png"
 Assert-ActionSuggestionNotification | Out-Null
-Open-MultiTaskPromptDirect
+Open-GeneratedPreviewFromNotification
 $multiPreviewXml = Get-PreviewXmlAcrossScroll
 Assert-XmlContains $multiPreviewXml $T.LabReport "Multi-task preview did not include the lab report task."
 Assert-XmlContains $multiPreviewXml $T.TeamReport "Multi-task preview did not include the meeting/report task."
@@ -1259,7 +1319,10 @@ if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
 }
 Assert-XmlNotContains $multiPreviewXml $T.GenericSchedule "Multi-task preview regressed to generic schedule title."
 Trigger-ReActRefinement
+Toggle-PreviewCardSelectionByText $T.Registration
+Wait-UiContains $T.CreateSelected "Multi-task preview did not expose selected-create action after toggling one card." 8
 Confirm-Preview
+Assert-MultiSelectionSavedWithoutRegistration
 Assert-NoBadLogs
 Assert-NoBadLogs
 

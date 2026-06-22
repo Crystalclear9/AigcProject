@@ -743,18 +743,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            val shouldConfirmRemoteWorkflowBeforeLocalSave = false
+            val selectedIds = drafts.map { it.id }.toSet()
+            val shouldConfirmRemoteWorkflowBeforeLocalSave =
+                state.traceId.isNotBlank() &&
+                    state.workflowStatus in setOf("queued", "running", "awaiting_review") &&
+                    state.settings.preferCloudModel
             val cardsToSave = if (
-                shouldConfirmRemoteWorkflowBeforeLocalSave &&
-                _uiState.value.workflowStatus in setOf("queued", "running", "awaiting_review") &&
-                _uiState.value.traceId.isNotBlank()
+                shouldConfirmRemoteWorkflowBeforeLocalSave
             ) {
+                _uiState.update { it.copy(loading = true, error = null) }
                 val resumed = runCatching {
                     repository.reviewAndConfirm(
-                        _uiState.value.traceId,
-                        _uiState.value.revision,
+                        state.traceId,
+                        state.revision,
                         drafts,
-                        _uiState.value.fieldVersions,
+                        state.fieldVersions,
                     )
                 }.getOrElse { error ->
                     _uiState.update {
@@ -767,7 +770,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.update { it.copy(error = "仍有字段需要确认") }
                     return@launch
                 }
-                resumed.cards
+                resumed.cards.filter { it.id in selectedIds }.ifEmpty { drafts }
             } else {
                 drafts
             }
