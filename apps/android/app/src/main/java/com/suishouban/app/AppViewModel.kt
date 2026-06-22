@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class AppUiState(
     val cards: List<ActionCard> = emptyList(),
@@ -49,6 +50,11 @@ data class AppUiState(
     val validationErrors: List<String> = emptyList(),
     val fieldConflicts: List<Map<String, Any?>> = emptyList(),
     val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
+    val modelEnhancementStatus: String = "not_configured",
+    val ocrEnhancementStatus: String = "not_configured",
+    val imageGenerationStatus: String = "not_configured",
+    val reactSuggestions: List<String> = emptyList(),
+    val aiRefinementStatus: String? = null,
     val screenshotGateReason: String? = null,
     val screenshotDeadlineHint: String? = null,
     val screenshotPromptSummary: String? = null,
@@ -140,6 +146,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 validationErrors = emptyList(),
                 fieldConflicts = emptyList(),
                 fieldVersions = emptyMap(),
+                modelEnhancementStatus = "not_configured",
+                ocrEnhancementStatus = "not_configured",
+                imageGenerationStatus = "not_configured",
+                reactSuggestions = emptyList(),
+                aiRefinementStatus = null,
                 screenshotGateReason = null,
                 screenshotDeadlineHint = null,
                 screenshotPromptSummary = null,
@@ -174,6 +185,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotPrimaryEvidence = emptyList(),
                     screenshotWorkflowStage = ScreenshotWorkflowStage.OCR_DETECTED,
                     ocrArbitrationReason = null,
+                    reactSuggestions = emptyList(),
+                    aiRefinementStatus = null,
                 )
             }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
@@ -249,6 +262,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotPrimaryEvidence = emptyList(),
                     screenshotWorkflowStage = null,
                     ocrArbitrationReason = null,
+                    reactSuggestions = emptyList(),
+                    aiRefinementStatus = null,
                 )
             }
             analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
@@ -284,6 +299,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 screenshotPrimaryEvidence = primaryEvidence,
                 screenshotWorkflowStage = ScreenshotWorkflowStage.PROMPT_SHOWN,
                 ocrArbitrationReason = null,
+                reactSuggestions = emptyList(),
+                aiRefinementStatus = null,
             )
         }
     }
@@ -319,6 +336,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotScenarioType = scenarioType,
                     screenshotPrimaryEvidence = primaryEvidence,
                     screenshotWorkflowStage = ScreenshotWorkflowStage.ANALYZING,
+                    reactSuggestions = emptyList(),
+                    aiRefinementStatus = null,
                 )
             }
             val screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString()
@@ -474,6 +493,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 validationErrors = result.validationErrors,
                 fieldConflicts = result.fieldConflicts,
                 fieldVersions = result.fieldVersions,
+                modelEnhancementStatus = result.modelEnhancementStatus,
+                ocrEnhancementStatus = result.ocrEnhancementStatus,
+                imageGenerationStatus = result.imageGenerationStatus,
+                reactSuggestions = result.reactSuggestions,
+                aiRefinementStatus = when {
+                    result.reactSuggestions.isNotEmpty() -> "AI 已完成一次受控 ReAct 完善，建议可逐项确认"
+                    result.engine.contains("react", ignoreCase = true) -> "AI 已重新检查候选草稿"
+                    else -> it.aiRefinementStatus
+                },
                 screenshotWorkflowStage = if (hasVisibleCards) ScreenshotWorkflowStage.CANDIDATES_READY else it.screenshotWorkflowStage,
                 error = if (!hasVisibleCards && notifyWhenEmpty) "未识别到明确行动事项" else it.error,
             )
@@ -613,6 +641,76 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refineDraftWithAi(instruction: String) {
+        viewModelScope.launch {
+            val state = _uiState.value
+            val text = state.ocrText.ifBlank {
+                state.draftCards.joinToString("\n") { card -> card.sourceText.ifBlank { card.title } }
+            }
+            if (text.isBlank()) {
+                _uiState.update { it.copy(error = "没有可供 AI 继续完善的截图文本") }
+                return@launch
+            }
+            val selectedIds = if (state.selectedDraftIds.isNotEmpty()) {
+                state.selectedDraftIds.toList()
+            } else {
+                state.draftCards.map { it.id }
+            }
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    aiRefinementStatus = "AI 正在观察证据、选择工具并生成可确认建议",
+                )
+            }
+            val remote = if (state.traceId.isNotBlank() && state.revision > 0) {
+                runCatching {
+                    withTimeoutOrNull(18_000) {
+                        repository.refineWithReact(
+                            runId = state.traceId,
+                            baseRevision = state.revision,
+                            instruction = instruction,
+                            selectedCardIds = selectedIds,
+                        )
+                    } ?: throw IllegalStateException("云端 ReAct 响应超时，已保留当前候选")
+                }
+            } else {
+                Result.failure(IllegalStateException("未连接云端 ReAct 工作流"))
+            }
+            remote.onSuccess { result ->
+                applyAnalyzeResult(
+                    result.copy(
+                        warnings = listOf("AI 已按 ReAct 范式重新检查：观察证据、调用工具、回写建议") + result.warnings,
+                    )
+                )
+                return@launch
+            }
+            val fallback = runCatching {
+                repository.analyzeTextLocal(
+                    text = text,
+                    screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString(),
+                    enginePrefix = "local-react",
+                )
+            }.getOrElse { error ->
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        aiRefinementStatus = "AI 完善失败",
+                        error = "继续完善失败：${error.message ?: "请稍后重试"}",
+                    )
+                }
+                return@launch
+            }
+            applyAnalyzeResult(
+                fallback.copy(
+                    engine = EngineLabels.withPrefix(fallback.engine, "react-fallback"),
+                    warnings = listOf("云端 ReAct 不可用，已用端侧规则重新拆分和补全") + fallback.warnings,
+                    reactSuggestions = listOf("本次为端侧规则复检；配置 HTTPS Workflow 网关后可使用 vivo 模型继续完善"),
+                )
+            )
+        }
+    }
+
     fun ignoreScreenshotWorkflow(onDone: () -> Unit = {}) {
         _uiState.update {
             it.copy(
@@ -636,6 +734,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (drafts.isEmpty()) {
                 _uiState.update { it.copy(error = "没有需要确认的行动卡") }
+                return@launch
+            }
+            val blockingReasons = drafts.mapNotNull { it.creationBlockingReason() }
+            if (blockingReasons.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(error = blockingReasons.distinct().take(3).joinToString("\n"))
+                }
                 return@launch
             }
             val shouldConfirmRemoteWorkflowBeforeLocalSave = false
@@ -702,6 +807,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     validationErrors = emptyList(),
                     fieldConflicts = emptyList(),
                     fieldVersions = emptyMap(),
+                    modelEnhancementStatus = "not_configured",
+                    ocrEnhancementStatus = "not_configured",
+                    imageGenerationStatus = "not_configured",
+                    reactSuggestions = emptyList(),
+                    aiRefinementStatus = null,
                     screenshotGateReason = null,
                     screenshotDeadlineHint = null,
                     screenshotPromptSummary = null,
@@ -802,3 +912,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
 private fun String.normalizedForMatch(): String =
     lowercase().replace(Regex("[^a-z0-9\\u4e00-\\u9fff]+"), "")
+
+private fun ActionCard.creationBlockingReason(): String? {
+    if (title.isBlank()) return "存在标题为空的行动卡，请先补全标题"
+    if (title in setOf("相关日程", "待办事项", "相关事项", "日程提醒", "行动事项")) {
+        return "存在标题过于泛化的行动卡，请先让 AI 继续完善或手动修改"
+    }
+    if (needConfirm.isNotEmpty()) {
+        return "仍有字段需要确认：${needConfirm.joinToString("、")}"
+    }
+    if (cardType == "promise" && deadline.isNullOrBlank() && startTime.isNullOrBlank()) {
+        return "承诺类行动卡需要补全执行时间后才能创建"
+    }
+    return null
+}

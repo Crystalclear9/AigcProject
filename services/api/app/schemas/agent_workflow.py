@@ -15,6 +15,19 @@ ToolName = Literal[
     "web_retriever",
     "quality_verifier",
 ]
+ReActToolName = Literal[
+    "observe",
+    "semantic_decomposer",
+    "temporal_solver",
+    "entity_linker",
+    "dependency_solver",
+    "history_retriever",
+    "privacy_risk_analyzer",
+    "quality_verifier",
+    "web_retriever",
+    "local_rule_refiner",
+    "model_enhancer",
+]
 ModelTier = Literal["none", "fast_model", "expert_model"]
 TaskStatus = Literal["pending", "running", "completed", "degraded", "failed", "skipped"]
 
@@ -139,3 +152,26 @@ class VerificationSummary(BaseModel):
     recommended_tasks: list[ToolName] = Field(default_factory=list)
     requires_review: bool = False
     reason: str = ""
+
+
+class ReActStep(BaseModel):
+    turn: int = Field(ge=1, le=4)
+    tool: ReActToolName
+    reason_summary: str = ""
+    action: str = ""
+    observation: str = ""
+    suggestions: list[str] = Field(default_factory=list)
+    duration_ms: float = Field(default=0, ge=0)
+
+
+class ReActSession(BaseModel):
+    id: str
+    instruction: str = ""
+    status: Literal["completed", "degraded", "failed"] = "completed"
+    rounds_used: int = Field(default=0, ge=0, le=4)
+    max_rounds: int = Field(default=4, ge=1, le=4)
+    actions_taken: list[ReActToolName] = Field(default_factory=list)
+    observations: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    steps: list[ReActStep] = Field(default_factory=list)
+    failure_type: str | None = None

@@ -15,6 +15,7 @@ import com.suishouban.app.data.remote.ApiFactory
 import com.suishouban.app.data.remote.toDomain
 import com.suishouban.app.data.remote.toDto
 import com.suishouban.app.data.remote.WorkflowResumeRequest
+import com.suishouban.app.data.remote.WorkflowReactRequest
 import com.suishouban.app.data.remote.OcrCandidateRequest
 import com.suishouban.app.data.remote.DraftFieldOperation
 import com.suishouban.app.data.remote.DraftPatchRequest
@@ -34,6 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import retrofit2.HttpException
 
 data class SaveConfirmedResult(
     val card: ActionCard,
@@ -218,6 +220,25 @@ class ActionCardRepository(
         return responseToResult(confirmed)
     }
 
+    suspend fun refineWithReact(
+        runId: String,
+        baseRevision: Int,
+        instruction: String,
+        selectedCardIds: List<String>,
+    ): AnalyzeResult {
+        val api = requireRemoteApi()
+        return responseToResult(
+            api.reactWorkflow(
+                runId,
+                WorkflowReactRequest(
+                    baseRevision = baseRevision,
+                    instruction = instruction,
+                    selectedCardIds = selectedCardIds,
+                ),
+            )
+        )
+    }
+
     fun activeRunId(): String? {
         val settings = settingsRepository.settings.value
         if (!settings.preferCloudModel || settings.apiBaseUrl.trim().isBlank()) return null
@@ -229,12 +250,29 @@ class ActionCardRepository(
     }
 
     suspend fun testConnection(): String {
-        val api = remoteApiOrNull() ?: return "本机模式：未配置云端增强端点，端侧 OCR、行动判定、卡片和提醒可用"
+        val api = remoteApiOrNull() ?: return "\u672c\u673a\u6a21\u5f0f\uff1a\u672a\u914d\u7f6e\u4e91\u7aef\u589e\u5f3a\u7aef\u70b9\uff0c\u7aef\u4fa7 OCR\u3001\u884c\u52a8\u5224\u5b9a\u3001\u5361\u7247\u548c\u63d0\u9192\u53ef\u7528"
         val health = api.health()
-        return if (health.ready) {
-            "云端增强在线，工作流运行时正常（LangGraph ${health.langGraphVersion}）"
+        if (!health.ready) {
+            return "\u4e91\u7aef\u7aef\u70b9\u53ef\u8bbf\u95ee\uff0c\u4f46\u5de5\u4f5c\u6d41\u8fd0\u884c\u65f6\u5904\u4e8e ${health.status}"
+        }
+        val probe = runCatching { api.providerProbe() }
+        return if (probe.isSuccess && probe.getOrThrow().allSucceeded) {
+            listOf(
+                "\u4e91\u7aef\u914d\u7f6e\u53ef\u7528",
+                "vivo \u6a21\u578b\u5df2\u5b9e\u9645\u8c03\u7528",
+                "vivo OCR \u5df2\u5b9e\u9645\u8c03\u7528",
+                "\u56fe\u7247\u751f\u6210\u63a2\u9488\u5df2\u901a\u8fc7",
+                "\u5de5\u4f5c\u6d41\u8fd0\u884c\u65f6\u6b63\u5e38\uff08LangGraph ${health.langGraphVersion}\uff09",
+            ).joinToString("\n")
+        } else if (probe.exceptionOrNull() is HttpException && (probe.exceptionOrNull() as HttpException).code() == 403) {
+            listOf(
+                "\u4e91\u7aef\u914d\u7f6e\u53ef\u7528",
+                "\u5de5\u4f5c\u6d41\u8fd0\u884c\u65f6\u6b63\u5e38\uff08LangGraph ${health.langGraphVersion}\uff09",
+                "provider \u63a2\u9488\u672a\u542f\u7528\uff0c\u65e0\u6cd5\u8bc1\u660e vivo API \u5df2\u5b9e\u9645\u8c03\u7528",
+            ).joinToString("\n")
         } else {
-            "云端端点可访问，但工作流运行时处于 ${health.status}"
+            val error = probe.exceptionOrNull()?.javaClass?.simpleName ?: "provider_probe_failed"
+            "\u4e91\u7aef\u914d\u7f6e\u53ef\u7528\uff0c\u4f46 vivo API \u5b9e\u9645\u8c03\u7528\u63a2\u9488\u5931\u8d25\uff1a$error"
         }
     }
 
@@ -265,6 +303,11 @@ class ActionCardRepository(
             validationErrors = response.validationErrors,
             fieldConflicts = response.fieldConflicts,
             fieldVersions = response.fieldVersions,
+            providerUsage = response.providerUsage.mapValues { it.value.toDomain() },
+            modelEnhancementStatus = response.modelEnhancementStatus,
+            ocrEnhancementStatus = response.ocrEnhancementStatus,
+            imageGenerationStatus = response.imageGenerationStatus,
+            reactSuggestions = response.reactSuggestions,
         )
     }
 

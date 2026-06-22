@@ -135,6 +135,16 @@ class RuleSummaryAndSplitTest(unittest.TestCase):
 
         self.assertGreaterEqual([card.card_type for card in cards].count("task"), 2)
 
+    def test_mixed_deadlines_registration_and_meeting_split_into_specific_cards(self) -> None:
+        text = "课程通知：6月26日22:00前提交实验报告到学习通，文件命名为学号+姓名；6月27日18:00前完成报名表提交；6月28日9:30参加项目汇报会。"
+
+        cards = extract_cards_with_rules(text, "2026-06-21T15:14:00+08:00")
+
+        self.assertEqual(len(cards), 3)
+        self.assertEqual([card.title for card in cards], ["提交实验报告", "提交报名表", "参加项目汇报"])
+        self.assertEqual([card.card_type for card in cards], ["task", "task", "event"])
+        self.assertNotIn("相关日程", [card.title for card in cards])
+
     def test_fuzzy_time_enters_need_confirm(self) -> None:
         text = "请各组在本月底前完成项目材料整理，并提交商业计划书和团队信息表。"
 

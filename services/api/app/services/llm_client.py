@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -144,6 +145,7 @@ def _without_response_format(payload: dict[str, Any], instruction: str) -> dict[
 async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
     url = _chat_completion_url(profile.base_url)
+    telemetry_started: float | None = None
 
     async def send(body: dict[str, Any]) -> httpx.Response:
         return await runtime.client.post(
@@ -156,6 +158,7 @@ async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) 
 
     try:
         async with runtime.semaphores[profile.role]:
+            telemetry_started = runtime.attempt(profile.role)
             try:
                 response = await send(payload)
                 response.raise_for_status()
@@ -169,10 +172,13 @@ async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) 
                     )
                 )
                 response.raise_for_status()
-    except httpx.HTTPError:
-        runtime.failure(profile.role)
+    except asyncio.CancelledError:
+        runtime.failure(profile.role, "CancelledError", telemetry_started)
         raise
-    runtime.success(profile.role)
+    except httpx.HTTPError as error:
+        runtime.failure(profile.role, type(error).__name__, telemetry_started)
+        raise
+    runtime.success(profile.role, telemetry_started)
     return response.json()
 
 

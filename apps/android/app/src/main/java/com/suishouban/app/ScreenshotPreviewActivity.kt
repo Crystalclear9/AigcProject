@@ -40,15 +40,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -132,6 +138,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                     onRemoveDraft = viewModel::removeDraft,
                     onToggleDraft = viewModel::toggleDraftSelection,
                     onSelectAll = viewModel::selectAllDrafts,
+                    onRefineWithAi = viewModel::refineDraftWithAi,
                     onConfirm = { viewModel.confirmDrafts { finish() } },
                     onIgnore = { viewModel.ignoreScreenshotWorkflow { finish() } },
                 )
@@ -181,6 +188,7 @@ private fun ScreenshotFloatingPanel(
     onRemoveDraft: (String) -> Unit,
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
+    onRefineWithAi: (String) -> Unit,
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
@@ -221,6 +229,7 @@ private fun ScreenshotFloatingPanel(
                     onRemoveDraft = onRemoveDraft,
                     onToggleDraft = onToggleDraft,
                     onSelectAll = onSelectAll,
+                    onRefineWithAi = onRefineWithAi,
                     onConfirm = onConfirm,
                 )
             }
@@ -325,9 +334,12 @@ private fun DraftPane(
     onRemoveDraft: (String) -> Unit,
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
+    onRefineWithAi: (String) -> Unit,
     onConfirm: () -> Unit,
 ) {
     val selectedCount = state.selectedDraftIds.size
+    val selectedCards = state.draftCards.filter { it.id in state.selectedDraftIds }
+    val canCreate = selectedCount > 0 && selectedCards.all { it.isReadyForCreation() }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -338,9 +350,6 @@ private fun DraftPane(
         ) {
             item {
                 EvidenceSummary(state = state)
-            }
-            if (state.previewActions.isNotEmpty()) {
-                item { PreviewActionsCard(previewActions = state.previewActions.take(4)) }
             }
             items(state.draftCards, key = { it.id }) { card ->
                 val selected = card.id in state.selectedDraftIds
@@ -376,9 +385,21 @@ private fun DraftPane(
                                 onChange = onUpdateDraft,
                                 onRemove = { onRemoveDraft(card.id) },
                             )
+                        } else if (selected) {
+                            Text(
+                                text = "已选中，可继续 AI 复检或取消选择。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = BrandBlue,
+                            )
                         }
                     }
                 }
+            }
+            item {
+                AiRefinementCard(state = state, onRefineWithAi = onRefineWithAi)
+            }
+            if (state.previewActions.isNotEmpty()) {
+                item { PreviewActionsCard(previewActions = state.previewActions.take(4)) }
             }
         }
 
@@ -389,38 +410,163 @@ private fun DraftPane(
             border = BorderStroke(1.dp, Line),
             shadowElevation = 4.dp,
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(10.dp),
             ) {
-                if (state.draftCards.size > 1) {
-                    OutlinedButton(
-                        onClick = onSelectAll,
+                OutlinedButton(
+                    onClick = { onRefineWithAi("继续检查遗漏事项，补全具体字段") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = "继续让 AI 完善" },
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("继续让 AI 完善")
+                }
+                state.aiRefinementStatus?.let { status ->
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = BrandBlue,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "AI 完善状态" },
+                    )
+                }
+                state.reactSuggestions.firstOrNull()?.let { suggestion ->
+                    Text(
+                        text = "建议：$suggestion",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = "AI 完善建议" },
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (state.draftCards.size > 1) {
+                        OutlinedButton(
+                            onClick = onSelectAll,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Text("全选")
+                        }
+                    }
+                    Button(
+                        onClick = onConfirm,
+                        enabled = canCreate,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp),
                     ) {
-                        Text("全选")
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null)
+                        Spacer(Modifier.height(0.dp))
+                        Text(
+                            text = if (!canCreate) {
+                                "补全后继续"
+                            } else if (state.draftCards.size > 1) {
+                                if (selectedCount == state.draftCards.size) "全部创建" else "只创建 $selectedCount 个"
+                            } else {
+                                "确认创建"
+                            },
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
                     }
                 }
-                Button(
-                    onClick = onConfirm,
-                    enabled = selectedCount > 0,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(Icons.Outlined.CheckCircle, contentDescription = null)
-                    Spacer(Modifier.height(0.dp))
-                    Text(
-                        text = if (state.draftCards.size > 1) {
-                            if (selectedCount == state.draftCards.size) "全部创建" else "只创建 $selectedCount 个"
-                        } else {
-                            "确认创建"
-                        },
-                        modifier = Modifier.padding(start = 8.dp),
-                    )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiRefinementCard(
+    state: AppUiState,
+    onRefineWithAi: (String) -> Unit,
+) {
+    var instruction by remember { mutableStateOf("") }
+    val quickActions = listOf(
+        "拆成多张卡",
+        "补全截止时间",
+        "提取提交方式",
+        "重写标题更具体",
+        "检查是否有遗漏事项",
+    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = ComposeColor(0xFFF7FAFF),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, BrandBlue.copy(alpha = 0.16f)),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(18.dp))
+                Text("让 AI 继续完善", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                state.aiRefinementStatus ?: "不想手动改时，可以让 AI 继续拆分、补全或验证候选卡。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.reactSuggestions.take(3).forEach { suggestion ->
+                Text(
+                    text = "建议：$suggestion",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = BrandBlue,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                quickActions.chunked(2).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        row.forEach { label ->
+                            OutlinedButton(
+                                onClick = { onRefineWithAi(label) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
+            }
+            OutlinedTextField(
+                value = instruction,
+                onValueChange = { instruction = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("也可以直接告诉 AI 怎么改") },
+                placeholder = { Text("例如：把会议和提交材料拆开") },
+                shape = RoundedCornerShape(16.dp),
+                maxLines = 2,
+            )
+            Button(
+                onClick = {
+                    val text = instruction.trim().ifBlank { "继续检查遗漏事项，补全具体字段" }
+                    instruction = ""
+                    onRefineWithAi(text)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "继续让 AI 完善" },
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Text("继续让 AI 完善")
             }
         }
     }
@@ -440,6 +586,41 @@ private fun EvidenceSummary(state: AppUiState) {
         ) {
             val scene = state.screenshotScenarioType?.let { scenarioLabel(it) }
             val confidence = state.screenshotConfidenceBand?.let { confidenceLabel(it) }
+            val enhancementBadges = buildList {
+                when (state.modelEnhancementStatus) {
+                    "succeeded" -> add("\u4e91\u7aef\u6a21\u578b\u5df2\u53c2\u4e0e")
+                    "degraded" -> add("\u4e91\u7aef\u589e\u5f3a\u5df2\u964d\u7ea7")
+                    "attempted" -> add("\u7b49\u5f85\u4e91\u7aef\u589e\u5f3a")
+                }
+                when (state.ocrEnhancementStatus) {
+                    "succeeded" -> add("vivo OCR \u5df2\u53c2\u4e0e")
+                    "degraded" -> add("vivo OCR \u5df2\u964d\u7ea7")
+                }
+            }
+            if (enhancementBadges.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    enhancementBadges.forEach { label ->
+                        Surface(
+                            color = BrandBlue.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, BrandBlue.copy(alpha = 0.16f)),
+                        ) {
+                            Text(
+                                text = label,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = BrandBlue,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
             if (scene != null || confidence != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Schedule, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
@@ -486,4 +667,12 @@ private fun confidenceLabel(value: String): String = when (value) {
     "high" -> "高可信"
     "medium" -> "中可信"
     else -> "低可信"
+}
+
+private fun ActionCard.isReadyForCreation(): Boolean {
+    if (title.isBlank()) return false
+    if (title in setOf("相关日程", "待办事项", "相关事项", "日程提醒", "行动事项")) return false
+    if (needConfirm.isNotEmpty()) return false
+    if (cardType == "promise" && deadline.isNullOrBlank() && startTime.isNullOrBlank()) return false
+    return true
 }

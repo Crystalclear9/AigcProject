@@ -14,10 +14,13 @@ from app.schemas.workflow import (
     ConfirmWorkflowRequest,
     DraftPatchRequest,
     OcrCandidateRequest,
+    WorkflowReactRequest,
     WorkflowResumeRequest,
     WorkflowRunResponse,
 )
 from app.schemas.card import ActionCard
+from app.services.provider_runtime import provider_usage_delta, runtime
+from app.services.react_refiner import refine_state_with_react
 from app.services.workflow_graph import build_workflow_graph, create_rule_draft, finalize_rules_fast
 from app.services.workflow_agents import build_action_graph as create_action_graph
 
@@ -248,6 +251,7 @@ def _commit_node_update(
     state["user_locked"] = persisted.get("user_locked") or state.get("user_locked", {})
     state["field_versions"] = persisted.get("field_versions") or state.get("field_versions", {})
     state["revision"] = max(int(state.get("revision", 0)), int(persisted.get("revision", 0)))
+    state.update(_provider_snapshot_fields(state))
     state.pop("image_bytes", None)
     events: list[tuple[str, dict[str, Any], str | None]] = []
     revision = int(state.get("revision", 0))
@@ -489,6 +493,50 @@ def _commit_node_update(
     repository.save_with_events(run_id, state, events)
 
 
+def _provider_snapshot_fields(state: dict[str, Any]) -> dict[str, Any]:
+    frozen = state.get("provider_usage")
+    if frozen and state.get("workflow_status") in {"awaiting_review", "completed", "failed", "cancelled"}:
+        usage = frozen
+    else:
+        usage = provider_usage_delta(state.get("provider_usage_baseline"))
+    return {
+        "provider_usage": usage,
+        "model_enhancement_status": _enhancement_status(
+            usage,
+            ("fast_model", "expert_model"),
+            configured=bool(state.get("has_fast_model") or state.get("has_expert_model")),
+        ),
+        "ocr_enhancement_status": _enhancement_status(
+            usage,
+            ("ocr",),
+            configured=bool(state.get("input_kind") == "image" and state.get("has_vivo_ocr")),
+        ),
+        "image_generation_status": _enhancement_status(
+            usage,
+            ("image_generation",),
+            configured=bool(state.get("has_image_generation")),
+        ),
+    }
+
+
+def _enhancement_status(
+    provider_usage: dict[str, dict[str, Any]],
+    providers: tuple[str, ...],
+    *,
+    configured: bool,
+) -> str:
+    if not configured:
+        return "not_configured"
+    success = sum(int(provider_usage.get(provider, {}).get("success_count_delta", 0)) for provider in providers)
+    failures = sum(int(provider_usage.get(provider, {}).get("failure_count_delta", 0)) for provider in providers)
+    attempts = sum(int(provider_usage.get(provider, {}).get("request_count_delta", 0)) for provider in providers)
+    if success > 0:
+        return "succeeded"
+    if attempts > 0 or failures > 0:
+        return "degraded"
+    return "attempted"
+
+
 def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
     return {
         "run_id": run_id,
@@ -514,6 +562,9 @@ def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
         "validation_errors": state.get("validation_errors", []),
         "field_conflicts": state.get("field_conflicts", []),
         "field_versions": state.get("field_versions", {}),
+        "react_session": state.get("react_session"),
+        "react_suggestions": state.get("react_suggestions", []),
+        **_provider_snapshot_fields(state),
     }
 
 
@@ -542,6 +593,7 @@ def _complete_rules_inline(run_id: str, state: dict[str, Any]) -> None:
     final_update = finalize_rules_fast(state)
     node_trace = list(state.get("node_trace", [])) + list(final_update.get("node_trace", []))
     final_state = {**state, **final_update, "node_trace": node_trace}
+    final_state.update(_provider_snapshot_fields(final_state))
     revision = int(final_state.get("revision", 0))
     snapshot = _event_snapshot(run_id, final_state)
     graph = final_state.get("action_graph", {})
@@ -658,6 +710,19 @@ def _initial_state(
         "replan_count": 0,
         "has_fast_model": settings.has_fast_model_config,
         "has_expert_model": settings.has_expert_model_config,
+        "has_vivo_ocr": settings.has_vivo_ocr_config,
+        "has_image_generation": settings.has_image_generation_config,
+        "provider_usage_baseline": runtime.snapshot(),
+        "provider_usage": {},
+        "model_enhancement_status": "not_configured"
+        if not (settings.has_fast_model_config or settings.has_expert_model_config)
+        else "attempted",
+        "ocr_enhancement_status": "not_configured"
+        if not settings.has_vivo_ocr_config
+        else "attempted",
+        "image_generation_status": "not_configured"
+        if not settings.has_image_generation_config
+        else "attempted",
     }
 
 
@@ -874,6 +939,93 @@ def patch_draft(run_id: str, request: DraftPatchRequest) -> WorkflowRunResponse:
     return repository.response(run_id)
 
 
+async def refine_workflow_with_react(
+    run_id: str,
+    request: WorkflowReactRequest,
+) -> WorkflowRunResponse:
+    state = repository.get_state(run_id)
+    if state.get("workflow_status") in {"completed", "failed", "cancelled"}:
+        raise ValueError(f"workflow is already {state.get('workflow_status')}")
+    revision = int(state.get("revision", 0))
+    if request.base_revision != revision:
+        raise ValueError(f"revision conflict: expected {revision}")
+    updates = await refine_state_with_react(
+        state,
+        instruction=request.instruction,
+        selected_card_ids=request.selected_card_ids,
+    )
+    state.update(updates)
+    state["revision"] = revision + 1
+    state.update(_provider_snapshot_fields(state))
+    repository.save_with_events(
+        run_id,
+        state,
+        _react_events(run_id, state),
+    )
+    return repository.response(run_id)
+
+
+def _react_events(run_id: str, state: dict[str, Any]) -> list[tuple[str, dict[str, Any], str | None]]:
+    revision = int(state.get("revision", 0))
+    session = state.get("react_session") or {}
+    snapshot = _event_snapshot(run_id, state)
+    events: list[tuple[str, dict[str, Any], str | None]] = [
+        (
+            "node_started",
+            {"node": "react_refiner", "session_id": session.get("id")},
+            f"react-node:{session.get('id')}",
+        )
+    ]
+    for index, suggestion in enumerate(state.get("react_suggestions", [])):
+        events.append(
+            (
+                "suggestion_added",
+                {
+                    "session_id": session.get("id"),
+                    "suggestion": suggestion,
+                    "source": "react_refiner",
+                },
+                f"react-suggestion:{session.get('id')}:{index}",
+            )
+        )
+    events.extend(
+        [
+            (
+                "decision_made",
+                {
+                    "risk_level": state.get("risk_level", "low"),
+                    "errors": state.get("validation_errors", []),
+                    "overall_confidence": state.get("overall_confidence", 0),
+                    "react_session": session.get("id"),
+                },
+                f"react-decision:{session.get('id')}:{revision}",
+            ),
+            (
+                "draft_updated",
+                {
+                    "revision": revision,
+                    "stage": state.get("result_stage"),
+                    "cards": state.get("cards", []),
+                    "source": "react_refiner",
+                    "snapshot": snapshot,
+                },
+                f"react-draft:{session.get('id')}:{revision}",
+            ),
+            (
+                "review_required",
+                {
+                    "revision": revision,
+                    "pending_action": state.get("pending_action"),
+                    "validation_errors": state.get("validation_errors", []),
+                    "snapshot": snapshot,
+                },
+                f"react-review:{session.get('id')}:{revision}",
+            ),
+        ]
+    )
+    return events
+
+
 def _revalidate_user_draft(state: dict[str, Any]) -> None:
     errors: list[str] = []
     normalized: list[dict[str, Any]] = []
@@ -885,8 +1037,21 @@ def _revalidate_user_draft(state: dict[str, Any]) -> None:
             continue
         if not card.title.strip():
             errors.append(f"card[{index}] missing title")
+        if card.title.strip() in {"相关日程", "待办事项", "相关事项", "日程提醒", "行动事项"}:
+            errors.append(f"card[{index}] title is too generic")
         if card.card_type == "promise" and not (card.deadline or card.start_time):
             errors.append(f"card[{index}] promise requires execution time")
+        locked_fields = set(state.get("user_locked", {}).get(card.id, []))
+        unresolved_need_confirm = [
+            field for field in card.need_confirm if field not in locked_fields
+        ]
+        if unresolved_need_confirm:
+            errors.append(
+                f"card[{index}] unresolved confirmation fields: {unresolved_need_confirm}"
+            )
+            card = card.model_copy(update={"need_confirm": unresolved_need_confirm})
+        elif card.need_confirm:
+            card = card.model_copy(update={"need_confirm": []})
         normalized.append(card.model_dump(mode="json"))
     state["cards"] = normalized
     state["validation_errors"] = errors

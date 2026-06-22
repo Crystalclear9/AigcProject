@@ -33,7 +33,7 @@ class Settings:
     expert_model_name: str = os.getenv("EXPERT_MODEL_NAME", os.getenv("LANXIN_MODEL", "Doubao-Seed-2.0-mini"))
     request_timeout_seconds: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
     llm_fast_timeout_seconds: float = float(os.getenv("LLM_FAST_TIMEOUT_SECONDS", "6"))
-    fast_model_timeout_seconds: float = float(os.getenv("FAST_MODEL_TIMEOUT_SECONDS", "4"))
+    fast_model_timeout_seconds: float = float(os.getenv("FAST_MODEL_TIMEOUT_SECONDS", "15"))
     expert_model_timeout_seconds: float = float(os.getenv("EXPERT_MODEL_TIMEOUT_SECONDS", "12"))
     provider_max_concurrency: int = int(os.getenv("PROVIDER_MAX_CONCURRENCY", "8"))
     workflow_max_concurrency: int = int(os.getenv("WORKFLOW_MAX_CONCURRENCY", "20"))
@@ -72,6 +72,11 @@ class Settings:
     vivo_image_generation_timeout_seconds: float = float(
         os.getenv("VIVO_IMAGE_GENERATION_TIMEOUT_SECONDS", "60")
     )
+    enable_provider_probe: bool = os.getenv("ENABLE_PROVIDER_PROBE", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     max_upload_image_bytes: int = int(os.getenv("MAX_UPLOAD_IMAGE_BYTES", str(5 * 1024 * 1024)))
 
     @property

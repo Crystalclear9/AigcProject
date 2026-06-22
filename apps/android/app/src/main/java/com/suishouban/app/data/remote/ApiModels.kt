@@ -3,6 +3,7 @@ package com.suishouban.app.data.remote
 import com.google.gson.annotations.SerializedName
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.data.model.ProviderUsage
 
 data class AnalyzeScreenshotTextRequest(
     val text: String,
@@ -34,6 +35,11 @@ data class AnalyzeScreenshotTextResponse(
     @SerializedName("validation_errors") val validationErrors: List<String> = emptyList(),
     @SerializedName("field_conflicts") val fieldConflicts: List<Map<String, Any?>> = emptyList(),
     @SerializedName("field_versions") val fieldVersions: Map<String, Map<String, Int>> = emptyMap(),
+    @SerializedName("provider_usage") val providerUsage: Map<String, ProviderUsageDto> = emptyMap(),
+    @SerializedName("model_enhancement_status") val modelEnhancementStatus: String = "not_configured",
+    @SerializedName("ocr_enhancement_status") val ocrEnhancementStatus: String = "not_configured",
+    @SerializedName("image_generation_status") val imageGenerationStatus: String = "not_configured",
+    @SerializedName("react_suggestions") val reactSuggestions: List<String> = emptyList(),
 )
 
 data class WorkflowEventEnvelope(
@@ -58,6 +64,32 @@ data class HealthResponse(
     val ready: Boolean = false,
     @SerializedName("langgraph_version") val langGraphVersion: String = "",
     @SerializedName("sqlite_checkpointer_available") val sqliteCheckpointerAvailable: Boolean = false,
+    @SerializedName("chat_configured") val chatConfigured: Boolean = false,
+    @SerializedName("ocr_configured") val ocrConfigured: Boolean = false,
+    @SerializedName("image_generation_configured") val imageGenerationConfigured: Boolean = false,
+)
+
+data class ProviderProbeResponse(
+    @SerializedName("all_succeeded") val allSucceeded: Boolean = false,
+    val results: Map<String, ProviderProbeResult> = emptyMap(),
+)
+
+data class ProviderProbeResult(
+    val configured: Boolean = false,
+    val attempted: Boolean = false,
+    val succeeded: Boolean = false,
+    @SerializedName("error_type") val errorType: String? = null,
+    @SerializedName("latency_ms") val latencyMs: Double? = null,
+)
+
+data class ProviderUsageDto(
+    @SerializedName("request_count_delta") val requestCountDelta: Int = 0,
+    @SerializedName("success_count_delta") val successCountDelta: Int = 0,
+    @SerializedName("failure_count_delta") val failureCountDelta: Int = 0,
+    @SerializedName("last_success_at") val lastSuccessAt: String? = null,
+    @SerializedName("last_error_type") val lastErrorType: String? = null,
+    @SerializedName("latency_ms") val latencyMs: Double? = null,
+    @SerializedName("circuit_open") val circuitOpen: Boolean = false,
 )
 
 data class WorkflowResumeRequest(
@@ -73,6 +105,12 @@ data class OcrCandidateRequest(
 )
 
 data class ConfirmWorkflowRequest(val revision: Int)
+
+data class WorkflowReactRequest(
+    @SerializedName("base_revision") val baseRevision: Int,
+    val instruction: String = "",
+    @SerializedName("selected_card_ids") val selectedCardIds: List<String> = emptyList(),
+)
 
 data class NodeTraceDto(
     val node: String,
@@ -149,6 +187,16 @@ fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+)
+
+fun ProviderUsageDto.toDomain(): ProviderUsage = ProviderUsage(
+    requestCountDelta = requestCountDelta,
+    successCountDelta = successCountDelta,
+    failureCountDelta = failureCountDelta,
+    lastSuccessAt = lastSuccessAt,
+    lastErrorType = lastErrorType,
+    latencyMs = latencyMs,
+    circuitOpen = circuitOpen,
 )
 
 // Accept legacy workflow responses while stored data migrates from "note".

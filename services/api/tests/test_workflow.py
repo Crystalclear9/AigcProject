@@ -18,6 +18,7 @@ from app.schemas.workflow import (
     DraftPatchRequest,
     OcrCandidateRequest,
     WorkflowResumeRequest,
+    WorkflowReactRequest,
 )
 from app.services.workflow_service import (
     _can_complete_rules_inline,
@@ -26,6 +27,7 @@ from app.services.workflow_service import (
     get_workflow,
     initialize_workflow_runtime,
     patch_draft,
+    refine_workflow_with_react,
     resume_workflow,
     start_image_workflow,
     start_text_workflow,
@@ -106,6 +108,37 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         final = get_workflow(started.run_id)
         self.assertEqual(final.cards[0].title, "用户锁定标题")
 
+    async def test_react_refinement_preserves_locked_fields_and_requires_review(self) -> None:
+        started = await start_text_workflow(
+            "请在6月10日22:00前提交实验报告，提交至学习通。",
+            "2026-06-07T10:00:00+08:00",
+        )
+        draft = await wait_for_result(started.run_id, timeout=1, accept_provisional=True)
+        edited = draft.cards[0].model_copy(update={"title": "用户锁定标题"})
+        patched = patch_draft(
+            started.run_id,
+            DraftPatchRequest(
+                base_revision=draft.revision,
+                cards=[edited],
+                locked_fields={edited.id: ["title"]},
+            ),
+        )
+
+        refined = await refine_workflow_with_react(
+            started.run_id,
+            WorkflowReactRequest(
+                base_revision=patched.revision,
+                instruction="重写标题更具体，并检查提交方式",
+                selected_card_ids=[edited.id],
+            ),
+        )
+
+        self.assertEqual(refined.workflow_status, "awaiting_review")
+        self.assertIn("react_refiner", refined.active_agents)
+        self.assertTrue(refined.react_suggestions)
+        self.assertEqual(refined.cards[0].title, "用户锁定标题")
+        self.assertIn("react", refined.engine)
+
     async def test_field_operations_use_independent_versions(self) -> None:
         started = await start_text_workflow(
             "请在6月10日22:00前提交实验报告。",
@@ -152,6 +185,21 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
                     ],
                 ),
             )
+
+    async def test_confirm_rejects_unresolved_need_confirm_fields(self) -> None:
+        started = await start_text_workflow(
+            "请在6月10日22:00前提交实验报告。",
+            "2026-06-07T10:00:00+08:00",
+        )
+        draft = await wait_for_result(started.run_id, timeout=1, accept_provisional=True)
+        card = draft.cards[0].model_copy(update={"need_confirm": ["deadline"]})
+        patched = patch_draft(
+            started.run_id,
+            DraftPatchRequest(base_revision=draft.revision, cards=[card]),
+        )
+
+        with self.assertRaisesRegex(ValueError, "unresolved confirmation fields"):
+            confirm_workflow(started.run_id, ConfirmWorkflowRequest(revision=patched.revision))
 
     async def test_resume_compatibility_and_cancel(self) -> None:
         async def failing_ocr(*args, **kwargs):
