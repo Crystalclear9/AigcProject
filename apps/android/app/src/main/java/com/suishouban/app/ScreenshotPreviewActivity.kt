@@ -379,7 +379,7 @@ private fun DraftPane(
                                 )
                             }
                         }
-                        if (selected && state.draftCards.size == 1) {
+                        if (selected && (state.draftCards.size == 1 || selectedCount == 1)) {
                             DraftEditor(
                                 card = card,
                                 onChange = onUpdateDraft,
@@ -387,7 +387,7 @@ private fun DraftPane(
                             )
                         } else if (selected) {
                             Text(
-                                text = "已选中，可继续 AI 复检或取消选择。",
+                                text = "已选中。若要手动补字段，请先只保留这一张选中；也可继续 AI 复检。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = BrandBlue,
                             )

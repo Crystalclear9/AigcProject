@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 data class AppSettings(
     val apiBaseUrl: String = BuildConfig.DEFAULT_API_BASE_URL,
-    val autoDetectScreenshots: Boolean = true,
+    val autoDetectScreenshots: Boolean = false,
     val privacyMask: Boolean = true,
     val calendarSync: Boolean = false,
     val keepOriginalScreenshot: Boolean = false,
@@ -24,7 +24,7 @@ class AppSettingsRepository(context: Context) {
             ?: BuildConfig.DEFAULT_API_BASE_URL
         return AppSettings(
             apiBaseUrl = apiBaseUrl,
-            autoDetectScreenshots = prefs.getBoolean("auto_detect", true),
+            autoDetectScreenshots = prefs.getBoolean("auto_detect", false),
             privacyMask = prefs.getBoolean("privacy_mask", true),
             calendarSync = prefs.getBoolean("calendar_sync", false),
             keepOriginalScreenshot = prefs.getBoolean("keep_screenshot", false),

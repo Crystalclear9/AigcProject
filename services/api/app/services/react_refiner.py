@@ -76,6 +76,8 @@ async def refine_state_with_react(
 
     observe_started = time.perf_counter()
     current_cards = [_card_from_dict(card) for card in state.get("cards", [])]
+    current_ids = {card.id for card in current_cards}
+    selected_ids = set(selected_card_ids) if selected_card_ids else current_ids
     selected_count = len(selected_card_ids) if selected_card_ids else len(current_cards)
     step(
         1,
@@ -138,7 +140,7 @@ async def refine_state_with_react(
                 step_suggestions=["云端模型暂不可用，已保留本地规则草稿"],
             )
 
-    merged_cards = _merge_cards(current_cards, incoming_cards, locked, suggestions)
+    merged_cards = _merge_cards(current_cards, incoming_cards, locked, suggestions, selected_ids)
     graph = create_action_graph(
         [card.model_dump(mode="json") for card in merged_cards],
         [],
@@ -242,6 +244,7 @@ def _merge_cards(
     incoming_cards: list[ActionCard],
     locked: dict[str, list[str]],
     suggestions: dict[str, dict[str, Any]],
+    selected_ids: set[str],
 ) -> list[ActionCard]:
     merged = list(current_cards)
     for incoming in incoming_cards:
@@ -250,8 +253,27 @@ def _merge_cards(
             merged.append(incoming)
             continue
         existing = merged[match_index]
+        if existing.id not in selected_ids:
+            _record_unselected_suggestions(existing, incoming, suggestions)
+            continue
         merged[match_index] = _fill_without_overwrite(existing, incoming, locked, suggestions)
     return _dedupe_cards(merged)
+
+
+def _record_unselected_suggestions(
+    existing: ActionCard,
+    incoming: ActionCard,
+    suggestions: dict[str, dict[str, Any]],
+) -> None:
+    payload = existing.model_dump(mode="json")
+    incoming_payload = incoming.model_dump(mode="json")
+    for field in EDITABLE_FIELDS:
+        current_value = payload.get(field)
+        incoming_value = incoming_payload.get(field)
+        if incoming_value in (None, "", []) or incoming_value == current_value:
+            continue
+        if _is_empty_or_generic(field, current_value) or field in {"evidence_summary", "materials", "tags", "reminders", "need_confirm"}:
+            suggestions.setdefault(existing.id, {})[field] = incoming_value
 
 
 def _fill_without_overwrite(
@@ -302,6 +324,8 @@ def _match_score(left: ActionCard, right: ActionCard) -> float:
         score += 0.2
     title_similarity = SequenceMatcher(None, _normalize(left.title), _normalize(right.title)).ratio()
     score += title_similarity * 0.45
+    if title_similarity >= 0.92:
+        score += 0.2
     return min(1.0, score)
 
 

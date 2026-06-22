@@ -51,11 +51,9 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
-    private var skipPendingPromptOnce: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestRuntimePermissions()
         val openedScreenshotPrompt = openProcessScreenshotIntent(intent)
         val sharedImageUri = if (openedScreenshotPrompt) null else extractSharedImage(intent)
 
@@ -98,6 +96,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(state.settings.autoDetectScreenshots) {
                     val serviceIntent = Intent(this@MainActivity, ScreenshotMonitorService::class.java)
                     if (state.settings.autoDetectScreenshots) {
+                        requestScreenshotMonitorPermissions()
                         ContextCompat.startForegroundService(this@MainActivity, serviceIntent)
                     } else {
                         stopService(serviceIntent)
@@ -184,11 +183,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (skipPendingPromptOnce) {
-            skipPendingPromptOnce = false
-            return
-        }
-        openPendingScreenshotPrompt()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -199,18 +193,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) openPendingScreenshotPrompt()
-    }
-
-    private fun openPendingScreenshotPrompt() {
-        ScreenshotMonitorService.consumePendingPreviewIntent(this)?.let { intent ->
-            startActivity(intent)
-        }
     }
 
     private fun openProcessScreenshotIntent(source: Intent?): Boolean {
         if (source?.action != ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT) return false
-        skipPendingPromptOnce = true
         ScreenshotMonitorService.clearPendingPreview(this)
         val previewIntent = Intent(this, ScreenshotPreviewActivity::class.java).apply {
             action = ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT
@@ -234,7 +220,7 @@ class MainActivity : ComponentActivity() {
         }.getOrNull()
     }
 
-    private fun requestRuntimePermissions() {
+    private fun requestScreenshotMonitorPermissions() {
         val permissions = buildList {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.POST_NOTIFICATIONS)

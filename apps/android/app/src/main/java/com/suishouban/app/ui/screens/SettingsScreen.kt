@@ -153,6 +153,11 @@ fun SettingsScreen(
                     checked = state.settings.autoDetectScreenshots,
                     onCheckedChange = { onUpdate(state.settings.copy(autoDetectScreenshots = it)) },
                 )
+                Text(
+                    "默认关闭。开启后才会监听新截图，并且只在命中明确行动证据时发出低打扰提示。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 SettingSwitch(
                     title = "启用云端增强",
                     checked = state.settings.preferCloudModel,
