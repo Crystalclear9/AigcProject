@@ -33,6 +33,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class ScreenshotMonitorService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -282,10 +284,11 @@ class ScreenshotMonitorService : Service() {
             return
         }
         val notificationId = uri.hashCode()
-        val previewIntent = buildPreviewIntent(uri, ocrText, gate).apply {
+        val ocrToken = cachePendingOcrText(ocrText)
+        val previewIntent = buildPreviewIntent(uri, ocrToken, gate).apply {
             putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
         }
-        persistPendingPrompt(mediaId, uri, ocrText, gate, notificationId)
+        persistPendingPrompt(mediaId, uri, ocrToken, ocrText, gate, notificationId)
         val generatePendingIntent = PendingIntent.getActivity(
             this,
             notificationId + 2,
@@ -333,13 +336,13 @@ class ScreenshotMonitorService : Service() {
 
     private fun buildPreviewIntent(
         uri: Uri,
-        ocrText: String,
+        ocrToken: String,
         gate: ScreenshotActionGateResult,
     ): Intent {
         return Intent(this, ScreenshotPreviewActivity::class.java).apply {
             action = ACTION_PROCESS_SCREENSHOT
             data = uri
-            putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TEXT, ocrText)
+            putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TOKEN, ocrToken)
             putExtra(ScreenshotPreviewActivity.EXTRA_GATE_REASON, gate.reason)
             putExtra(ScreenshotPreviewActivity.EXTRA_DEADLINE_HINT, gate.deadlineHint)
             putExtra(ScreenshotPreviewActivity.EXTRA_PROMPT_SUMMARY, gate.promptSummary)
@@ -372,6 +375,7 @@ class ScreenshotMonitorService : Service() {
     private fun persistPendingPrompt(
         mediaId: Long,
         uri: Uri,
+        ocrToken: String,
         ocrText: String,
         gate: ScreenshotActionGateResult,
         notificationId: Int,
@@ -380,7 +384,8 @@ class ScreenshotMonitorService : Service() {
             .edit()
             .putLong(KEY_PENDING_MEDIA_ID, mediaId)
             .putString(KEY_PENDING_URI, uri.toString())
-            .putString(KEY_PENDING_OCR_TEXT, ocrText)
+            .putString(KEY_PENDING_OCR_TOKEN, ocrToken)
+            .putString(KEY_PENDING_OCR_SUMMARY, ocrText.take(PENDING_OCR_SUMMARY_CHARS))
             .putString(KEY_PENDING_GATE_REASON, gate.reason)
             .putString(KEY_PENDING_DEADLINE_HINT, gate.deadlineHint)
             .putString(KEY_PENDING_PROMPT_SUMMARY, gate.promptSummary)
@@ -395,6 +400,7 @@ class ScreenshotMonitorService : Service() {
     private fun clearPendingPrompt(mediaId: Long) {
         val prefs = getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
         if (mediaId <= 0 || prefs.getLong(KEY_PENDING_MEDIA_ID, -1L) == mediaId) {
+            clearPendingOcrText(prefs.getString(KEY_PENDING_OCR_TOKEN, null))
             prefs.edit().clear().apply()
         }
     }
@@ -424,20 +430,28 @@ class ScreenshotMonitorService : Service() {
 
     companion object {
         const val ACTION_PROCESS_SCREENSHOT = "com.suishouban.app.action.PROCESS_SCREENSHOT"
+        fun consumePendingOcrText(token: String?): String? {
+            if (token.isNullOrBlank()) return null
+            prunePendingOcrCache()
+            return pendingOcrText.remove(token)?.text
+        }
+
         fun consumePendingPreviewIntent(context: Context): Intent? {
             val prefs = context.getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
             val createdAt = prefs.getLong(KEY_PENDING_CREATED_AT, 0L)
             if (createdAt <= 0L) return null
             if (System.currentTimeMillis() - createdAt > PROMPT_TIMEOUT_MS) {
+                clearPendingOcrText(prefs.getString(KEY_PENDING_OCR_TOKEN, null))
                 prefs.edit().clear().apply()
                 return null
             }
             val uri = prefs.getString(KEY_PENDING_URI, null)?.let(Uri::parse) ?: return null
             val evidence = prefs.getStringSet(KEY_PENDING_PRIMARY_EVIDENCE, emptySet()).orEmpty()
+            val ocrToken = prefs.getString(KEY_PENDING_OCR_TOKEN, null)
             val intent = Intent(context, ScreenshotPreviewActivity::class.java).apply {
                 action = ACTION_PROCESS_SCREENSHOT
                 data = uri
-                putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TEXT, prefs.getString(KEY_PENDING_OCR_TEXT, null))
+                putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TOKEN, ocrToken)
                 putExtra(ScreenshotPreviewActivity.EXTRA_GATE_REASON, prefs.getString(KEY_PENDING_GATE_REASON, null))
                 putExtra(ScreenshotPreviewActivity.EXTRA_DEADLINE_HINT, prefs.getString(KEY_PENDING_DEADLINE_HINT, null))
                 putExtra(ScreenshotPreviewActivity.EXTRA_PROMPT_SUMMARY, prefs.getString(KEY_PENDING_PROMPT_SUMMARY, null))
@@ -452,7 +466,27 @@ class ScreenshotMonitorService : Service() {
         }
 
         fun clearPendingPreview(context: Context) {
-            context.getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+            val prefs = context.getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
+            clearPendingOcrText(prefs.getString(KEY_PENDING_OCR_TOKEN, null))
+            prefs.edit().clear().apply()
+        }
+
+        private fun cachePendingOcrText(text: String): String {
+            prunePendingOcrCache()
+            val token = UUID.randomUUID().toString()
+            pendingOcrText[token] = PendingOcrText(text = text, createdAt = System.currentTimeMillis())
+            return token
+        }
+
+        private fun clearPendingOcrText(token: String?) {
+            if (!token.isNullOrBlank()) {
+                pendingOcrText.remove(token)
+            }
+        }
+
+        private fun prunePendingOcrCache() {
+            val now = System.currentTimeMillis()
+            pendingOcrText.entries.removeIf { now - it.value.createdAt > PROMPT_TIMEOUT_MS }
         }
 
         private const val ACTION_GENERATE_SCREENSHOT = "com.suishouban.app.action.GENERATE_SCREENSHOT"
@@ -472,7 +506,8 @@ class ScreenshotMonitorService : Service() {
         private const val PENDING_PROMPT_PREFS = "screenshot_prompt_pending"
         private const val KEY_PENDING_MEDIA_ID = "media_id"
         private const val KEY_PENDING_URI = "uri"
-        private const val KEY_PENDING_OCR_TEXT = "ocr_text"
+        private const val KEY_PENDING_OCR_TOKEN = "ocr_token"
+        private const val KEY_PENDING_OCR_SUMMARY = "ocr_summary"
         private const val KEY_PENDING_GATE_REASON = "gate_reason"
         private const val KEY_PENDING_DEADLINE_HINT = "deadline_hint"
         private const val KEY_PENDING_PROMPT_SUMMARY = "prompt_summary"
@@ -481,9 +516,16 @@ class ScreenshotMonitorService : Service() {
         private const val KEY_PENDING_PRIMARY_EVIDENCE = "primary_evidence"
         private const val KEY_PENDING_NOTIFICATION_ID = "notification_id"
         private const val KEY_PENDING_CREATED_AT = "created_at"
+        private const val PENDING_OCR_SUMMARY_CHARS = 160
         private const val TAG = "ScreenshotMonitor"
+        private val pendingOcrText = ConcurrentHashMap<String, PendingOcrText>()
     }
 }
+
+private data class PendingOcrText(
+    val text: String,
+    val createdAt: Long,
+)
 
 private data class ImageState(
     val size: Long = 0L,

@@ -448,9 +448,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             val hasVisibleCards = mergedDrafts.isNotEmpty()
             val previousSelections = it.selectedDraftIds
+            val hadPriorCandidates = it.draftCards.isNotEmpty() || it.actionCandidates.isNotEmpty()
             val nextSelectedIds = when {
                 !hasVisibleCards -> emptySet()
-                previousSelections.isEmpty() -> mergedDrafts.map { card -> card.id }.toSet()
+                previousSelections.isEmpty() && !hadPriorCandidates -> mergedDrafts.map { card -> card.id }.toSet()
+                previousSelections.isEmpty() -> emptySet()
                 else -> previousSelections.intersect(mergedDrafts.map { card -> card.id }.toSet())
             }
             val previousCandidates = it.actionCandidates.associateBy { candidate -> candidate.card.id }
@@ -651,11 +653,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.update { it.copy(error = "没有可供 AI 继续完善的截图文本") }
                 return@launch
             }
-            val selectedIds = if (state.selectedDraftIds.isNotEmpty()) {
-                state.selectedDraftIds.toList()
-            } else {
-                state.draftCards.map { it.id }
+            if (state.draftCards.isEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        error = "没有可供 AI 完善的候选卡",
+                        aiRefinementStatus = "请先生成候选卡，再让 AI 继续完善",
+                    )
+                }
+                return@launch
             }
+            if (state.selectedDraftIds.isEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        error = "请至少选择一张候选卡，再让 AI 继续完善",
+                        aiRefinementStatus = "请至少选择一张候选卡，再让 AI 继续完善",
+                    )
+                }
+                return@launch
+            }
+            val selectedIds = state.selectedDraftIds.toList()
             _uiState.update {
                 it.copy(
                     loading = true,
@@ -729,8 +745,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun confirmDrafts(onDone: () -> Unit = {}) {
         viewModelScope.launch {
             val state = _uiState.value
+            if (state.draftCards.isNotEmpty() && state.selectedDraftIds.isEmpty()) {
+                _uiState.update { it.copy(error = "请至少选择一张候选卡后再创建") }
+                return@launch
+            }
             val drafts = state.draftCards.filter { card ->
-                state.selectedDraftIds.isEmpty() || card.id in state.selectedDraftIds
+                card.id in state.selectedDraftIds
             }
             if (drafts.isEmpty()) {
                 _uiState.update { it.copy(error = "没有需要确认的行动卡") }
