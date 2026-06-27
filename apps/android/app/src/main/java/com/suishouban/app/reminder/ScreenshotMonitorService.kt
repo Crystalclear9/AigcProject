@@ -18,7 +18,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.RemoteViews
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -94,8 +93,9 @@ class ScreenshotMonitorService : Service() {
             ACTION_GENERATE_SCREENSHOT -> {
                 NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
                 Log.i(TAG, "Screenshot prompt generate action received: uri=${intent.data}")
-                clearPendingPrompt(intent.getLongExtra(EXTRA_MEDIA_ID, -1L))
-                startActivity(buildPreviewIntentFromAction(intent))
+                val previewIntent = buildPreviewIntentFromAction(intent)
+                clearPendingPrompt(intent.getLongExtra(EXTRA_MEDIA_ID, -1L), clearOcrText = false)
+                startActivity(previewIntent)
             }
         }
         return START_STICKY
@@ -285,14 +285,11 @@ class ScreenshotMonitorService : Service() {
         }
         val notificationId = uri.hashCode()
         val ocrToken = cachePendingOcrText(ocrText)
-        val previewIntent = buildPreviewIntent(uri, ocrToken, gate).apply {
-            putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
-        }
         persistPendingPrompt(mediaId, uri, ocrToken, ocrText, gate, notificationId)
-        val generatePendingIntent = PendingIntent.getActivity(
+        val generatePendingIntent = PendingIntent.getService(
             this,
             notificationId + 2,
-            previewIntent,
+            buildGenerateIntent(uri, mediaId, notificationId, ocrToken, gate),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val ignoreIntent = Intent(this, ScreenshotMonitorService::class.java).apply {
@@ -307,21 +304,11 @@ class ScreenshotMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val content = buildPromptContent(gate)
-        val compactView = RemoteViews(packageName, R.layout.notification_action_suggestion).apply {
-            setTextViewText(R.id.notification_action_title, "可能有待办")
-            setTextViewText(R.id.notification_action_content, content)
-            setOnClickPendingIntent(R.id.notification_action_root, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_action_title, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_action_content, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_generate, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_ignore, ignorePendingIntent)
-        }
         val notification = NotificationCompat.Builder(this, PROMPT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("可能有待办")
             .setContentText(content)
             .setContentIntent(generatePendingIntent)
-            .setCustomContentView(compactView)
             .addAction(R.drawable.ic_launcher_foreground, "生成", generatePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "忽略", ignorePendingIntent)
             .setAutoCancel(true)
@@ -353,6 +340,23 @@ class ScreenshotMonitorService : Service() {
                 ArrayList(gate.primaryEvidence),
             )
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    private fun buildGenerateIntent(
+        uri: Uri,
+        mediaId: Long,
+        notificationId: Int,
+        ocrToken: String,
+        gate: ScreenshotActionGateResult,
+    ): Intent {
+        return Intent(this, ScreenshotMonitorService::class.java).apply {
+            action = ACTION_GENERATE_SCREENSHOT
+            data = uri
+            putExtra(EXTRA_MEDIA_ID, mediaId)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtras(buildPreviewIntent(uri, ocrToken, gate))
+            putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
         }
     }
 
@@ -397,10 +401,12 @@ class ScreenshotMonitorService : Service() {
             .apply()
     }
 
-    private fun clearPendingPrompt(mediaId: Long) {
+    private fun clearPendingPrompt(mediaId: Long, clearOcrText: Boolean = true) {
         val prefs = getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
         if (mediaId <= 0 || prefs.getLong(KEY_PENDING_MEDIA_ID, -1L) == mediaId) {
-            clearPendingOcrText(prefs.getString(KEY_PENDING_OCR_TOKEN, null))
+            if (clearOcrText) {
+                clearPendingOcrText(prefs.getString(KEY_PENDING_OCR_TOKEN, null))
+            }
             prefs.edit().clear().apply()
         }
     }
