@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:38197",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:36197",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -43,7 +43,7 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35121", "35173", "35181", "35185", "38197")) {
+    foreach ($port in @("35029", "35121", "35173", "35181", "35185", "36197", "38197")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $oldPreference = $ErrorActionPreference
@@ -606,10 +606,23 @@ function Confirm-VivoInstaller {
             Start-Sleep -Seconds 2
             continue
         }
-        if ($xml -match [regex]::Escape($T.ContinueInstall)) {
-            Invoke-Adb shell input tap 630 2450 | Out-Null
-            Start-Sleep -Seconds 1
-            Invoke-Adb shell input tap 630 2620 | Out-Null
+        $checkbox = Get-ResourceCenter $xml "com.android.packageinstaller:id/deleted_file_state_cb"
+        $installButton = Get-ResourceCenter $xml "android:id/button1"
+        if (-not $installButton) {
+            $installButton = Get-ClickableTextCenter $xml $T.ContinueInstall
+        }
+        if ($checkbox -or $installButton -or $xml -match [regex]::Escape($T.ContinueInstall)) {
+            if ($checkbox) {
+                Tap-RemotePoint -X $checkbox.X -Y $checkbox.Y
+            } else {
+                Invoke-Adb shell input tap 630 2305 | Out-Null
+                Start-Sleep -Milliseconds 700
+            }
+            if ($installButton) {
+                Tap-RemotePoint -X $installButton.X -Y $installButton.Y
+            } else {
+                Invoke-Adb shell input tap 630 2475 | Out-Null
+            }
             Start-Sleep -Seconds 8
         } else {
             Start-Sleep -Seconds 2
