@@ -82,6 +82,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         val sourceIntent = recoveredIntent ?: intent
         val screenshotUri = sourceIntent.data
         val ocrText = sourceIntent.getStringExtra(EXTRA_OCR_TEXT)
+            ?: ScreenshotMonitorService.consumePendingOcrText(sourceIntent.getStringExtra(EXTRA_OCR_TOKEN))
             ?: sourceIntent.getStringExtra(EXTRA_OCR_TEXT_BASE64)?.let(::decodeUtf8Base64)
         val gateReason = sourceIntent.getStringExtra(EXTRA_GATE_REASON)
         val deadlineHint = sourceIntent.getStringExtra(EXTRA_DEADLINE_HINT)
@@ -105,9 +106,9 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                         finish()
                         return@LaunchedEffect
                     }
-                    if (!ocrText.isNullOrBlank()) {
+                    if (!ocrText.isNullOrBlank() || !promptSummary.isNullOrBlank() || !gateReason.isNullOrBlank()) {
                         viewModel.prepareScreenshotPrompt(
-                            ocrText = ocrText,
+                            ocrText = ocrText.orEmpty(),
                             gateReason = gateReason,
                             deadlineHint = deadlineHint,
                             promptSummary = promptSummary,
@@ -123,16 +124,20 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                 ScreenshotFloatingPanel(
                     state = state,
                     onStartAnalysis = {
-                        viewModel.analyzeScreenshotPrompt(
-                            screenshotUri = screenshotUri,
-                            ocrText = state.ocrText,
-                            gateReason = state.screenshotGateReason,
-                            deadlineHint = state.screenshotDeadlineHint,
-                            promptSummary = state.screenshotPromptSummary,
-                            confidenceBand = state.screenshotConfidenceBand,
-                            scenarioType = state.screenshotScenarioType,
-                            primaryEvidence = state.screenshotPrimaryEvidence,
-                        )
+                        if (state.ocrText.isBlank() && screenshotUri != null) {
+                            viewModel.analyzeImage(screenshotUri, notifyWhenEmpty = true)
+                        } else {
+                            viewModel.analyzeScreenshotPrompt(
+                                screenshotUri = screenshotUri,
+                                ocrText = state.ocrText,
+                                gateReason = state.screenshotGateReason,
+                                deadlineHint = state.screenshotDeadlineHint,
+                                promptSummary = state.screenshotPromptSummary,
+                                confidenceBand = state.screenshotConfidenceBand,
+                                scenarioType = state.screenshotScenarioType,
+                                primaryEvidence = state.screenshotPrimaryEvidence,
+                            )
+                        }
                     },
                     onUpdateDraft = viewModel::updateDraft,
                     onRemoveDraft = viewModel::removeDraft,
@@ -177,6 +182,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_PRIMARY_EVIDENCE = "com.suishouban.app.extra.PRIMARY_EVIDENCE"
         const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
+        const val EXTRA_OCR_TOKEN = "com.suishouban.app.extra.OCR_TOKEN"
     }
 }
 
@@ -197,7 +203,8 @@ private fun ScreenshotFloatingPanel(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp)
-            .heightIn(max = maxHeight),
+            .heightIn(max = maxHeight)
+            .semantics { contentDescription = "screenshot-action-panel" },
         color = ComposeColor.White.copy(alpha = 0.97f),
         shape = RoundedCornerShape(30.dp),
         border = BorderStroke(1.dp, ComposeColor.White.copy(alpha = 0.72f)),
@@ -474,7 +481,7 @@ private fun DraftPane(
                         Spacer(Modifier.height(0.dp))
                         Text(
                             text = if (!canCreate) {
-                                "补全后继续"
+                                if (selectedCount == 0 && state.draftCards.isNotEmpty()) "选择后创建" else "补全后继续"
                             } else if (state.draftCards.size > 1) {
                                 if (selectedCount == state.draftCards.size) "全部创建" else "只创建 $selectedCount 个"
                             } else {

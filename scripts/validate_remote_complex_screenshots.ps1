@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:35121",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:38197",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -43,7 +43,7 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35121", "35173", "35181", "35185")) {
+    foreach ($port in @("35029", "35121", "35173", "35181", "35185", "38197")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $oldPreference = $ErrorActionPreference
@@ -80,9 +80,19 @@ function Assert-ApkHasNoSensitiveMarkers {
         $value = [Environment]::GetEnvironmentVariable($name)
         if ($value) { $markers.Add($value) }
     }
+    $knownLeakedKeyMarkers = @(
+        ("sk" + "-xuanji"),
+        ("QXR5" + "T0pF" + "SnFT" + "U0lp" + "Z0Fi" + "Rw"),
+        ("2026882787" + "-QXR5")
+    )
     $providerEndpointMarkers = @(
+        $knownLeakedKeyMarkers
+    ) + @(
+        "api-ai.vivo.com.cn/v1/chat/completions",
         "https://api-ai.vivo.com.cn/v1/chat/completions",
+        "api-ai.vivo.com.cn/api/v1/image_generation",
         "https://api-ai.vivo.com.cn/api/v1/image_generation",
+        "api-ai.vivo.com.cn/ocr/general_recognition",
         "http://api-ai.vivo.com.cn/ocr/general_recognition"
     )
     foreach ($marker in $providerEndpointMarkers) {
@@ -407,6 +417,48 @@ function Get-ResourceCenter {
     $x2 = [int]$match.Groups[3].Value
     $y2 = [int]$match.Groups[4].Value
     return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+}
+
+function Get-NodeBoundsByTextOrDescription {
+    param([string]$Xml, [string]$Text)
+    $escaped = [regex]::Escape($Text)
+    $match = [regex]::Match($Xml, "<node[^>]*(text|content-desc)=""[^""]*$escaped[^""]*""[^>]*bounds=""\[(\d+),(\d+)\]\[(\d+),(\d+)\]""")
+    if (-not $match.Success) { return $null }
+    return @{
+        X1 = [int]$match.Groups[2].Value
+        Y1 = [int]$match.Groups[3].Value
+        X2 = [int]$match.Groups[4].Value
+        Y2 = [int]$match.Groups[5].Value
+        Height = [int]$match.Groups[5].Value - [int]$match.Groups[3].Value
+    }
+}
+
+function Get-DeviceScreenHeight {
+    $size = (Invoke-Adb shell wm size) -join "`n"
+    if ($size -match "(\d+)x(\d+)") {
+        return [int]$Matches[2]
+    }
+    return 2400
+}
+
+function Assert-FloatingPanelHeightUnder {
+    param(
+        [double]$MaxRatio,
+        [string]$Reason
+    )
+    $xml = Get-UiXml "floating-panel.xml"
+    $bounds = Get-NodeBoundsByTextOrDescription $xml "screenshot-action-panel"
+    if (-not $bounds) {
+        Save-RemoteDiagnostics "floating-panel-bounds-missing"
+        throw "Could not find screenshot floating panel bounds for $Reason."
+    }
+    $screenHeight = Get-DeviceScreenHeight
+    $ratio = [double]$bounds.Height / [double]$screenHeight
+    if ($ratio -gt $MaxRatio) {
+        Save-RemoteDiagnostics "floating-panel-too-tall"
+        throw "Screenshot floating panel too tall for $Reason. ratio=$([Math]::Round($ratio, 3)) max=$MaxRatio boundsHeight=$($bounds.Height) screenHeight=$screenHeight"
+    }
+    Write-Host "Floating panel height ok for ${Reason}: ratio=$([Math]::Round($ratio, 3)) max=$MaxRatio"
 }
 
 function Tap-Text {
@@ -765,6 +817,44 @@ function Get-ProviderSuccessDelta {
     return $sum
 }
 
+function Get-ProviderStatusSnapshot {
+    param([string]$BaseUrl)
+    if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return $null }
+    return Invoke-RestMethod -Uri ($BaseUrl.TrimEnd("/") + "/api/providers/status") -TimeoutSec 10
+}
+
+function Get-ProviderSuccessCountFromStatus {
+    param(
+        [object]$Status,
+        [string[]]$Providers
+    )
+    if (-not $Status) { return 0 }
+    $sum = 0
+    foreach ($provider in $Providers) {
+        if ($Status.providers -and ($Status.providers.PSObject.Properties.Name -contains $provider)) {
+            $sum += [int]$Status.providers.$provider.success_count
+        }
+    }
+    return $sum
+}
+
+function Assert-ProviderStatusAdvanced {
+    param(
+        [string]$BaseUrl,
+        [object]$Before,
+        [string[]]$Providers,
+        [string]$Reason
+    )
+    if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return }
+    $after = Get-ProviderStatusSnapshot $BaseUrl
+    $beforeCount = Get-ProviderSuccessCountFromStatus $Before $Providers
+    $afterCount = Get-ProviderSuccessCountFromStatus $after $Providers
+    if ($afterCount -le $beforeCount) {
+        throw "Provider success counter did not advance for $Reason. before=$beforeCount after=$afterCount providers=$($Providers -join ',')"
+    }
+    Write-Host "Provider counter advanced for ${Reason}: before=$beforeCount after=$afterCount"
+}
+
 function Assert-ProviderProbe {
     param([string]$BaseUrl)
     $probeUrl = $BaseUrl.TrimEnd("/") + "/api/providers/probe"
@@ -996,9 +1086,9 @@ function Tap-NotificationContentFallback {
 function Tap-NotificationRootFallback {
     $xml = Open-Notifications
     foreach ($resourceId in @(
-        "com.suishouban.app:id/notification_generate",
         "com.suishouban.app:id/notification_action_content",
-        "com.suishouban.app:id/notification_action_root"
+        "com.suishouban.app:id/notification_action_root",
+        "com.suishouban.app:id/notification_generate"
     )) {
         $center = Get-ResourceCenter $xml $resourceId
         if ($center) {
@@ -1012,21 +1102,18 @@ function Tap-NotificationRootFallback {
 
 function Open-PendingPromptFallback {
     Invoke-Adb shell cmd statusbar collapse | Out-Null
-    Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
+    # Do not force-stop here: pending OCR text is intentionally kept in process
+    # memory until the user opens the compact prompt. Starting the preview
+    # activity directly lets it consume the persisted token/gate metadata.
     Invoke-Adb @(
         "shell",
         "am",
         "start",
         "-W",
-        "-S",
         "-f",
         "0x10008000",
-        "-a",
-        "android.intent.action.MAIN",
-        "-c",
-        "android.intent.category.LAUNCHER",
         "-n",
-        "com.suishouban.app/.MainActivity"
+        "com.suishouban.app/.ScreenshotPreviewActivity"
     ) | Out-Null
     Start-Sleep -Seconds 4
 }
@@ -1047,18 +1134,20 @@ function Open-GeneratedPreviewFromNotification {
         throw "Action suggestion notification was not visible before generate."
     }
     try {
-        Tap-NotificationAction $T.Generate
-        Invoke-Adb shell cmd statusbar collapse | Out-Null
-        Wait-UiContains $T.GenerateDraft "Generate action did not open request panel." 10
-        Tap-Text $T.GenerateDraft "generate-draft.xml"
-        return
-    } catch {
-        # Fall through; some system skins hide notification action text.
-    }
-    try {
         Tap-NotificationRootFallback
         Invoke-Adb shell cmd statusbar collapse | Out-Null
         Wait-UiContains $T.GenerateDraft "Notification root did not open request panel." 10
+        Assert-FloatingPanelHeightUnder 0.35 "request prompt"
+        Tap-Text $T.GenerateDraft "generate-draft.xml"
+        return
+    } catch {
+        # Fall through; some system skins expose only action buttons reliably.
+    }
+    try {
+        Tap-NotificationAction $T.Generate
+        Invoke-Adb shell cmd statusbar collapse | Out-Null
+        Wait-UiContains $T.GenerateDraft "Generate action did not open request panel." 10
+        Assert-FloatingPanelHeightUnder 0.35 "request prompt"
         Tap-Text $T.GenerateDraft "generate-draft.xml"
         return
     } catch {
@@ -1080,6 +1169,7 @@ function Open-GeneratedPreviewFromNotification {
         Start-Sleep -Seconds 1
     }
     Wait-UiContains $T.GenerateDraft "Generate action did not open screenshot request panel."
+    Assert-FloatingPanelHeightUnder 0.35 "request prompt"
     Tap-Text $T.GenerateDraft "generate-draft.xml"
 }
 
@@ -1283,6 +1373,10 @@ Configure-WorkflowUrl
 Write-Host "Validating non-action noise screenshot..."
 Open-SampleAndScreenshot "noise_shopping_promo.png"
 Assert-NoActionSuggestionNotification
+Open-SampleAndScreenshot "noise_status_only.png"
+Assert-NoActionSuggestionNotification
+Open-SampleAndScreenshot "noise_own_app_settings.png"
+Assert-NoActionSuggestionNotification
 
 Write-Host "Validating action screenshot notification and ignore action..."
 Open-SampleAndScreenshot "complex_course_notice.png"
@@ -1293,32 +1387,40 @@ Wait-UiNotContains $T.MaybeTodo "Ignore action unexpectedly opened the request p
 Write-Host "Validating action screenshot notification, generate action, preview, save, reminder..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
+$courseProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
 Open-GeneratedPreviewFromNotification
 Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
+Assert-FloatingPanelHeightUnder 0.65 "course candidate review"
 Wait-UiContains $T.CourseScenario "Preview did not show course scenario classification."
 Wait-UiContains $T.HighConfidence "Preview did not show confidence label."
 if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     Wait-UiContains $T.CloudModelParticipated "Preview did not show cloud model participation."
+    Assert-ProviderStatusAdvanced $WorkflowUrl $courseProviderBefore @("fast_model", "expert_model") "phone course screenshot workflow"
 }
 Assert-UiNotContains $T.GenericSchedule "Preview regressed to generic schedule title."
 Trigger-ReActRefinement
+Assert-FloatingPanelHeightUnder 0.65 "course ReAct refinement"
 Confirm-Preview
 Assert-CardAndReminderCreated
 
 Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
 Open-SampleAndScreenshot "complex_multi_tasks.png"
 Assert-ActionSuggestionNotification | Out-Null
+$multiProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
 Open-GeneratedPreviewFromNotification
 $multiPreviewXml = Get-PreviewXmlAcrossScroll
+Assert-FloatingPanelHeightUnder 0.65 "multi-task candidate review"
 Assert-XmlContains $multiPreviewXml $T.LabReport "Multi-task preview did not include the lab report task."
 Assert-XmlContains $multiPreviewXml $T.TeamReport "Multi-task preview did not include the meeting/report task."
 Assert-XmlContains $multiPreviewXml $T.Registration "Multi-task preview did not include the registration task."
 Assert-XmlContains $multiPreviewXml $T.CreateAll "Multi-task preview did not expose all-create action."
 if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     Assert-XmlContains $multiPreviewXml $T.CloudModelParticipated "Multi-task preview did not show cloud model participation."
+    Assert-ProviderStatusAdvanced $WorkflowUrl $multiProviderBefore @("fast_model", "expert_model") "phone multi-task screenshot workflow"
 }
 Assert-XmlNotContains $multiPreviewXml $T.GenericSchedule "Multi-task preview regressed to generic schedule title."
 Trigger-ReActRefinement
+Assert-FloatingPanelHeightUnder 0.65 "multi-task ReAct refinement"
 Toggle-PreviewCardSelectionByText $T.Registration
 Wait-UiContains $T.CreateSelected "Multi-task preview did not expose selected-create action after toggling one card." 8
 Confirm-Preview
