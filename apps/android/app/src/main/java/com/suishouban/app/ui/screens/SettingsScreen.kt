@@ -70,12 +70,12 @@ fun SettingsScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("设置", if (state.settings.apiBaseUrl.isBlank()) "本机模式" else "云端增强")
+            SectionHeader("设置", if (state.settings.apiBaseUrl.isBlank()) "手机独立运行" else "AI 增强已配置")
         }
         item {
-            SettingsCard(title = "云端增强（可选）", icon = Icons.Outlined.CloudSync) {
+            SettingsCard(title = "AI 增强服务（可选）", icon = Icons.Outlined.CloudSync) {
                 Text(
-                    "手机只填写随手办 Workflow HTTPS 网关；vivo key 只放后端。留空时完整使用本机 OCR、规则、卡片和提醒。",
+                    "手机只填写随手办 HTTPS 服务地址；vivo key 只放后端。留空时仍可用本机 OCR、规则、卡片和提醒。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -87,7 +87,7 @@ fun SettingsScreen(
                     value = apiBaseUrl,
                     onValueChange = { apiBaseUrl = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Workflow API URL，可留空") },
+                    label = { Text("服务地址，可留空") },
                     placeholder = { Text("https://api.example.com/") },
                     isError = !apiUrlAccepted,
                     supportingText = {
@@ -96,7 +96,7 @@ fun SettingsScreen(
                     shape = RoundedCornerShape(16.dp),
                 )
                 Text(
-                    state.connectionStatus.ifBlank { "未测试增强服务" },
+                    state.connectionStatus.ifBlank { "未测试服务连接" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -113,7 +113,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("保存增强端点")
+                    Text("保存服务地址")
                 }
                 OutlinedButton(
                     onClick = onSync,
@@ -121,14 +121,14 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("从云端同步卡片")
+                    Text("恢复服务端卡片（高级）")
                 }
                 OutlinedButton(
                     onClick = onTestConnection,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
-                    Text("测试增强服务")
+                    Text("测试服务连接")
                 }
             }
         }
@@ -159,7 +159,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 SettingSwitch(
-                    title = "启用云端增强",
+                    title = "启用 AI 增强",
                     checked = state.settings.preferCloudModel,
                     onCheckedChange = { onUpdate(state.settings.copy(preferCloudModel = it)) },
                 )
@@ -201,7 +201,7 @@ fun SettingsScreen(
 
 @Composable
 private fun CloudModeBanner(enabled: Boolean, url: String) {
-    val title = if (enabled) "云端增强已准备" else "本机模式运行"
+    val title = if (enabled) "AI 增强已准备" else "手机独立运行"
     val subtitle = if (enabled) {
         "手机将访问 HTTPS 网关，蓝心 key 仅在后端保存"
     } else {

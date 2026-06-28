@@ -251,7 +251,7 @@ class ActionCardRepository(
     }
 
     suspend fun testConnection(): String {
-        val api = remoteApiOrNull() ?: return "\u672c\u673a\u6a21\u5f0f\uff1a\u672a\u914d\u7f6e\u4e91\u7aef\u589e\u5f3a\u7aef\u70b9\uff0c\u7aef\u4fa7 OCR\u3001\u884c\u52a8\u5224\u5b9a\u3001\u5361\u7247\u548c\u63d0\u9192\u53ef\u7528"
+        val api = remoteApiOrNull() ?: return "当前未配置 AI 增强服务，手机端 OCR、行动判定、卡片和提醒可用"
         val health = api.health()
         if (!health.ready) {
             return "\u4e91\u7aef\u7aef\u70b9\u53ef\u8bbf\u95ee\uff0c\u4f46\u5de5\u4f5c\u6d41\u8fd0\u884c\u65f6\u5904\u4e8e ${health.status}"

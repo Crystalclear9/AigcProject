@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
-import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
 
@@ -62,11 +61,7 @@ fun ImportScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("截图导入", state.engine.ifBlank { "OCR + AI" })
-        }
-
-        item {
-            WorkflowStrip(currentStep = if (state.ocrText.isBlank()) 0 else 1, modifier = Modifier.fillMaxWidth())
+            SectionHeader("截图导入", "先识别，再确认")
         }
 
         item {
@@ -80,10 +75,7 @@ fun ImportScreen(
                     Text("选择截图", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     if (state.engine.isNotBlank()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            NeutralPill(text = "引擎 ${state.engine}", selected = true)
-                            if (state.traceId.isNotBlank()) {
-                                NeutralPill(text = "Trace ${state.traceId.take(8)}")
-                            }
+                            NeutralPill(text = "识别方式 ${displayEngineLabel(state.engine)}", selected = true)
                         }
                     }
                     if (state.warnings.isNotEmpty()) {
@@ -117,7 +109,7 @@ fun ImportScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(modifier = Modifier.width(22.dp).height(22.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text("正在生成行动卡", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("正在提取候选事项", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -150,7 +142,7 @@ fun ImportScreen(
                     ) {
                         Icon(Icons.Outlined.AutoFixHigh, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("生成行动卡")
+                        Text("生成候选卡")
                     }
                     if (state.draftCards.isNotEmpty()) {
                         Button(
@@ -159,7 +151,7 @@ fun ImportScreen(
                             shape = RoundedCornerShape(16.dp),
                             colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = BrandBlue),
                         ) {
-                            Text("查看动作预览")
+                            Text("查看候选卡")
                         }
                     }
                 }
@@ -192,3 +184,13 @@ private val sampleTexts = listOf(
     "聊天承诺" to "你明天上午能不能帮我把表格发给老师？可以，我明天上午发。",
     "会议准备" to "明天下午 3 点开组会，每个人准备 5 分钟进展汇报。",
 )
+
+private fun displayEngineLabel(engine: String): String {
+    val normalized = engine.lowercase()
+    return when {
+        normalized.contains("lanxin") || normalized.contains("model") || normalized.contains("expert") -> "AI 增强"
+        normalized.contains("ocr") || normalized.contains("rules") || normalized.contains("mlkit") -> "手机端识别"
+        engine.isNotBlank() -> "智能识别"
+        else -> "手机端识别"
+    }
+}

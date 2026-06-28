@@ -42,7 +42,7 @@ apps/android/                         Android Compose 客户端
 
 services/api/                          FastAPI + LangGraph Workflow 网关
 docs/                                  架构、接口资料、测试指南和报告
-scripts/                               构建、部署、云真机验收脚本
+scripts/                               构建、部署、真实设备验收脚本
 .github/workflows/                     CI
 ```
 
@@ -53,8 +53,8 @@ scripts/                               构建、部署、云真机验收脚本
 默认设置：
 
 ```text
-Workflow API URL = 空
-启用云端增强 = 关闭
+服务地址 = 空
+AI 增强 = 关闭
 ```
 
 此时真机不需要连接开发主机，也不会访问 `127.0.0.1`、`10.0.2.2`、局域网 IP 或 `api-ai.vivo.com.cn` 原始 provider endpoint。截图识别、提示、预览、本地保存和提醒均走端侧闭环。
@@ -127,7 +127,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 http://127.0.0.1:8000/docs
 ```
 
-云真机和真实手机验收应部署公网 HTTPS 网关，再在 App 设置页填写该 HTTPS Workflow API URL。
+真实手机验收应部署公网 HTTPS 网关，再在 App 设置页填写该服务地址。
 
 ## API 概览
 
@@ -161,7 +161,7 @@ GET  /api/metrics/summary
 GET  /api/metrics/performance
 ```
 
-## 构建与测试
+## 构建、测试与真实手机验收
 
 本地回归：
 
@@ -173,7 +173,17 @@ cd ..\..\apps\android
 .\gradlew.bat testDebugUnitTest assembleDebug --no-daemon
 ```
 
-云真机验收默认设备：
+真实手机产品验收建议覆盖：
+
+- 首次启动：默认本机模式，不访问开发主机或 provider 原始 endpoint。
+- 无行动截图：广告、系统页、随手办自身页面不提示。
+- 单任务截图：出现低打扰提示，忽略后不保存；生成后候选卡字段具体，确认后才保存和提醒。
+- 多任务截图：拆出多张候选卡，支持全部创建和选择性创建。
+- 失败恢复：OCR 失败、空结果、无网络、模型失败时展示可理解错误和重新识别/手动添加入口。
+- 权限边界：通知、图片、日历权限被拒绝时有明确提示。
+- 安全边界：APK 不包含 provider key；手机只保存 Workflow HTTPS 网关 URL。
+
+开发设备自动化脚本默认连接：
 
 ```text
 val-vclinner-rt-contest.vivo.com.cn:37065
@@ -184,7 +194,7 @@ val-vclinner-rt-contest.vivo.com.cn:37065
 .\scripts\validate_remote_complex_screenshots.ps1 -WorkflowUrl "https://your-gateway.example.com/"
 ```
 
-远端验收覆盖：
+脚本化验收覆盖：
 
 - 广告、系统页、自身页面不提示。
 - 行动截图出现“可能有待办”，忽略后不保存。
@@ -193,7 +203,7 @@ val-vclinner-rt-contest.vivo.com.cn:37065
 - ReAct 只完善选中卡；空选择提示先选择。
 - logcat 无崩溃、DTO、Room/SQLite、WorkManager、主线程网络、本机地址连接错误。
 
-未传 `-WorkflowUrl` 时脚本只验证端侧 ML Kit + 本地规则闭环；传入公网 HTTPS Workflow 网关后，才会验证 vivo API/蓝心增强和 provider telemetry。
+未传 `-WorkflowUrl` 时脚本只验证端侧 ML Kit + 本地规则闭环；传入公网 HTTPS Workflow 网关后，才会验证 vivo API/蓝心增强和 provider telemetry。脚本是开发验收手段，真实用户不需要 ADB 或开发主机。
 
 ## 部署建议
 
@@ -204,9 +214,8 @@ val-vclinner-rt-contest.vivo.com.cn:37065
 
 ## 已知限制
 
-- 没有公网 Workflow 网关时，无法在云真机上声明 vivo API 增强通过。
-- 云真机 ADB 可能出现 `unauthorized/offline`，未进入 `device` 前不算安装验收。
+- 没有公网 Workflow 网关时，无法声明 vivo API 增强端到端通过。
 - OCR 官方示例为 HTTP endpoint；生产建议前置 TLS 网关。
 - 日历写入依赖用户授权和设备上可写日历；失败会在 App 内提示。
 
-更多远端验收和故障排查见 [本地与云真机测试指南](docs/guides/LOCAL_AND_REMOTE_TESTING.md)。
+更多测试和设备验收见 [测试与真实设备验收指南](docs/guides/LOCAL_AND_REMOTE_TESTING.md)。

@@ -1,4 +1,4 @@
-﻿# 本地与云真机测试
+# 测试与真实设备验收
 
 ## 后端
 
@@ -15,24 +15,26 @@
 - `workflow.db` 可读写。
 - 检查点写入独立的 `workflow_checkpoint.db`。
 
-模型和 vivo OCR 密钥属于可选能力，未配置时规则和 Android ML Kit 仍可工作。
+模型和 vivo OCR 密钥属于可选增强。未配置时，Android ML Kit、截图 gate、本地规则、多任务拆卡、Room 保存和 WorkManager 提醒仍应可用。
 
-## Android
+## Android 构建
 
 ```powershell
 .\scripts\build_android_debug.ps1
 .\scripts\deploy_remote_android.ps1
 ```
 
-默认云真机为 `val-vclinner-rt-contest.vivo.com.cn:37065`。vivo 安装器可能要求勾选风险提示并确认安装，部署脚本会尝试自动处理该页面。
+真实手机验收的目标不是绑定开发主机，而是确认 App 在手机上能独立完成截图判定、候选预览、用户确认、保存和提醒。默认不填写 Workflow URL 时，App 不访问本机地址、局域网地址或 vivo 原始 provider endpoint。
 
-部分云真机虽然接受 `adb reverse`，但不会把流量转发到开发机。在线端到端测试应使用公网 HTTPS 后端网关，再在 App 设置页写入该地址并使用“测试服务连接”。临时隧道只能作为阻塞备选；临时 URL、截图、日志和隧道输出均不得提交。
+开发阶段可使用实体机、云真机或自动化脚本。当前脚本默认设备为 `val-vclinner-rt-contest.vivo.com.cn:37065`，但它只是测试环境；产品运行不依赖 ADB、`adb reverse` 或开发主机。vivo 安装器可能要求勾选风险提示并确认安装，部署脚本会尝试自动处理该页面。
+
+部分测试设备虽然接受 `adb reverse`，但不会把流量转发到开发机。在线端到端测试应使用公网 HTTPS 后端网关，再在 App 设置页写入该地址并使用“测试服务连接”。临时隧道只能作为阻塞备选；临时 URL、截图、日志和隧道输出均不得提交。
 
 离线回归应关闭网关或网络，确认文本分析仍走本地规则、图片仍可走 ML Kit，并且同步失败会显示明确错误。
 
-## 蓝心后端代理调试
+## vivo 后端代理调试
 
-Android 不直连蓝心，也不把 API key 写入 APK。蓝心 key 只放在后端或 HTTPS 网关环境变量中；debug APK 最多注入一个非敏感的默认网关 URL：
+Android 不直连 vivo/蓝心，也不把 API key 写入 APK。真实密钥只放在后端或 HTTPS 网关环境变量中；debug APK 最多注入一个非敏感的默认网关 URL：
 
 ```powershell
 $env:DEFAULT_API_BASE_URL="https://your-temp-gateway.example.com/"
@@ -40,15 +42,15 @@ cd apps\android
 .\gradlew.bat assembleDebug --no-daemon
 ```
 
-默认 Workflow API URL 留空时，App 不访问 `127.0.0.1`、`10.0.2.2` 或开发主机，端侧 ML Kit + 本地规则仍可完成截图判定、小窗确认、保存和提醒。需要验证蓝心增强时，先启动公网 HTTPS 后端代理，再把该 HTTPS 地址通过 App 设置页、`DEFAULT_API_BASE_URL` 或远端脚本的 `-WorkflowUrl` 写入设置。
+默认服务地址留空时，App 不访问 `127.0.0.1`、`10.0.2.2` 或开发主机，端侧 ML Kit + 本地规则仍可完成截图判定、小窗确认、保存和提醒。需要验证 vivo API 增强时，先启动公网 HTTPS 后端代理，再把该 HTTPS 地址通过 App 设置页、`DEFAULT_API_BASE_URL` 或远端脚本的 `-WorkflowUrl` 写入设置。
 
-## 复杂截图远端验收
+## 复杂截图真实设备验收
 
 ```powershell
 .\scripts\validate_remote_complex_screenshots.ps1
 .\scripts\validate_remote_complex_screenshots.ps1 -WorkflowUrl "https://your-temp-gateway.example.com/"
 ```
 
-脚本会连接 `37065`，清装 APK，授权通知/图片权限，推送复杂样例图，验证广告、系统页和自身页面不提示，课程截图出现“可能有待办”小窗，多任务截图至少拆出两张候选卡，并检查 WorkManager 截止提醒与 logcat。未传 `-WorkflowUrl` 时只算端侧闭环；传入公网 HTTPS Workflow 网关后才算 vivo API 增强验收。
+脚本会连接测试设备，清装 APK，授权通知/图片权限，推送复杂样例图，验证广告、系统页和自身页面不提示，课程截图出现“可能有待办”小窗，多任务截图至少拆出两张候选卡，并检查 WorkManager 截止提醒与 logcat。未传 `-WorkflowUrl` 时只算端侧闭环；传入公网 HTTPS Workflow 网关后才算 vivo API 增强验收。
 
-只有 `adb devices` 显示 `device` 且 APK 安装成功后，才算进入云真机验收；`unauthorized` 或 `offline` 只能算阻塞，不能算通过。
+只有 `adb devices` 显示 `device` 且 APK 安装成功后，才算进入设备验收；`unauthorized` 或 `offline` 只能算开发环境阻塞，不能算通过。
