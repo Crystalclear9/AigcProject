@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
@@ -148,6 +149,7 @@ class MainActivity : ComponentActivity() {
                                 onUpdateDraft = viewModel::updateDraft,
                                 onRemoveDraft = viewModel::removeDraft,
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
+                                onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
                             )
                             Screen.Cards.route -> CardsScreen(
@@ -233,6 +235,24 @@ class MainActivity : ComponentActivity() {
         }
         if (permissions.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 1001)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 1001) return
+        val denied = permissions.zip(grantResults.toTypedArray())
+            .filter { (_, result) -> result != PackageManager.PERMISSION_GRANTED }
+            .map { (permission, _) -> permission }
+        if (denied.any { it == Manifest.permission.POST_NOTIFICATIONS }) {
+            Toast.makeText(this, "通知权限未开启，截图建议和截止提醒将不会弹出", Toast.LENGTH_LONG).show()
+        }
+        if (denied.any { it == Manifest.permission.READ_MEDIA_IMAGES || it == Manifest.permission.READ_EXTERNAL_STORAGE }) {
+            Toast.makeText(this, "图片权限未开启，截图监听和相册导入可能不可用", Toast.LENGTH_LONG).show()
         }
     }
 

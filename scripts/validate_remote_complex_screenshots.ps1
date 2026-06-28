@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:39165",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:38053",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -54,12 +54,12 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36197", "37121", "38197", "39165")) {
+    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36197", "37121", "38053", "38197", "39165")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $oldPreference = $ErrorActionPreference
             $ErrorActionPreference = "Continue"
-            & $adb disconnect $candidate 2>$null | Out-Null
+            & $adb disconnect $candidate *> $null
             $ErrorActionPreference = $oldPreference
         }
     }
@@ -94,11 +94,12 @@ function Assert-ApkHasNoSensitiveMarkers {
     $knownLeakedKeyMarkers = @(
         ("sk" + "-xuanji"),
         ("QXR5" + "T0pF" + "SnFT" + "U0lp" + "Z0Fi" + "Rw"),
-        ("2026882787" + "-QXR5")
+        ("2026" + "882787" + "-" + "QXR5")
     )
+    foreach ($marker in $knownLeakedKeyMarkers) {
+        $markers.Add($marker)
+    }
     $providerEndpointMarkers = @(
-        $knownLeakedKeyMarkers
-    ) + @(
         "api-ai.vivo.com.cn/v1/chat/completions",
         "https://api-ai.vivo.com.cn/v1/chat/completions",
         "api-ai.vivo.com.cn/api/v1/image_generation",
@@ -1100,6 +1101,17 @@ function Tap-NotificationAction {
     if (-not $center) {
         $xml = Expand-ActionSuggestionNotification
         $center = Get-TextCenter $xml $Text
+    }
+    if (-not $center) {
+        $resourceId = $null
+        if ($Text -eq $T.Ignore) {
+            $resourceId = "com.suishouban.app:id/notification_ignore"
+        } elseif ($Text -eq $T.Generate) {
+            $resourceId = "com.suishouban.app:id/notification_generate"
+        }
+        if ($resourceId) {
+            $center = Get-ResourceCenter $xml $resourceId
+        }
     }
     if (-not $center) {
         throw "Notification action not found: $Text"

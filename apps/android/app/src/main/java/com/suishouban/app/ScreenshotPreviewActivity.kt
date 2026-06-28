@@ -144,6 +144,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                     onToggleDraft = viewModel::toggleDraftSelection,
                     onSelectAll = viewModel::selectAllDrafts,
                     onRefineWithAi = viewModel::refineDraftWithAi,
+                    onManualAdd = viewModel::addManualDraftFromCurrentText,
                     onConfirm = { viewModel.confirmDrafts { finish() } },
                     onIgnore = { viewModel.ignoreScreenshotWorkflow { finish() } },
                 )
@@ -195,6 +196,7 @@ private fun ScreenshotFloatingPanel(
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
     onRefineWithAi: (String) -> Unit,
+    onManualAdd: () -> Unit,
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
@@ -229,7 +231,12 @@ private fun ScreenshotFloatingPanel(
                 state.screenshotWorkflowStage == ScreenshotWorkflowStage.PROMPT_SHOWN && state.draftCards.isEmpty() && !state.loading ->
                     RequestPane(state = state, onStartAnalysis = onStartAnalysis, onIgnore = onIgnore)
                 state.loading -> LoadingPane()
-                state.draftCards.isEmpty() -> EmptyPane(state.error, onIgnore)
+                state.draftCards.isEmpty() -> EmptyPane(
+                    error = state.error,
+                    onRetry = onStartAnalysis,
+                    onManualAdd = onManualAdd,
+                    onIgnore = onIgnore,
+                )
                 else -> DraftPane(
                     state = state,
                     onUpdateDraft = onUpdateDraft,
@@ -322,12 +329,25 @@ private fun LoadingPane() {
 }
 
 @Composable
-private fun EmptyPane(error: String?, onIgnore: () -> Unit) {
+private fun EmptyPane(
+    error: String?,
+    onRetry: () -> Unit,
+    onManualAdd: () -> Unit,
+    onIgnore: () -> Unit,
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(error ?: "没有识别到明确行动事项", style = MaterialTheme.typography.bodyMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onRetry, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                Text("重新识别")
+            }
+            OutlinedButton(onClick = onManualAdd, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                Text("手动添加")
+            }
+        }
         OutlinedButton(onClick = onIgnore, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
             Text("关闭")
         }
@@ -360,6 +380,7 @@ private fun DraftPane(
             }
             items(state.draftCards, key = { it.id }) { card ->
                 val selected = card.id in state.selectedDraftIds
+                val candidateInfo = state.actionCandidates.firstOrNull { it.card.id == card.id }
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = ComposeColor.White,
@@ -385,6 +406,42 @@ private fun DraftPane(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                color = BrandBlue.copy(alpha = 0.10f),
+                                shape = RoundedCornerShape(999.dp),
+                            ) {
+                                Text(
+                                    text = confidenceLabel(candidateInfo?.confidenceBand ?: "medium"),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = BrandBlue,
+                                )
+                            }
+                            if (card.needConfirm.isNotEmpty()) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+                                    shape = RoundedCornerShape(999.dp),
+                                ) {
+                                    Text(
+                                        text = "待确认 ${card.needConfirm.size}",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                    )
+                                }
+                            }
+                        }
+                        val evidence = candidateInfo?.evidenceSummary?.ifEmpty { card.evidenceSummary } ?: card.evidenceSummary
+                        evidence.take(2).forEach { item ->
+                            Text(
+                                text = "证据：$item",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
                         if (selected && (state.draftCards.size == 1 || selectedCount == 1)) {
                             DraftEditor(

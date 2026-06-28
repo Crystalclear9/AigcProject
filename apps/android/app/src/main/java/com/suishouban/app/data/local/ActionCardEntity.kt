@@ -9,6 +9,9 @@ import com.suishouban.app.data.model.CardTypes
 @Entity(tableName = "cards")
 data class ActionCardEntity(
     @PrimaryKey val id: String,
+    @ColumnInfo(name = "action_id") val actionId: String?,
+    val dependencies: List<String>,
+    @ColumnInfo(name = "evidence_summary") val evidenceSummary: List<String>,
     @ColumnInfo(name = "card_type") val cardType: String,
     val title: String,
     val summary: String,
@@ -29,6 +32,9 @@ data class ActionCardEntity(
 
 fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
     id = id,
+    actionId = actionId,
+    dependencies = dependencies,
+    evidenceSummary = evidenceSummary,
     cardType = normalizeCardType(cardType),
     title = title,
     summary = summary,
@@ -49,6 +55,9 @@ fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
 
 fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
     id = id,
+    actionId = actionId,
+    dependencies = dependencies,
+    evidenceSummary = evidenceSummary,
     cardType = normalizeCardType(cardType),
     title = title,
     summary = summary,

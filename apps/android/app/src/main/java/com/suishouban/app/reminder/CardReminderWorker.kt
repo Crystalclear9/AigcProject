@@ -3,12 +3,16 @@ package com.suishouban.app.reminder
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.suishouban.app.MainActivity
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.suishouban.app.R
@@ -22,16 +26,26 @@ class CardReminderWorker(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(applicationContext, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
+            Log.w(TAG, "Reminder notification skipped because POST_NOTIFICATIONS is not granted")
             return Result.success()
         }
 
         val title = inputData.getString(KEY_TITLE) ?: "随手办提醒"
         val body = inputData.getString(KEY_BODY) ?: "有一项截图事项需要处理"
+        val openAppIntent = PendingIntent.getActivity(
+            applicationContext,
+            0,
+            Intent(applicationContext, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(openAppIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
@@ -54,6 +68,7 @@ class CardReminderWorker(
     }
 
     companion object {
+        private const val TAG = "CardReminderWorker"
         const val CHANNEL_ID = "suishouban_action_reminders"
         const val KEY_TITLE = "title"
         const val KEY_BODY = "body"
