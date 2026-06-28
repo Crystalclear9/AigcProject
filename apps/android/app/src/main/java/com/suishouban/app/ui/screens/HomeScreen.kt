@@ -47,7 +47,6 @@ import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.Pill
 import com.suishouban.app.ui.components.SectionHeader
-import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.components.brandGradient
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.EventBlue
@@ -105,16 +104,12 @@ fun HomeScreen(
         }
 
         item {
-            WorkflowStrip(currentStep = if (state.draftCards.isNotEmpty()) 2 else 0, modifier = Modifier.fillMaxWidth())
-        }
-
-        item {
             ImpactDashboard(
                 activeCards = activeCards.size,
                 needConfirm = needConfirm,
                 reminders = reminders,
                 timedCards = timedCards,
-                engine = state.engine.ifBlank { if (state.settings.preferCloudModel) "云端增强" else "本机模式" },
+                engine = displayEngineLabel(state.engine, state.settings.preferCloudModel),
                 workflowStatus = state.workflowStatus,
             )
         }
@@ -242,13 +237,13 @@ private fun ImpactDashboard(
             }
             if (workflowStatus.isNotBlank()) {
                 Text(
-                    "最近工作流：${workflowStatusLabel(workflowStatus)}",
+                    "最近处理：${workflowStatusLabel(workflowStatus)}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Text(
-                "模式：$engine · 已配置提醒 $reminders",
+                "识别方式：$engine · 已配置提醒 $reminders",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -264,6 +259,16 @@ private fun workflowStatusLabel(status: String): String = when (status) {
     "failed" -> "处理失败"
     "cancelled" -> "已取消"
     else -> status
+}
+
+private fun displayEngineLabel(engine: String, preferCloud: Boolean): String {
+    val normalized = engine.lowercase()
+    return when {
+        normalized.contains("lanxin") || normalized.contains("model") || normalized.contains("expert") || preferCloud -> "AI 增强"
+        normalized.contains("ocr") || normalized.contains("rules") || normalized.contains("mlkit") -> "手机端识别"
+        engine.isNotBlank() -> "智能识别"
+        else -> "手机端识别"
+    }
 }
 
 @Composable

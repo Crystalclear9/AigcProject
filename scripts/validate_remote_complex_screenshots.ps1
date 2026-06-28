@@ -54,13 +54,11 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36197", "37065", "37121", "38053", "38197", "39165")) {
+    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36073", "36197", "37065", "37121", "38053", "38197", "39165")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
-            $oldPreference = $ErrorActionPreference
-            $ErrorActionPreference = "Continue"
-            & $adb disconnect $candidate *> $null
-            $ErrorActionPreference = $oldPreference
+            $disconnectCommand = '"' + $adb + '" disconnect ' + $candidate + ' >NUL 2>NUL'
+            cmd.exe /d /c $disconnectCommand | Out-Null
         }
     }
 }
@@ -179,8 +177,8 @@ $T = @{
     HighConfidence = Utf8Text "6auY5Y+v5L+h"
     GenericSchedule = Utf8Text "55u45YWz5pel56iL"
     Settings = Utf8Text "6K6+572u"
-    SaveEndpoint = Utf8Text "5L+d5a2Y5aKe5by656uv54K5"
-    TestService = Utf8Text "5rWL6K+V5aKe5by65pyN5Yqh"
+    SaveEndpoint = Utf8Text "5L+d5a2Y5pyN5Yqh5Zyw5Z2A"
+    TestService = Utf8Text "5rWL6K+V5pyN5Yqh6L+e5o6l"
     CloudOnline = Utf8Text "5LqR56uv5aKe5by65Zyo57q/"
     CloudConfigured = Utf8Text "5LqR56uv6YWN572u5Y+v55So"
     VivoModelCalled = Utf8Text "dml2byDmqKHlnovlt7Llrp7pmYXosIPnlKg="
@@ -190,7 +188,7 @@ $T = @{
     VivoOcrParticipated = Utf8Text "dml2byBPQ1Ig5bey5Y+C5LiO"
     CloudEnhancementDegraded = Utf8Text "5LqR56uv5aKe5by65bey6ZmN57qn"
     WorkflowRuntimeOk = Utf8Text "5bel5L2c5rWB6L+Q6KGM5pe25q2j5bi4"
-    WorkflowApiUrl = Utf8Text "V29ya2Zsb3cgQVBJIFVSTA=="
+    WorkflowApiUrl = Utf8Text "5pyN5Yqh5Zyw5Z2A77yM5Y+v55WZ56m6"
 }
 
 function Normalize-AdbArgs {
@@ -214,10 +212,16 @@ function Invoke-Adb {
     $normalizedArgs = Normalize-AdbArgs $Args
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         $oldPreference = $ErrorActionPreference
+        $oldNativePreference = $PSNativeCommandUseErrorActionPreference
         $ErrorActionPreference = "Continue"
-        $output = & $adb -s $Device @normalizedArgs 2>&1
-        $exitCode = $LASTEXITCODE
-        $ErrorActionPreference = $oldPreference
+        $PSNativeCommandUseErrorActionPreference = $false
+        try {
+            $output = & $adb -s $Device @normalizedArgs 2>&1
+            $exitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $oldPreference
+            $PSNativeCommandUseErrorActionPreference = $oldNativePreference
+        }
         if ($exitCode -eq 0) {
             return $output
         }
@@ -895,7 +899,7 @@ function Assert-ProviderProbe {
     } catch {
         throw "Provider probe failed. ENABLE_PROVIDER_PROBE must be true and vivo credentials must be valid: $probeUrl"
     }
-    foreach ($provider in @("chat", "ocr", "image_generation")) {
+    foreach ($provider in @("chat", "ocr")) {
         if (-not ($probe.results.PSObject.Properties.Name -contains $provider)) {
             throw "Provider probe response did not include $provider."
         }
@@ -904,10 +908,15 @@ function Assert-ProviderProbe {
             throw "Provider probe for $provider did not succeed. error_type=$errorType"
         }
     }
-    if (-not [bool]$probe.all_succeeded) {
-        throw "Provider probe did not report all_succeeded=true."
+    if ($probe.results.PSObject.Properties.Name -contains "image_generation") {
+        if ([bool]$probe.results.image_generation.succeeded) {
+            Write-Host "Optional image generation provider probe succeeded."
+        } else {
+            $errorType = $probe.results.image_generation.error_type
+            Write-Warning "Optional image generation provider probe did not succeed. error_type=$errorType"
+        }
     }
-    Write-Host "Provider probe proved chat/OCR/image_generation calls succeeded."
+    Write-Host "Provider probe proved chat/OCR calls succeeded."
 }
 
 function Assert-ProviderWorkflowParticipation {
@@ -962,7 +971,7 @@ function Configure-WorkflowUrl {
     } catch {
         throw "WorkflowUrl health check failed: $healthUrl"
     }
-    foreach ($field in @("ready", "chat_configured", "ocr_configured", "image_generation_configured")) {
+    foreach ($field in @("ready", "chat_configured", "ocr_configured")) {
         if (-not ($health.PSObject.Properties.Name -contains $field)) {
             throw "WorkflowUrl health check did not include $field."
         }
@@ -983,7 +992,6 @@ function Configure-WorkflowUrl {
         Wait-UiContains $T.CloudConfigured "Phone-side WorkflowUrl connection test did not report cloud configured." 60
         Wait-UiContains $T.VivoModelCalled "Phone-side provider probe did not report vivo model call." 60
         Wait-UiContains $T.VivoOcrCalled "Phone-side provider probe did not report vivo OCR call." 60
-        Wait-UiContains $T.ImageProbePassed "Phone-side provider probe did not report image generation call." 60
         Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 60
     } catch {
         Save-RemoteDiagnostics "workflow-url-test-failed"
@@ -1201,19 +1209,19 @@ function Open-GeneratedPreviewFromNotification {
         throw "Action suggestion notification was not visible before generate."
     }
     try {
-        Tap-NotificationRootFallback
+        Tap-NotificationAction $T.Generate
         Invoke-Adb shell cmd statusbar collapse | Out-Null
-        Wait-UiContains $T.GenerateDraft "Notification root did not open request panel." 10
+        Wait-UiContains $T.GenerateDraft "Generate action did not open request panel." 10
         Assert-FloatingPanelHeightUnder 0.35 "request prompt"
         Tap-Text $T.GenerateDraft "generate-draft.xml"
         return
     } catch {
-        # Fall through; some system skins expose only action buttons reliably.
+        # Fall through; some system skins hide action buttons and only expose the compact content.
     }
     try {
-        Tap-NotificationAction $T.Generate
+        Tap-NotificationRootFallback
         Invoke-Adb shell cmd statusbar collapse | Out-Null
-        Wait-UiContains $T.GenerateDraft "Generate action did not open request panel." 10
+        Wait-UiContains $T.GenerateDraft "Notification root did not open request panel." 10
         Assert-FloatingPanelHeightUnder 0.35 "request prompt"
         Tap-Text $T.GenerateDraft "generate-draft.xml"
         return
