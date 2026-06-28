@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:38053",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:37065",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -54,7 +54,7 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36197", "37121", "38053", "38197", "39165")) {
+    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36197", "37065", "37121", "38053", "38197", "39165")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $oldPreference = $ErrorActionPreference
@@ -1429,7 +1429,7 @@ Open-SampleAndScreenshot "noise_own_app_settings.png"
 Assert-NoActionSuggestionNotification
 
 Write-Host "Validating action screenshot notification and ignore action..."
-Open-SampleAndScreenshot "complex_course_notice.png"
+Open-SampleAndScreenshot "complex_chat_promise.png"
 Assert-ActionSuggestionNotification | Out-Null
 Dismiss-ActionSuggestionWithIgnore
 Wait-UiNotContains $T.MaybeTodo "Ignore action unexpectedly opened the request panel."

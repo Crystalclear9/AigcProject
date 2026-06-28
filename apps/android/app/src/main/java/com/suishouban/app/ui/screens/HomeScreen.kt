@@ -50,7 +50,6 @@ import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.components.brandGradient
 import com.suishouban.app.ui.theme.BrandBlue
-import com.suishouban.app.ui.theme.CollectionBrown
 import com.suishouban.app.ui.theme.EventBlue
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.PromiseOrange
@@ -107,14 +106,6 @@ fun HomeScreen(
 
         item {
             WorkflowStrip(currentStep = if (state.draftCards.isNotEmpty()) 2 else 0, modifier = Modifier.fillMaxWidth())
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricTile("待办", activeCards.size.toString(), TaskRed, Modifier.weight(1f))
-                MetricTile("待确认", needConfirm.toString(), PromiseOrange, Modifier.weight(1f))
-                MetricTile("高优先", urgentCards.size.toString(), EventBlue, Modifier.weight(1f))
-            }
         }
 
         item {
@@ -257,7 +248,7 @@ private fun ImpactDashboard(
                 )
             }
             Text(
-                "处理模式：$engine · 已配置提醒 $reminders",
+                "模式：$engine · 已配置提醒 $reminders",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -290,21 +281,6 @@ private fun FlatMetric(label: String, value: String, color: Color, modifier: Mod
 }
 
 @Composable
-private fun MetricTile(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(value, style = MaterialTheme.typography.headlineMedium, color = color)
-            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
 private fun EmptyHomeCard(onImport: () -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -313,6 +289,11 @@ private fun EmptyHomeCard(onImport: () -> Unit) {
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("从第一张截图开始", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "导入截图或粘贴通知文字，先生成候选卡，确认后才会保存、提醒或同步日历。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
                 Text("导入截图")
             }

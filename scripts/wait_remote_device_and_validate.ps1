@@ -1,5 +1,5 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:38053",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:37065",
     [string]$WorkflowUrl = "",
     [int]$MaxWaitMinutes = 30,
     [switch]$SkipBuild
