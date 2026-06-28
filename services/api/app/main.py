@@ -23,6 +23,7 @@ def runtime_health() -> tuple[bool, dict[str, object]]:
     actual = importlib.metadata.version("langgraph")
     sqlite_available = importlib.util.find_spec("langgraph.checkpoint.sqlite") is not None
     database_writable = WorkflowRepository().healthcheck()
+    provider_url_errors = settings.provider_url_errors
     checks = {
         "langgraph_version": actual,
         "langgraph_version_match": actual == EXPECTED_LANGGRAPH_VERSION,
@@ -34,8 +35,15 @@ def runtime_health() -> tuple[bool, dict[str, object]]:
         "chat_configured": settings.has_fast_model_config or settings.has_expert_model_config,
         "ocr_configured": settings.has_vivo_ocr_config,
         "image_generation_configured": settings.has_image_generation_config,
+        "provider_urls_valid": not provider_url_errors,
+        "provider_url_errors": provider_url_errors,
     }
-    ready = bool(checks["langgraph_version_match"] and sqlite_available and database_writable)
+    ready = bool(
+        checks["langgraph_version_match"]
+        and sqlite_available
+        and database_writable
+        and checks["provider_urls_valid"]
+    )
     return ready, checks
 
 

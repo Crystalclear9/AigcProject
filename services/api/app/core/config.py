@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -53,7 +54,7 @@ class Settings:
     vivo_ocr_app_key: str = os.getenv("VIVO_OCR_APP_KEY", "")
     vivo_ocr_url: str = os.getenv(
         "VIVO_OCR_URL",
-        "http://api-ai.vivo.com.cn/ocr/general_recognition",
+        "https://api-ai.vivo.com.cn/ocr/general_recognition",
     )
     vivo_ocr_business_profile: str = os.getenv("VIVO_OCR_BUSINESS_PROFILE", "rotatable")
     vivo_ocr_timeout_seconds: float = float(os.getenv("VIVO_OCR_TIMEOUT_SECONDS", "5"))
@@ -85,19 +86,74 @@ class Settings:
 
     @property
     def has_fast_model_config(self) -> bool:
-        return bool(self.fast_model_api_key and self.fast_model_base_url and self.fast_model_name)
+        return bool(
+            self.fast_model_api_key
+            and self.fast_model_base_url
+            and self.fast_model_name
+            and not _provider_url_error(
+                self.fast_model_base_url,
+                allowed_paths=("/v1", "/v1/chat/completions"),
+                allow_base=True,
+            )
+        )
 
     @property
     def has_expert_model_config(self) -> bool:
-        return bool(self.expert_model_api_key and self.expert_model_base_url and self.expert_model_name)
+        return bool(
+            self.expert_model_api_key
+            and self.expert_model_base_url
+            and self.expert_model_name
+            and not _provider_url_error(
+                self.expert_model_base_url,
+                allowed_paths=("/v1", "/v1/chat/completions"),
+                allow_base=True,
+            )
+        )
 
     @property
     def has_vivo_ocr_config(self) -> bool:
-        return bool(self.vivo_ocr_app_key)
+        return bool(
+            self.vivo_ocr_app_key
+            and not _provider_url_error(
+                self.vivo_ocr_url,
+                allowed_paths=("/ocr/general_recognition",),
+            )
+        )
 
     @property
     def has_image_generation_config(self) -> bool:
-        return bool(self.vivo_image_generation_api_key and self.vivo_image_generation_url)
+        return bool(
+            self.vivo_image_generation_api_key
+            and self.vivo_image_generation_url
+            and not _provider_url_error(
+                self.vivo_image_generation_url,
+                allowed_paths=("/api/v1/image_generation",),
+            )
+        )
+
+    @property
+    def provider_url_errors(self) -> dict[str, str]:
+        checks = {
+            "fast_model": _provider_url_error(
+                self.fast_model_base_url,
+                allowed_paths=("/v1", "/v1/chat/completions"),
+                allow_base=True,
+            ),
+            "expert_model": _provider_url_error(
+                self.expert_model_base_url,
+                allowed_paths=("/v1", "/v1/chat/completions"),
+                allow_base=True,
+            ),
+            "vivo_ocr": _provider_url_error(
+                self.vivo_ocr_url,
+                allowed_paths=("/ocr/general_recognition",),
+            ),
+            "image_generation": _provider_url_error(
+                self.vivo_image_generation_url,
+                allowed_paths=("/api/v1/image_generation",),
+            ),
+        }
+        return {name: error for name, error in checks.items() if error}
 
     @property
     def vivo_ocr_business_id(self) -> str:
@@ -119,3 +175,27 @@ class Settings:
 
 
 settings = Settings()
+
+
+def _provider_url_error(
+    url: str,
+    *,
+    allowed_paths: tuple[str, ...],
+    allow_base: bool = False,
+) -> str | None:
+    parsed = urlparse((url or "").strip())
+    if parsed.scheme != "https":
+        return "provider url must use https"
+    if parsed.username or parsed.password:
+        return "provider url must not contain userinfo"
+    if parsed.hostname != "api-ai.vivo.com.cn":
+        return "provider host is not allowed"
+    path = parsed.path.rstrip("/") or "/"
+    allowed = {item.rstrip("/") or "/" for item in allowed_paths}
+    if allow_base and path == "/v1":
+        return None
+    if path not in allowed:
+        return "provider path is not allowed"
+    if parsed.params or parsed.query or parsed.fragment:
+        return "provider url must not contain params, query or fragment"
+    return None
