@@ -70,12 +70,12 @@ fun SettingsScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("设置中心")
+            SectionHeader("设置", if (state.settings.apiBaseUrl.isBlank()) "本机模式" else "云端增强")
         }
         item {
             SettingsCard(title = "云端增强（可选）", icon = Icons.Outlined.CloudSync) {
                 Text(
-                    "不配置也可使用端侧 OCR、截图判定、本地卡片和提醒。配置手机可访问的 HTTPS 工作流网关后，可启用 AI 增强、SSE 进度和多端同步。",
+                    "手机只填写随手办 Workflow HTTPS 网关；vivo key 只放后端。留空时完整使用本机 OCR、规则、卡片和提醒。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -96,7 +96,7 @@ fun SettingsScreen(
                     shape = RoundedCornerShape(16.dp),
                 )
                 Text(
-                    state.connectionStatus,
+                    state.connectionStatus.ifBlank { "未测试增强服务" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -154,7 +154,7 @@ fun SettingsScreen(
                     onCheckedChange = { onUpdate(state.settings.copy(autoDetectScreenshots = it)) },
                 )
                 Text(
-                    "默认关闭。开启后才会监听新截图，并且只在命中明确行动证据时发出低打扰提示。",
+                    "开启后监听新截图；只有命中明确行动证据才发低打扰提示。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -173,12 +173,12 @@ fun SettingsScreen(
         item {
             SettingsCard(title = "提醒策略", icon = Icons.Outlined.Notifications) {
                 Text(
-                    "高优先级：3 天 / 1 天 / 3 小时 / 30 分钟",
+                    "有截止时间：按距离自动安排 1 天、3 小时、30 分钟或尽快提醒。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "会议事件：1 天 / 30 分钟",
+                    "无明确时间的候选只保存卡片，不伪造提醒。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

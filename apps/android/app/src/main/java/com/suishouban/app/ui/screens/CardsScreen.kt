@@ -1,5 +1,6 @@
 package com.suishouban.app.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
@@ -78,20 +80,24 @@ fun CardsScreen(
             )
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     listOf(
                         "all" to "全部",
                         CardTypes.TASK to "任务",
                         CardTypes.EVENT to "事件",
                         CardTypes.PROMISE to "承诺",
-                        CardTypes.COMPARISON to "对比",
-                        CardTypes.COLLECTION to "收藏",
                     ).forEach { (value, label) ->
                         NeutralPill(text = label, selected = type == value, onClick = { type = value })
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     listOf(
                         "active" to "进行中",
                         "done" to "已完成",
@@ -108,8 +114,9 @@ fun CardsScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("暂无匹配卡片", style = MaterialTheme.typography.titleLarge)
+                    Text("换个筛选条件，或从截图重新生成候选卡。", style = MaterialTheme.typography.bodyMedium)
                     Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
-                        Text("导入截图")
+                        Text("导入截图生成卡片")
                     }
                 }
             }
