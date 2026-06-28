@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.ActionCandidate
 import com.suishouban.app.data.model.AnalyzeResult
+import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.data.repository.EngineLabels
 import com.suishouban.app.data.model.NodeTrace
@@ -617,6 +618,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addManualDraftFromCurrentText() {
+        val state = _uiState.value
+        val evidence = state.ocrText
+            .lines()
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+            ?: state.screenshotPromptSummary
+            ?: "手动添加行动事项"
+        val card = ActionCard(
+            cardType = CardTypes.TASK,
+            title = state.screenshotPromptSummary
+                ?.substringBefore(" · ")
+                ?.takeIf { it.isNotBlank() }
+                ?: "手动补全行动事项",
+            summary = evidence.take(120),
+            needConfirm = listOf("标题", "时间", "地点/平台"),
+            sourceText = state.ocrText,
+            evidenceSummary = listOf("用户从空结果恢复入口手动创建候选卡"),
+        )
+        _uiState.update {
+            it.copy(
+                draftCards = listOf(card),
+                actionCandidates = listOf(
+                    ActionCandidate(
+                        card = card,
+                        selected = true,
+                        confidenceBand = "low",
+                        evidenceSummary = card.evidenceSummary,
+                        sourceSpan = card.sourceText.take(180),
+                        userLockedFields = emptySet(),
+                    )
+                ),
+                selectedDraftIds = setOf(card.id),
+                screenshotWorkflowStage = ScreenshotWorkflowStage.CANDIDATES_READY,
+                error = "已创建手动候选卡，请补全关键字段后确认",
+            )
+        }
+    }
+
     fun toggleDraftSelection(id: String) {
         _uiState.update { state ->
             val nextSelectedIds = if (id in state.selectedDraftIds) {
@@ -703,7 +743,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             val fallback = runCatching {
                 repository.analyzeTextLocal(
-                    text = text,
+                    text = state.draftCards
+                        .filter { it.id in selectedIds }
+                        .joinToString("\n") { card -> card.sourceText.ifBlank { card.title } }
+                        .ifBlank { text },
                     screenshotTime = OffsetDateTime.now(ZoneOffset.ofHours(8)).toString(),
                     enginePrefix = "local-react",
                 )
@@ -717,13 +760,30 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            applyAnalyzeResult(
-                fallback.copy(
+            val proposed = fallback.cards
+            _uiState.update { current ->
+                val updatedDrafts = current.draftCards.map { card ->
+                    if (card.id !in selectedIds) {
+                        card
+                    } else {
+                        proposed.firstOrNull { incoming -> sameActionCandidate(card, incoming) }
+                            ?.let { incoming -> fillEmptyFields(card, incoming) }
+                            ?: card
+                    }
+                }
+                current.copy(
+                    loading = false,
+                    draftCards = updatedDrafts,
+                    actionCandidates = current.actionCandidates.map { candidate ->
+                        val updated = updatedDrafts.firstOrNull { it.id == candidate.card.id } ?: candidate.card
+                        candidate.copy(card = updated)
+                    },
                     engine = EngineLabels.withPrefix(fallback.engine, "react-fallback"),
-                    warnings = listOf("云端 ReAct 不可用，已用端侧规则重新拆分和补全") + fallback.warnings,
+                    warnings = listOf("云端 ReAct 不可用，已用端侧规则复检选中的候选卡") + fallback.warnings,
                     reactSuggestions = listOf("本次为端侧规则复检；配置 HTTPS Workflow 网关后可使用 vivo 模型继续完善"),
+                    aiRefinementStatus = "端侧规则已复检选中的候选卡",
                 )
-            )
+            }
         }
     }
 
@@ -795,13 +855,24 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 drafts
             }
             val syncWarnings = mutableListOf<String>()
+            val confirmationMessages = mutableListOf<String>()
             cardsToSave.forEach { card ->
                 val saveResult = repository.saveConfirmed(card)
                 val saved = saveResult.card
                 saveResult.syncError?.let(syncWarnings::add)
-                scheduler.schedule(saved)
+                val reminderResult = scheduler.schedule(saved)
+                if (reminderResult.scheduled) {
+                    confirmationMessages += reminderResult.message
+                } else {
+                    syncWarnings += reminderResult.message
+                }
                 if (_uiState.value.settings.calendarSync) {
-                    calendarSyncer.insertIfPermitted(saved)
+                    val calendarResult = calendarSyncer.insertIfPermitted(saved)
+                    if (calendarResult.failed) {
+                        syncWarnings += calendarResult.message
+                    } else if (calendarResult.synced) {
+                        confirmationMessages += calendarResult.message
+                    }
                 }
             }
             _uiState.update {
@@ -843,7 +914,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     screenshotPrimaryEvidence = emptyList(),
                     screenshotWorkflowStage = ScreenshotWorkflowStage.CONFIRMED,
                     ocrArbitrationReason = null,
-                    error = syncWarnings.distinct().takeIf { warnings -> warnings.isNotEmpty() }?.joinToString("\n"),
+                    error = (syncWarnings.ifEmpty { confirmationMessages })
+                        .distinct()
+                        .takeIf { messages -> messages.isNotEmpty() }
+                        ?.joinToString("\n"),
                 )
             }
             locallyEditedDraftIds.clear()

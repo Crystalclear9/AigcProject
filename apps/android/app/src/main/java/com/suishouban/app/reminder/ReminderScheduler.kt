@@ -13,14 +13,23 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
+data class ReminderScheduleResult(
+    val scheduledCount: Int,
+    val message: String,
+) {
+    val scheduled: Boolean get() = scheduledCount > 0
+}
+
 class ReminderScheduler(private val context: Context) {
-    fun schedule(card: ActionCard) {
+    fun schedule(card: ActionCard): ReminderScheduleResult {
         val scheduledTime = card.deadline?.takeIf { it.isNotBlank() } ?: card.primaryTime()
-        val time = parseTime(scheduledTime) ?: return
+        val time = parseTime(scheduledTime)
+            ?: return ReminderScheduleResult(0, "已保存，未设置提醒：缺少可用时间")
         val now = OffsetDateTime.now()
         val workManager = WorkManager.getInstance(context)
         workManager.cancelAllWorkByTag(cardTag(card.id))
 
+        var scheduledCount = 0
         reminderOffsetsFor(card, now, time).forEach { offset ->
             val triggerAt = if (offset.isZero) now.plusSeconds(5) else time.minus(offset)
             val delay = Duration.between(now, triggerAt)
@@ -40,6 +49,12 @@ class ReminderScheduler(private val context: Context) {
                 ExistingWorkPolicy.REPLACE,
                 request,
             )
+            scheduledCount += 1
+        }
+        return if (scheduledCount > 0) {
+            ReminderScheduleResult(scheduledCount, "已创建 $scheduledCount 个截止提醒：${card.title}")
+        } else {
+            ReminderScheduleResult(0, "已保存，未设置提醒：时间已过或提醒时间不可用")
         }
     }
 

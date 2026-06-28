@@ -54,7 +54,7 @@ class Settings:
     vivo_ocr_app_key: str = os.getenv("VIVO_OCR_APP_KEY", "")
     vivo_ocr_url: str = os.getenv(
         "VIVO_OCR_URL",
-        "https://api-ai.vivo.com.cn/ocr/general_recognition",
+        "http://api-ai.vivo.com.cn/ocr/general_recognition",
     )
     vivo_ocr_business_profile: str = os.getenv("VIVO_OCR_BUSINESS_PROFILE", "rotatable")
     vivo_ocr_timeout_seconds: float = float(os.getenv("VIVO_OCR_TIMEOUT_SECONDS", "5"))
@@ -117,6 +117,7 @@ class Settings:
             and not _provider_url_error(
                 self.vivo_ocr_url,
                 allowed_paths=("/ocr/general_recognition",),
+                allowed_schemes=("http", "https"),
             )
         )
 
@@ -147,6 +148,7 @@ class Settings:
             "vivo_ocr": _provider_url_error(
                 self.vivo_ocr_url,
                 allowed_paths=("/ocr/general_recognition",),
+                allowed_schemes=("http", "https"),
             ),
             "image_generation": _provider_url_error(
                 self.vivo_image_generation_url,
@@ -182,10 +184,13 @@ def _provider_url_error(
     *,
     allowed_paths: tuple[str, ...],
     allow_base: bool = False,
+    allowed_schemes: tuple[str, ...] = ("https",),
 ) -> str | None:
     parsed = urlparse((url or "").strip())
-    if parsed.scheme != "https":
-        return "provider url must use https"
+    if parsed.scheme not in allowed_schemes:
+        if allowed_schemes == ("https",):
+            return "provider url must use https"
+        return f"provider url scheme must be one of {', '.join(allowed_schemes)}"
     if parsed.username or parsed.password:
         return "provider url must not contain userinfo"
     if parsed.hostname != "api-ai.vivo.com.cn":

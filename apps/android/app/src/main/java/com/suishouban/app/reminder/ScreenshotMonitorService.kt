@@ -18,6 +18,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.RemoteViews
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -287,7 +288,7 @@ class ScreenshotMonitorService : Service() {
         val ocrToken = cachePendingOcrText(ocrText)
         val contentHash = promptContentHash(ocrText)
         persistPromptPolicy(contentHash)
-        persistPendingPrompt(mediaId, uri, ocrToken, ocrText, gate, notificationId, contentHash)
+        persistPendingPrompt(mediaId, uri, ocrToken, gate, notificationId, contentHash)
         val generatePendingIntent = PendingIntent.getActivity(
             this,
             notificationId + 2,
@@ -308,11 +309,25 @@ class ScreenshotMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val content = buildPromptContent(gate)
+        val compactView = RemoteViews(packageName, R.layout.notification_action_suggestion).apply {
+            setTextViewText(R.id.notification_action_title, "可能有待办")
+            setTextViewText(R.id.notification_action_content, content)
+            setContentDescription(R.id.notification_action_root, "可能有待办")
+            setContentDescription(R.id.notification_action_content, content)
+            setContentDescription(R.id.notification_generate, "生成")
+            setContentDescription(R.id.notification_ignore, "忽略")
+            setOnClickPendingIntent(R.id.notification_action_root, generatePendingIntent)
+            setOnClickPendingIntent(R.id.notification_action_content, generatePendingIntent)
+            setOnClickPendingIntent(R.id.notification_generate, generatePendingIntent)
+            setOnClickPendingIntent(R.id.notification_ignore, ignorePendingIntent)
+        }
         val notification = NotificationCompat.Builder(this, PROMPT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("可能有待办")
             .setContentText(content)
             .setContentIntent(generatePendingIntent)
+            .setCustomContentView(compactView)
+            .setCustomBigContentView(compactView)
             .addAction(R.drawable.ic_launcher_foreground, "生成", generatePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "忽略", ignorePendingIntent)
             .setAutoCancel(true)
@@ -365,7 +380,6 @@ class ScreenshotMonitorService : Service() {
         mediaId: Long,
         uri: Uri,
         ocrToken: String,
-        ocrText: String,
         gate: ScreenshotActionGateResult,
         notificationId: Int,
         contentHash: String,
@@ -376,13 +390,11 @@ class ScreenshotMonitorService : Service() {
             .putString(KEY_PENDING_URI, uri.toString())
             .putString(KEY_PENDING_OCR_TOKEN, ocrToken)
             .putString(KEY_PENDING_CONTENT_HASH, contentHash)
-            .putString(KEY_PENDING_OCR_SUMMARY, ocrText.take(PENDING_OCR_SUMMARY_CHARS))
             .putString(KEY_PENDING_GATE_REASON, gate.reason)
             .putString(KEY_PENDING_DEADLINE_HINT, gate.deadlineHint)
             .putString(KEY_PENDING_PROMPT_SUMMARY, gate.promptSummary)
             .putString(KEY_PENDING_CONFIDENCE_BAND, gate.confidenceBand)
             .putString(KEY_PENDING_SCENARIO_TYPE, gate.scenarioType)
-            .putStringSet(KEY_PENDING_PRIMARY_EVIDENCE, gate.primaryEvidence.toSet())
             .putInt(KEY_PENDING_NOTIFICATION_ID, notificationId)
             .putLong(KEY_PENDING_CREATED_AT, System.currentTimeMillis())
             .apply()
@@ -486,7 +498,6 @@ class ScreenshotMonitorService : Service() {
                 return null
             }
             val uri = prefs.getString(KEY_PENDING_URI, null)?.let(Uri::parse) ?: return null
-            val evidence = prefs.getStringSet(KEY_PENDING_PRIMARY_EVIDENCE, emptySet()).orEmpty()
             val ocrToken = prefs.getString(KEY_PENDING_OCR_TOKEN, null)
             val intent = Intent(context, ScreenshotPreviewActivity::class.java).apply {
                 action = ACTION_PROCESS_SCREENSHOT
@@ -497,7 +508,7 @@ class ScreenshotMonitorService : Service() {
                 putExtra(ScreenshotPreviewActivity.EXTRA_PROMPT_SUMMARY, prefs.getString(KEY_PENDING_PROMPT_SUMMARY, null))
                 putExtra(ScreenshotPreviewActivity.EXTRA_CONFIDENCE_BAND, prefs.getString(KEY_PENDING_CONFIDENCE_BAND, null))
                 putExtra(ScreenshotPreviewActivity.EXTRA_SCENARIO_TYPE, prefs.getString(KEY_PENDING_SCENARIO_TYPE, null))
-                putStringArrayListExtra(ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE, ArrayList(evidence.toList()))
+                putStringArrayListExtra(ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE, arrayListOf())
                 putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, prefs.getInt(KEY_PENDING_NOTIFICATION_ID, 0))
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -548,13 +559,11 @@ class ScreenshotMonitorService : Service() {
         private const val KEY_PENDING_URI = "uri"
         private const val KEY_PENDING_OCR_TOKEN = "ocr_token"
         private const val KEY_PENDING_CONTENT_HASH = "content_hash"
-        private const val KEY_PENDING_OCR_SUMMARY = "ocr_summary"
         private const val KEY_PENDING_GATE_REASON = "gate_reason"
         private const val KEY_PENDING_DEADLINE_HINT = "deadline_hint"
         private const val KEY_PENDING_PROMPT_SUMMARY = "prompt_summary"
         private const val KEY_PENDING_CONFIDENCE_BAND = "confidence_band"
         private const val KEY_PENDING_SCENARIO_TYPE = "scenario_type"
-        private const val KEY_PENDING_PRIMARY_EVIDENCE = "primary_evidence"
         private const val KEY_PENDING_NOTIFICATION_ID = "notification_id"
         private const val KEY_PENDING_CREATED_AT = "created_at"
         private const val KEY_POLICY_LAST_HASH = "last_hash"

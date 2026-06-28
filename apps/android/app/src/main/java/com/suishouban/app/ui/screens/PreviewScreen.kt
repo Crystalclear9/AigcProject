@@ -49,6 +49,7 @@ fun PreviewScreen(
     onUpdateDraft: (ActionCard) -> Unit,
     onRemoveDraft: (String) -> Unit,
     onConfirm: () -> Unit,
+    onManualAdd: () -> Unit,
     onImport: () -> Unit,
 ) {
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
@@ -70,7 +71,7 @@ fun PreviewScreen(
 
         if (state.draftCards.isEmpty()) {
             item {
-                EmptyPreviewCard(onImport)
+                EmptyPreviewCard(onImport, onManualAdd)
             }
         } else {
             item {
@@ -346,7 +347,7 @@ private fun DraftEditor(
 }
 
 @Composable
-private fun EmptyPreviewCard(onImport: () -> Unit) {
+private fun EmptyPreviewCard(onImport: () -> Unit, onManualAdd: () -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -354,8 +355,18 @@ private fun EmptyPreviewCard(onImport: () -> Unit) {
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("暂无预览", style = MaterialTheme.typography.titleLarge)
-            Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
-                Text("导入截图")
+            Text(
+                "没有识别到稳定行动事项。可以重新导入截图，也可以先手动创建一张候选卡再补全字段。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = onImport, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                    Text("重新导入")
+                }
+                TextButton(onClick = onManualAdd, modifier = Modifier.weight(1f)) {
+                    Text("手动添加")
+                }
             }
         }
     }

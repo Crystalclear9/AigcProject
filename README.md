@@ -95,7 +95,7 @@ EXPERT_MODEL_NAME=Doubao-Seed-2.0-pro
 
 VIVO_OCR_APP_ID=
 VIVO_OCR_APP_KEY=
-VIVO_OCR_URL=https://api-ai.vivo.com.cn/ocr/general_recognition
+VIVO_OCR_URL=http://api-ai.vivo.com.cn/ocr/general_recognition
 VIVO_OCR_BUSINESS_PROFILE=rotatable
 
 VIVO_IMAGE_GENERATION_API_KEY=
@@ -104,7 +104,7 @@ VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 ENABLE_PROVIDER_PROBE=false
 ```
 
-`/health` 只返回 provider 是否配置、URL 是否合规和运行时是否就绪，不回显任何密钥。Provider URL 必须使用 HTTPS、预期 vivo 域名和预期路径；错误配置会让 `/ready` 失败。
+`/health` 只返回 provider 是否配置、URL 是否合规和运行时是否就绪，不回显任何密钥。Chat 与图片生成 provider 必须使用 HTTPS、预期 vivo 域名和预期路径；OCR 按 vivo 官方文档允许精确的 `http://api-ai.vivo.com.cn/ocr/general_recognition`，但仍拒绝任意 HTTP、私网和非预期路径配置。生产环境建议通过受控 TLS 网关转发 OCR，避免服务端 AppKey 与图片内容经过不可信明文链路。错误配置会让 `/ready` 失败。
 
 ## 后端启动
 
@@ -180,7 +180,7 @@ cd ..\..\apps\android
 复杂截图链路需要在云真机验证，默认设备为：
 
 ```text
-val-vclinner-rt-contest.vivo.com.cn:39165
+val-vclinner-rt-contest.vivo.com.cn:38053
 ```
 
 ```powershell

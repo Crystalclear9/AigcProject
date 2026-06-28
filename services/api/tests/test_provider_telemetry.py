@@ -35,7 +35,7 @@ class ProviderTelemetryTest(unittest.TestCase):
         finally:
             object.__setattr__(settings, "enable_provider_probe", original)
 
-    def test_provider_urls_are_fail_closed_in_readiness(self) -> None:
+    def test_provider_urls_allow_official_http_ocr_but_fail_arbitrary_http(self) -> None:
         originals = {
             "vivo_ocr_url": settings.vivo_ocr_url,
             "vivo_ocr_app_key": settings.vivo_ocr_app_key,
@@ -46,9 +46,16 @@ class ProviderTelemetryTest(unittest.TestCase):
             with TestClient(app) as client:
                 response = client.get("/ready")
             body = response.json()
+            self.assertTrue(body["ocr_configured"])
+            self.assertNotIn("vivo_ocr", body["provider_url_errors"])
+            self.assertNotIn("server-side-key", response.text)
+
+            object.__setattr__(settings, "vivo_ocr_url", "http://evil.example.com/ocr/general_recognition")
+            with TestClient(app) as client:
+                response = client.get("/ready")
+            body = response.json()
             self.assertFalse(body["ready"])
             self.assertIn("vivo_ocr", body["provider_url_errors"])
-            self.assertNotIn("server-side-key", response.text)
         finally:
             for name, value in originals.items():
                 object.__setattr__(settings, name, value)
