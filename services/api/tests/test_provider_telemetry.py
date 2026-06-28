@@ -35,6 +35,24 @@ class ProviderTelemetryTest(unittest.TestCase):
         finally:
             object.__setattr__(settings, "enable_provider_probe", original)
 
+    def test_provider_urls_are_fail_closed_in_readiness(self) -> None:
+        originals = {
+            "vivo_ocr_url": settings.vivo_ocr_url,
+            "vivo_ocr_app_key": settings.vivo_ocr_app_key,
+        }
+        object.__setattr__(settings, "vivo_ocr_url", "http://api-ai.vivo.com.cn/ocr/general_recognition")
+        object.__setattr__(settings, "vivo_ocr_app_key", "server-side-key")
+        try:
+            with TestClient(app) as client:
+                response = client.get("/ready")
+            body = response.json()
+            self.assertFalse(body["ready"])
+            self.assertIn("vivo_ocr", body["provider_url_errors"])
+            self.assertNotIn("server-side-key", response.text)
+        finally:
+            for name, value in originals.items():
+                object.__setattr__(settings, name, value)
+
     def test_provider_probe_calls_all_configured_providers_without_leaking_key(self) -> None:
         originals = {
             "enable_provider_probe": settings.enable_provider_probe,

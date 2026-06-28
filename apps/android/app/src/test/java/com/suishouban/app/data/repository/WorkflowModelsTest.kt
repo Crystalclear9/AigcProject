@@ -155,7 +155,12 @@ class WorkflowModelsTest {
         assertFalse(WorkflowUrlPolicy.isAccepted("https://127.0.0.1:8000/"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://10.0.2.2:8000/"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://192.168.1.2/"))
+        assertFalse(WorkflowUrlPolicy.isAccepted("https://[::1]/"))
+        assertFalse(WorkflowUrlPolicy.isAccepted("https://[fd00::1]/"))
+        assertFalse(WorkflowUrlPolicy.isAccepted("https://user:pass@workflow.example.com/"))
+        assertFalse(WorkflowUrlPolicy.isAccepted("https://workflow.example.com/?token=abc"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://api-ai.vivo.com.cn/v1/chat/completions"))
+        assertFalse(WorkflowUrlPolicy.isAccepted("https://proxy.api-ai.vivo.com.cn/v1/chat/completions"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://api-ai.vivo.com.cn/api/v1/image_generation"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://api-ai.vivo.com.cn/ocr/general_recognition"))
     }

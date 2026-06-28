@@ -2,8 +2,16 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="database" path="suishouban.db" />
+        <exclude domain="sharedpref" path="screenshot_prompt_pending.xml" />
+        <exclude domain="sharedpref" path="screenshot_prompt_policy.xml" />
+        <exclude domain="sharedpref" path="workflow_runtime.xml" />
+        <exclude domain="sharedpref" path="suishouban_settings.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="database" path="suishouban.db" />
+        <exclude domain="sharedpref" path="screenshot_prompt_pending.xml" />
+        <exclude domain="sharedpref" path="screenshot_prompt_policy.xml" />
+        <exclude domain="sharedpref" path="workflow_runtime.xml" />
+        <exclude domain="sharedpref" path="suishouban_settings.xml" />
     </device-transfer>
 </data-extraction-rules>

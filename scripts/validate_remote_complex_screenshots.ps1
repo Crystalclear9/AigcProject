@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:36197",
+    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:39165",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
@@ -32,6 +32,17 @@ if (-not $sdk) {
 $adb = Join-Path $sdk "platform-tools\adb.exe"
 $remoteSampleDir = "/sdcard/Pictures/SuishoubanSamples"
 $artifactDir = Join-Path $root "artifacts"
+if (-not (Test-Path -LiteralPath $artifactDir)) {
+    New-Item -ItemType Directory -Path $artifactDir | Out-Null
+}
+$devicePortForLog = ($Device -replace '.*:', '') -replace '[^0-9A-Za-z_-]', '_'
+$transcriptPath = Join-Path $artifactDir "remote-$devicePortForLog-validation.log"
+try {
+    Start-Transcript -Path $transcriptPath -Force | Out-Null
+    Write-Host "Remote validation transcript: $transcriptPath"
+} catch {
+    Write-Warning "Could not start transcript: $($_.Exception.Message)"
+}
 
 function Initialize-AdbKeyEnvironment {
     $androidDir = Join-Path $env:USERPROFILE ".android"
@@ -43,7 +54,7 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35121", "35173", "35181", "35185", "36197", "38197")) {
+    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36197", "37121", "38197", "39165")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $oldPreference = $ErrorActionPreference
@@ -93,7 +104,8 @@ function Assert-ApkHasNoSensitiveMarkers {
         "api-ai.vivo.com.cn/api/v1/image_generation",
         "https://api-ai.vivo.com.cn/api/v1/image_generation",
         "api-ai.vivo.com.cn/ocr/general_recognition",
-        "http://api-ai.vivo.com.cn/ocr/general_recognition"
+        "http://api-ai.vivo.com.cn/ocr/general_recognition",
+        "https://api-ai.vivo.com.cn/ocr/general_recognition"
     )
     foreach ($marker in $providerEndpointMarkers) {
         $markers.Add($marker)
@@ -307,14 +319,20 @@ function Wait-AdbDevice {
             if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
                 Reset-AdbAuthorization
             } else {
-                & $adb disconnect $Device | Out-Null
+                $oldPreference = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                & $adb disconnect $Device 2>&1 | Out-Null
+                $ErrorActionPreference = $oldPreference
             }
         } elseif ($state -match "offline|failed|not found" -or $devicesText -match "offline" -or $connectExit -ne 0) {
-            & $adb disconnect $Device 2>$null | Out-Null
-            & $adb kill-server 2>$null | Out-Null
+            $oldPreference = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            & $adb disconnect $Device 2>&1 | Out-Null
+            & $adb kill-server 2>&1 | Out-Null
             Start-Sleep -Seconds 2
-            & $adb start-server 2>$null | Out-Null
-            & $adb disconnect $Device | Out-Null
+            & $adb start-server 2>&1 | Out-Null
+            & $adb disconnect $Device 2>&1 | Out-Null
+            $ErrorActionPreference = $oldPreference
         }
     }
     $oldPreference = $ErrorActionPreference
@@ -1047,10 +1065,25 @@ function Assert-NoActionSuggestionNotification {
 
 function Assert-ActionSuggestionNotification {
     $xml = Open-Notifications
-    foreach ($text in @($T.MaybeTodo, $T.Generate, $T.Ignore)) {
+    foreach ($text in @($T.MaybeTodo)) {
         if ($xml -notmatch [regex]::Escape($text)) {
             throw "Expected notification text/action missing: $text"
         }
+    }
+    $hasVisibleActions = $true
+    foreach ($text in @($T.Generate, $T.Ignore)) {
+        if ($xml -notmatch [regex]::Escape($text)) {
+            $hasVisibleActions = $false
+        }
+    }
+    if (-not $hasVisibleActions) {
+        $notificationDump = (Invoke-Adb @("shell", "dumpsys", "notification", "--noredact")) -join "`n"
+        foreach ($text in @($T.Generate, $T.Ignore)) {
+            if ($notificationDump -notmatch [regex]::Escape("`"$text`"")) {
+                throw "Expected notification action missing from system notification record: $text"
+            }
+        }
+        Write-Host "Notification actions are present in system record but hidden by the current notification shade."
     }
     return $xml
 }
@@ -1065,15 +1098,42 @@ function Tap-NotificationAction {
     $xml = Open-Notifications
     $center = Get-TextCenter $xml $Text
     if (-not $center) {
+        $xml = Expand-ActionSuggestionNotification
+        $center = Get-TextCenter $xml $Text
+    }
+    if (-not $center) {
         throw "Notification action not found: $Text"
     }
     Invoke-Adb shell input tap $center.X $center.Y | Out-Null
     Start-Sleep -Seconds 3
 }
 
+function Expand-ActionSuggestionNotification {
+    $xml = Open-Notifications
+    $bounds = Get-NodeBoundsByTextOrDescription $xml $T.MaybeTodo
+    if ($bounds) {
+        $x = [int](($bounds.X1 + $bounds.X2) / 2)
+        $startY = [Math]::Max(120, [int]($bounds.Y2 + 8))
+        $screenHeight = Get-DeviceScreenHeight
+        $endY = [Math]::Min(($screenHeight - 120), [int]($startY + 520))
+        Invoke-Adb shell input swipe $x $startY $x $endY 450 | Out-Null
+        Start-Sleep -Milliseconds 900
+        return Get-UiXml "notifications-expanded.xml"
+    }
+    return $xml
+}
+
 function Dismiss-ActionSuggestionWithIgnore {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        Tap-NotificationAction $T.Ignore
+        try {
+            Tap-NotificationAction $T.Ignore
+        } catch {
+            Write-Host "Notification ignore action is hidden; opening compact prompt and tapping Ignore there."
+            Tap-NotificationContentFallback
+            Invoke-Adb shell cmd statusbar collapse | Out-Null
+            Wait-UiContains $T.Ignore "Compact prompt did not expose Ignore fallback." 10
+            Tap-Text $T.Ignore "compact-prompt-ignore.xml"
+        }
         if (-not (Test-ActionSuggestionNotification)) {
             Invoke-Adb shell cmd statusbar collapse | Out-Null
             return
@@ -1113,24 +1173,6 @@ function Tap-NotificationRootFallback {
     Tap-NotificationContentFallback
 }
 
-function Open-PendingPromptFallback {
-    Invoke-Adb shell cmd statusbar collapse | Out-Null
-    # Do not force-stop here: pending OCR text is intentionally kept in process
-    # memory until the user opens the compact prompt. Starting the preview
-    # activity directly lets it consume the persisted token/gate metadata.
-    Invoke-Adb @(
-        "shell",
-        "am",
-        "start",
-        "-W",
-        "-f",
-        "0x10008000",
-        "-n",
-        "com.suishouban.app/.ScreenshotPreviewActivity"
-    ) | Out-Null
-    Start-Sleep -Seconds 4
-}
-
 function Open-GeneratedPreviewFromNotification {
     $sawNotification = $false
     for ($attempt = 1; $attempt -le 5; $attempt++) {
@@ -1164,26 +1206,9 @@ function Open-GeneratedPreviewFromNotification {
         Tap-Text $T.GenerateDraft "generate-draft.xml"
         return
     } catch {
-        Open-PendingPromptFallback
+        Save-RemoteDiagnostics "notification-generate-click-failed"
+        throw "Generate notification click did not open screenshot request panel. Direct Activity fallback is intentionally disabled."
     }
-    Invoke-Adb shell cmd statusbar collapse | Out-Null
-    Start-Sleep -Seconds 1
-    if (-not (Test-UiContains $T.GenerateDraft)) {
-        Open-PendingPromptFallback
-    }
-    if (-not (Test-UiContains $T.GenerateDraft)) {
-        try {
-            Tap-NotificationRootFallback
-        } catch {
-            Save-RemoteDiagnostics "notification-generate-action-missing"
-            throw
-        }
-        Invoke-Adb shell cmd statusbar collapse | Out-Null
-        Start-Sleep -Seconds 1
-    }
-    Wait-UiContains $T.GenerateDraft "Generate action did not open screenshot request panel."
-    Assert-FloatingPanelHeightUnder 0.35 "request prompt"
-    Tap-Text $T.GenerateDraft "generate-draft.xml"
 }
 
 function Trigger-ReActRefinement {
@@ -1400,7 +1425,10 @@ Wait-UiNotContains $T.MaybeTodo "Ignore action unexpectedly opened the request p
 Write-Host "Validating action screenshot notification, generate action, preview, save, reminder..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
-$courseProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
+$courseProviderBefore = $null
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    $courseProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
+}
 Open-GeneratedPreviewFromNotification
 Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
 Assert-FloatingPanelHeightUnder 0.65 "course candidate review"
@@ -1419,7 +1447,10 @@ Assert-CardAndReminderCreated
 Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
 Open-SampleAndScreenshot "complex_multi_tasks.png"
 Assert-ActionSuggestionNotification | Out-Null
-$multiProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
+$multiProviderBefore = $null
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    $multiProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
+}
 Open-GeneratedPreviewFromNotification
 $multiPreviewXml = Get-PreviewXmlAcrossScroll
 Assert-FloatingPanelHeightUnder 0.65 "multi-task candidate review"

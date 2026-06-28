@@ -19,7 +19,7 @@ class LocalRuleActionEnhancer(
 ) : ActionEnhancer {
     override suspend fun enhance(input: ActionEnhancementInput): AnalyzeResult {
         return withContext(Dispatchers.Default) {
-            extractor.extract(input.ocrText)
+            extractor.extract(input.ocrText, input.screenshotTime)
         }
     }
 }

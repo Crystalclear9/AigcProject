@@ -12,17 +12,22 @@ import java.util.UUID
 
 class LocalActionExtractor {
     private val textNormalizer = OcrTextNormalizer()
+    private val extractionBaseTime = ThreadLocal.withInitial { OffsetDateTime.now(ZoneOffset.ofHours(8)) }
 
-    fun extract(text: String): AnalyzeResult {
+    fun extract(text: String, screenshotTime: String? = null): AnalyzeResult {
+        val baseTime = screenshotTime
+            ?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
+            ?: OffsetDateTime.now(ZoneOffset.ofHours(8))
+        extractionBaseTime.set(baseTime)
         val normalizedOcr = textNormalizer.normalize(text)
         val normalized = normalizedOcr.fullText.ifBlank {
             text.replace(Regex("\\s+"), " ").trim()
         }
         val segments = splitActionSegments(normalizedOcr.lines, normalized)
         val rawCards = segments
-            .flatMap { segment -> extractCardsFromSegment(segment) }
-            .ifEmpty { extractCardsFromSegment(normalized) }
-        val cards = mergeSimilarCandidates(rawCards + extractEvidenceBackfillCards(normalized, rawCards))
+            .flatMap { segment -> extractCardsFromSegment(segment, baseTime) }
+            .ifEmpty { extractCardsFromSegment(normalized, baseTime) }
+        val cards = mergeSimilarCandidates(rawCards + extractEvidenceBackfillCards(normalized, rawCards, baseTime))
         return AnalyzeResult(
             ocrText = normalized,
             cards = cards,
@@ -31,17 +36,17 @@ class LocalActionExtractor {
         )
     }
 
-    private fun extractCardsFromSegment(segment: String): List<ActionCard> {
+    private fun extractCardsFromSegment(segment: String, baseTime: OffsetDateTime): List<ActionCard> {
         val text = segment.trim()
         if (!isActionableText(text)) return emptyList()
         val clauses = splitAtomicActionClauses(text)
         if (clauses.size > 1) {
-            return clauses.flatMap { clause -> extractCardsFromAtomicSegment(clause) }
+            return clauses.flatMap { clause -> extractCardsFromAtomicSegment(clause, baseTime) }
         }
-        return extractCardsFromAtomicSegment(text)
+        return extractCardsFromAtomicSegment(text, baseTime)
     }
 
-    private fun extractCardsFromAtomicSegment(text: String): List<ActionCard> {
+    private fun extractCardsFromAtomicSegment(text: String, baseTime: OffsetDateTime): List<ActionCard> {
         if (hasMeetingPreparation(text)) {
             return listOf(
                 buildCard(text, CardTypes.EVENT, title = if ("组会" in text) "参加组会" else "参加会议"),
@@ -52,7 +57,7 @@ class LocalActionExtractor {
         return listOf(buildCard(text, cardType))
     }
 
-    private fun extractEvidenceBackfillCards(text: String, existingCards: List<ActionCard>): List<ActionCard> {
+    private fun extractEvidenceBackfillCards(text: String, existingCards: List<ActionCard>, baseTime: OffsetDateTime): List<ActionCard> {
         val cards = mutableListOf<ActionCard>()
         val hasRegistration = existingCards.any { "报名" in it.title || "报名表" in it.title }
         val hasRegistrationTiming = hasTimeSignal(text) ||
@@ -411,7 +416,7 @@ class LocalActionExtractor {
     private data class TimeGuess(val value: String?, val fuzzy: Boolean)
 
     private fun extractTime(text: String): TimeGuess {
-        val now = OffsetDateTime.now(ZoneOffset.ofHours(8))
+        val now = extractionBaseTime.get()
         val hourGuess = extractHour(text)
 
         Regex("(20\\d{2})[-/.](\\d{1,2})[-/.](\\d{1,2})").find(text)?.let {

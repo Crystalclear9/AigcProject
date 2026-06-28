@@ -200,14 +200,17 @@ def filter_action_cards(cards: list[ActionCard], source_text: str) -> list[Actio
 
 def _extract_location(text: str) -> str | None:
     patterns = [
+        r"地点[:：]?\s*(?P<location>[^，。；\n]{2,32})",
         r"在(?P<location>[^，。；\n]{2,40})(集合|开会|参加|签到|考试|召开|举行)",
-        r"地点[:：]\s*(?P<location>[^，。；\n]{2,32})",
         r"至(?P<location>学习通|官网|邮箱|指定邮箱)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text)
         if match:
-            return match.group("location").strip()
+            location = match.group("location").strip()
+            if re.search(r"\d{1,2}\s*(?:月|日|号|[:：])", location):
+                continue
+            return location
     if "学习通" in text:
         return "学习通"
     if "官网" in text:
@@ -246,7 +249,7 @@ def _title_for(text: str, card_type: str) -> str:
     if "组会" in text:
         return "参加组会"
     if "进展汇报" in text:
-        return "准备进展汇报"
+        return "参加项目进展汇报" if card_type == "event" or "参加" in text else "准备进展汇报"
     if "汇报会" in text or ("项目" in text and "汇报" in text):
         return "参加项目汇报"
     if "社团" in text or "集合" in text:
@@ -369,6 +372,13 @@ def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> l
     if not is_actionable_text(normalized):
         return []
 
+    action_segments = _split_action_segments(normalized)
+    if len(action_segments) > 1:
+        for segment in action_segments:
+            segment_type = _classify(segment) or "task"
+            cards.append(build_card(segment, segment_type, screenshot_time, title=_title_for(segment, segment_type)))
+        return cards
+
     if any(word in normalized for word in ["组会", "开会", "会议"]) and any(word in normalized for word in ["准备", "汇报"]):
         cards.append(build_card(normalized, "event", screenshot_time, title="参加组会" if "组会" in normalized else "参加会议"))
         cards.append(build_card(normalized, "task", screenshot_time, title="准备进展汇报" if "汇报" in normalized else "准备会议材料"))
@@ -383,13 +393,6 @@ def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> l
         cards.append(build_card(normalized, "task", screenshot_time, title=_title_for(normalized, "task")))
         if any(word in normalized for word in ["举行", "路演", "活动时间"]) and any(word in normalized for word in ["活动中心", "地点", "在"]):
             cards.append(build_card(normalized, "event", screenshot_time, title="参加比赛活动"))
-        return cards
-
-    action_segments = _split_action_segments(normalized)
-    if len(action_segments) > 1:
-        for segment in action_segments:
-            segment_type = _classify(segment) or "task"
-            cards.append(build_card(segment, segment_type, screenshot_time, title=_title_for(segment, segment_type)))
         return cards
 
     card_type = _classify(normalized)

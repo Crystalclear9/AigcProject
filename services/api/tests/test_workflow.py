@@ -189,6 +189,36 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(refined["suggestions"][unselected.id]["deadline"], incoming.deadline)
         self.assertEqual(refined["suggestions"][unselected.id]["submit_method"], incoming.submit_method)
 
+    async def test_react_refinement_blocks_empty_selection(self) -> None:
+        current = ActionCard(
+            id="current-card",
+            created_at=datetime.now(timezone.utc),
+            title="Submit lab report",
+            deadline="2026-06-10T22:00:00+08:00",
+            submit_method=None,
+            source_text="Submit lab report before June 10 22:00",
+        )
+
+        with patch(
+            "app.services.react_refiner.extract_cards_with_rules",
+            side_effect=AssertionError("empty selection must not run tools"),
+        ):
+            refined = await refine_state_with_react(
+                {
+                    "cards": [current.model_dump(mode="json")],
+                    "ocr_text": current.source_text,
+                    "has_fast_model": False,
+                    "has_expert_model": False,
+                },
+                instruction="continue refining",
+                selected_card_ids=[],
+            )
+
+        self.assertEqual(refined["cards"][0]["title"], current.title)
+        self.assertEqual(refined["react_session"]["status"], "failed")
+        self.assertEqual(refined["react_session"]["failure_type"], "empty_selection")
+        self.assertIn("selected_card_ids is required for ReAct refinement", refined["validation_errors"])
+
     async def test_field_operations_use_independent_versions(self) -> None:
         started = await start_text_workflow(
             "请在6月10日22:00前提交实验报告。",
@@ -298,6 +328,21 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed.workflow_status, "awaiting_review")
         self.assertGreaterEqual(len(completed.cards), 2)
         self.assertNotIn("rules-fast-path", [trace.engine for trace in completed.node_trace])
+
+    async def test_complex_announcement_keeps_rule_cards_when_agents_degrade(self) -> None:
+        started = await start_text_workflow(
+            "请在7月3日22:00前提交《实验报告》到学习通。"
+            "请在7月4日14:30参加项目进展汇报，地点会议室203。"
+            "请在7月5日20:00前把报名表发到指定邮箱。",
+            "2026-06-28T10:00:00+08:00",
+        )
+        state = WorkflowRepository().get_state(started.run_id)
+        titles = [card["title"] for card in state.get("rule_cards", [])]
+
+        self.assertGreaterEqual(len(titles), 3)
+        self.assertTrue(any("实验报告" in title for title in titles))
+        self.assertTrue(any("汇报" in title for title in titles))
+        self.assertTrue(any("报名表" in title or "报名" in title for title in titles))
 
     async def test_inline_rules_fast_path_is_disabled_when_cloud_models_are_configured(self) -> None:
         state = {

@@ -76,9 +76,8 @@ async def refine_state_with_react(
 
     observe_started = time.perf_counter()
     current_cards = [_card_from_dict(card) for card in state.get("cards", [])]
-    current_ids = {card.id for card in current_cards}
-    selected_ids = set(selected_card_ids) if selected_card_ids else current_ids
-    selected_count = len(selected_card_ids) if selected_card_ids else len(current_cards)
+    selected_ids = set(selected_card_ids)
+    selected_count = len(selected_ids)
     step(
         1,
         "observe",
@@ -87,6 +86,60 @@ async def refine_state_with_react(
         observation=f"{len(current_cards)} current card(s), {selected_count} selected for refinement.",
         step_started=observe_started,
     )
+    if current_cards and not selected_ids:
+        react_suggestions = ["请先选择至少一张候选卡，再让 AI 继续完善；空选择不会默认修改全部卡片。"]
+        session = ReActSession(
+            id=f"react-{uuid.uuid4().hex[:12]}",
+            instruction=instruction.strip(),
+            status="failed",
+            rounds_used=len(steps),
+            actions_taken=actions_taken,
+            observations=observations,
+            suggestions=react_suggestions,
+            steps=steps,
+            failure_type="empty_selection",
+        )
+        final_ms = round((time.time() - float(state.get("started_at", time.time()))) * 1000, 2)
+        return {
+            "cards": [card.model_dump(mode="json") for card in current_cards],
+            "react_session": session.model_dump(mode="json"),
+            "react_suggestions": react_suggestions,
+            "workflow_status": "awaiting_review",
+            "pending_action": "review_cards",
+            "result_stage": state.get("result_stage", "provisional"),
+            "route": state.get("route", "rules"),
+            "engine": _react_engine(state, session),
+            "active_agents": state.get("active_agents", []),
+            "decision_reasons": _dedupe(
+                [
+                    *state.get("decision_reasons", []),
+                    "react_refinement_empty_selection_blocked",
+                ]
+            ),
+            "warnings": _dedupe(
+                [
+                    *state.get("warnings", []),
+                    "ReAct refinement ignored because no candidate card was selected.",
+                ]
+            ),
+            "validation_errors": _dedupe(
+                [
+                    *state.get("validation_errors", []),
+                    "selected_card_ids is required for ReAct refinement",
+                ]
+            ),
+            "time_to_final_ms": final_ms,
+            "node_trace": [
+                *state.get("node_trace", []),
+                {
+                    "node": "react_refiner",
+                    "status": "failed",
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "engine": _react_engine(state, session),
+                    "detail": "empty selection blocked",
+                },
+            ],
+        }
 
     local_started = time.perf_counter()
     local_cards = extract_cards_with_rules(text, screenshot_time)

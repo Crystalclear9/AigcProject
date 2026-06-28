@@ -83,13 +83,13 @@ class VivoOcrTest(unittest.TestCase):
         response = httpx.Response(
             200,
             json={"error_code": 0, "result": {"OCR": [{"words": "submit report"}]}},
-            request=httpx.Request("POST", "http://provider.test/ocr"),
+            request=httpx.Request("POST", "https://api-ai.vivo.com.cn/ocr/general_recognition"),
         )
         fake_client = FakeAsyncPostClient(response)
         fake_settings = SimpleNamespace(
             has_vivo_ocr_config=True,
             vivo_ocr_app_key="server-side-key",
-            vivo_ocr_url="http://provider.test/ocr",
+            vivo_ocr_url="https://api-ai.vivo.com.cn/ocr/general_recognition",
             vivo_ocr_business_id="aigc-test-app",
             vivo_ocr_timeout_seconds=5,
         )
@@ -105,7 +105,7 @@ class VivoOcrTest(unittest.TestCase):
         asyncio.run(run())
 
         call = fake_client.calls[0]
-        self.assertEqual(call["url"], "http://provider.test/ocr")
+        self.assertEqual(call["url"], "https://api-ai.vivo.com.cn/ocr/general_recognition")
         self.assertEqual(call["headers"]["Authorization"], "Bearer server-side-key")
         self.assertEqual(call["data"]["businessid"], "aigc-test-app")
         self.assertEqual(call["data"]["pos"], 2)

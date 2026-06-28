@@ -32,6 +32,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -60,7 +61,6 @@ class ScreenshotMonitorService : Service() {
                 .setSmallIcon(R.drawable.ic_launcher_foreground)
                 .setContentTitle("随手办")
                 .setContentText("截图识别在本机静默运行")
-                .setGroup(SERVICE_GROUP_KEY)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setSilent(true)
                 .build()
@@ -86,16 +86,10 @@ class ScreenshotMonitorService : Service() {
             ACTION_IGNORE_SCREENSHOT -> {
                 val mediaId = intent.getLongExtra(EXTRA_MEDIA_ID, -1L)
                 if (mediaId > 0) ignoredScreenshotIds += mediaId
+                markPendingPromptIgnored()
                 clearPendingPrompt(mediaId)
                 NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
                 Log.i(TAG, "Screenshot prompt ignored: mediaId=$mediaId")
-            }
-            ACTION_GENERATE_SCREENSHOT -> {
-                NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
-                Log.i(TAG, "Screenshot prompt generate action received: uri=${intent.data}")
-                val previewIntent = buildPreviewIntentFromAction(intent)
-                clearPendingPrompt(intent.getLongExtra(EXTRA_MEDIA_ID, -1L), clearOcrText = false)
-                startActivity(previewIntent)
             }
         }
         return START_STICKY
@@ -151,7 +145,7 @@ class ScreenshotMonitorService : Service() {
                     ""
                 }
                 if (!looksLikeScreenshot(name, path)) continue
-                Log.i(TAG, "Screenshot candidate detected: id=$id name=$name path=$path")
+                Log.i(TAG, "Screenshot candidate detected: id=$id")
                 val imageUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
                 pendingScreenshotIds.add(id)
                 waitForScreenshotReady(
@@ -265,7 +259,12 @@ class ScreenshotMonitorService : Service() {
             lastNotifiedId = maxOf(lastNotifiedId, id)
             Log.i(TAG, "Screenshot gate completed: id=$id prompt=${gate.shouldPrompt} confidence=${gate.confidence}")
             if (gate.shouldPrompt) {
-                notifyScreenshot(id, uri, text.take(MAX_OCR_EXTRA_CHARS), gate)
+                val promptText = text.take(MAX_OCR_EXTRA_CHARS)
+                if (shouldShowPrompt(promptText)) {
+                    notifyScreenshot(id, uri, promptText, gate)
+                } else {
+                    Log.i(TAG, "Screenshot prompt suppressed by frequency policy")
+                }
             } else {
                 Log.i(TAG, "Screenshot ignored by action gate")
             }
@@ -283,13 +282,18 @@ class ScreenshotMonitorService : Service() {
         ) {
             return
         }
-        val notificationId = uri.hashCode()
+        val notificationId = PROMPT_NOTIFICATION_ID
+        replacePendingPrompt()
         val ocrToken = cachePendingOcrText(ocrText)
-        persistPendingPrompt(mediaId, uri, ocrToken, ocrText, gate, notificationId)
-        val generatePendingIntent = PendingIntent.getService(
+        val contentHash = promptContentHash(ocrText)
+        persistPromptPolicy(contentHash)
+        persistPendingPrompt(mediaId, uri, ocrToken, ocrText, gate, notificationId, contentHash)
+        val generatePendingIntent = PendingIntent.getActivity(
             this,
             notificationId + 2,
-            buildGenerateIntent(uri, mediaId, notificationId, ocrToken, gate),
+            buildPreviewIntent(uri, ocrToken, gate).apply {
+                putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val ignoreIntent = Intent(this, ScreenshotMonitorService::class.java).apply {
@@ -321,6 +325,13 @@ class ScreenshotMonitorService : Service() {
         NotificationManagerCompat.from(this).notify(notificationId, notification)
     }
 
+    private fun replacePendingPrompt() {
+        val prefs = getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
+        clearPendingOcrText(prefs.getString(KEY_PENDING_OCR_TOKEN, null))
+        prefs.edit().clear().apply()
+        NotificationManagerCompat.from(this).cancel(PROMPT_NOTIFICATION_ID)
+    }
+
     private fun buildPreviewIntent(
         uri: Uri,
         ocrToken: String,
@@ -343,32 +354,6 @@ class ScreenshotMonitorService : Service() {
         }
     }
 
-    private fun buildGenerateIntent(
-        uri: Uri,
-        mediaId: Long,
-        notificationId: Int,
-        ocrToken: String,
-        gate: ScreenshotActionGateResult,
-    ): Intent {
-        return Intent(this, ScreenshotMonitorService::class.java).apply {
-            action = ACTION_GENERATE_SCREENSHOT
-            data = uri
-            putExtra(EXTRA_MEDIA_ID, mediaId)
-            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-            putExtras(buildPreviewIntent(uri, ocrToken, gate))
-            putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
-        }
-    }
-
-    private fun buildPreviewIntentFromAction(source: Intent): Intent {
-        return Intent(this, ScreenshotPreviewActivity::class.java).apply {
-            action = ACTION_PROCESS_SCREENSHOT
-            data = source.data
-            source.extras?.let { putExtras(it) }
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    }
-
     private fun buildPromptContent(gate: ScreenshotActionGateResult): String {
         return gate.promptSummary
             ?: gate.deadlineHint?.takeIf { it.isNotBlank() }?.let { "可能的行动事项 · $it" }
@@ -383,12 +368,14 @@ class ScreenshotMonitorService : Service() {
         ocrText: String,
         gate: ScreenshotActionGateResult,
         notificationId: Int,
+        contentHash: String,
     ) {
         getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putLong(KEY_PENDING_MEDIA_ID, mediaId)
             .putString(KEY_PENDING_URI, uri.toString())
             .putString(KEY_PENDING_OCR_TOKEN, ocrToken)
+            .putString(KEY_PENDING_CONTENT_HASH, contentHash)
             .putString(KEY_PENDING_OCR_SUMMARY, ocrText.take(PENDING_OCR_SUMMARY_CHARS))
             .putString(KEY_PENDING_GATE_REASON, gate.reason)
             .putString(KEY_PENDING_DEADLINE_HINT, gate.deadlineHint)
@@ -399,6 +386,53 @@ class ScreenshotMonitorService : Service() {
             .putInt(KEY_PENDING_NOTIFICATION_ID, notificationId)
             .putLong(KEY_PENDING_CREATED_AT, System.currentTimeMillis())
             .apply()
+    }
+
+    private fun shouldShowPrompt(ocrText: String): Boolean {
+        val now = System.currentTimeMillis()
+        val contentHash = promptContentHash(ocrText)
+        val prefs = getSharedPreferences(PROMPT_POLICY_PREFS, Context.MODE_PRIVATE)
+        val lastHash = prefs.getString(KEY_POLICY_LAST_HASH, null)
+        val lastAt = prefs.getLong(KEY_POLICY_LAST_AT, 0L)
+        if (lastHash == contentHash && now - lastAt < DUPLICATE_PROMPT_COOLDOWN_MS) return false
+        val ignoredHash = prefs.getString(KEY_POLICY_IGNORED_HASH, null)
+        val ignoredAt = prefs.getLong(KEY_POLICY_IGNORED_AT, 0L)
+        if (ignoredHash == contentHash && now - ignoredAt < IGNORED_PROMPT_COOLDOWN_MS) return false
+        val windowStart = prefs.getLong(KEY_POLICY_WINDOW_START, 0L)
+        val count = prefs.getInt(KEY_POLICY_WINDOW_COUNT, 0)
+        if (now - windowStart < PROMPT_RATE_WINDOW_MS && count >= MAX_PROMPTS_PER_WINDOW) return false
+        return true
+    }
+
+    private fun persistPromptPolicy(contentHash: String) {
+        val now = System.currentTimeMillis()
+        val prefs = getSharedPreferences(PROMPT_POLICY_PREFS, Context.MODE_PRIVATE)
+        val windowStart = prefs.getLong(KEY_POLICY_WINDOW_START, 0L)
+        val count = prefs.getInt(KEY_POLICY_WINDOW_COUNT, 0)
+        val nextWindowStart = if (now - windowStart > PROMPT_RATE_WINDOW_MS) now else windowStart
+        val nextCount = if (now - windowStart > PROMPT_RATE_WINDOW_MS) 1 else count + 1
+        prefs.edit()
+            .putString(KEY_POLICY_LAST_HASH, contentHash)
+            .putLong(KEY_POLICY_LAST_AT, now)
+            .putLong(KEY_POLICY_WINDOW_START, nextWindowStart)
+            .putInt(KEY_POLICY_WINDOW_COUNT, nextCount)
+            .apply()
+    }
+
+    private fun markPendingPromptIgnored() {
+        val pending = getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
+        val contentHash = pending.getString(KEY_PENDING_CONTENT_HASH, null) ?: return
+        getSharedPreferences(PROMPT_POLICY_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_POLICY_IGNORED_HASH, contentHash)
+            .putLong(KEY_POLICY_IGNORED_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun promptContentHash(text: String): String {
+        val normalized = text.lowercase().replace(Regex("\\s+"), "")
+        val bytes = MessageDigest.getInstance("SHA-256").digest(normalized.toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     private fun clearPendingPrompt(mediaId: Long, clearOcrText: Boolean = true) {
@@ -495,24 +529,25 @@ class ScreenshotMonitorService : Service() {
             pendingOcrText.entries.removeIf { now - it.value.createdAt > PROMPT_TIMEOUT_MS }
         }
 
-        private const val ACTION_GENERATE_SCREENSHOT = "com.suishouban.app.action.GENERATE_SCREENSHOT"
         private const val ACTION_IGNORE_SCREENSHOT = "com.suishouban.app.action.IGNORE_SCREENSHOT"
         private const val EXTRA_MEDIA_ID = "com.suishouban.app.extra.MEDIA_ID"
         private const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         private const val MAX_OCR_EXTRA_CHARS = 8_000
         private const val SERVICE_CHANNEL_ID = "suishouban_screenshot_monitor"
         private const val PROMPT_CHANNEL_ID = "suishouban_action_suggestions"
-        private const val SERVICE_GROUP_KEY = "suishouban.monitor.service"
         private const val SERVICE_NOTIFICATION_ID = 2026
+        private const val PROMPT_NOTIFICATION_ID = 2027
         private const val READY_TIMEOUT_MS = 3_000L
         private const val READY_POLL_INTERVAL_MS = 250L
         private const val FALLBACK_SCAN_INTERVAL_MS = 2_500L
         private const val RECENT_MEDIA_SCAN_LIMIT = 20
         private const val PROMPT_TIMEOUT_MS = 10 * 60 * 1000L
         private const val PENDING_PROMPT_PREFS = "screenshot_prompt_pending"
+        private const val PROMPT_POLICY_PREFS = "screenshot_prompt_policy"
         private const val KEY_PENDING_MEDIA_ID = "media_id"
         private const val KEY_PENDING_URI = "uri"
         private const val KEY_PENDING_OCR_TOKEN = "ocr_token"
+        private const val KEY_PENDING_CONTENT_HASH = "content_hash"
         private const val KEY_PENDING_OCR_SUMMARY = "ocr_summary"
         private const val KEY_PENDING_GATE_REASON = "gate_reason"
         private const val KEY_PENDING_DEADLINE_HINT = "deadline_hint"
@@ -522,6 +557,16 @@ class ScreenshotMonitorService : Service() {
         private const val KEY_PENDING_PRIMARY_EVIDENCE = "primary_evidence"
         private const val KEY_PENDING_NOTIFICATION_ID = "notification_id"
         private const val KEY_PENDING_CREATED_AT = "created_at"
+        private const val KEY_POLICY_LAST_HASH = "last_hash"
+        private const val KEY_POLICY_LAST_AT = "last_at"
+        private const val KEY_POLICY_IGNORED_HASH = "ignored_hash"
+        private const val KEY_POLICY_IGNORED_AT = "ignored_at"
+        private const val KEY_POLICY_WINDOW_START = "window_start"
+        private const val KEY_POLICY_WINDOW_COUNT = "window_count"
+        private const val DUPLICATE_PROMPT_COOLDOWN_MS = 10 * 60 * 1000L
+        private const val IGNORED_PROMPT_COOLDOWN_MS = 60 * 60 * 1000L
+        private const val PROMPT_RATE_WINDOW_MS = 10 * 60 * 1000L
+        private const val MAX_PROMPTS_PER_WINDOW = 2
         private const val PENDING_OCR_SUMMARY_CHARS = 160
         private const val TAG = "ScreenshotMonitor"
         private val pendingOcrText = ConcurrentHashMap<String, PendingOcrText>()
