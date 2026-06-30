@@ -18,7 +18,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.RemoteViews
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -56,16 +55,7 @@ class ScreenshotMonitorService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureChannel()
-        startForeground(
-            SERVICE_NOTIFICATION_ID,
-            NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentTitle("随手办")
-                .setContentText("截图识别在本机静默运行")
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSilent(true)
-                .build()
-        )
+        showMonitorNotification()
         seedLatestScreenshotId()
         registerObserver()
         mainHandler.postDelayed(periodicScan, FALLBACK_SCAN_INTERVAL_MS)
@@ -84,12 +74,21 @@ class ScreenshotMonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_OPEN_SCREENSHOT -> {
+                if (isTrustedPendingPreview(this, intent)) {
+                    startActivity(buildPreviewActivityIntent(intent))
+                    showMonitorNotification()
+                    Log.i(TAG, "Screenshot prompt opened from notification")
+                } else {
+                    Log.w(TAG, "Ignored stale screenshot prompt open request")
+                }
+            }
             ACTION_IGNORE_SCREENSHOT -> {
                 val mediaId = intent.getLongExtra(EXTRA_MEDIA_ID, -1L)
                 if (mediaId > 0) ignoredScreenshotIds += mediaId
                 markPendingPromptIgnored()
                 clearPendingPrompt(mediaId)
-                NotificationManagerCompat.from(this).cancel(intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0))
+                showMonitorNotification()
                 Log.i(TAG, "Screenshot prompt ignored: mediaId=$mediaId")
             }
         }
@@ -283,18 +282,19 @@ class ScreenshotMonitorService : Service() {
         ) {
             return
         }
-        val notificationId = PROMPT_NOTIFICATION_ID
+        val notificationId = SERVICE_NOTIFICATION_ID
         replacePendingPrompt()
         val ocrToken = cachePendingOcrText(ocrText)
         val contentHash = promptContentHash(ocrText)
         persistPromptPolicy(contentHash)
         persistPendingPrompt(mediaId, uri, ocrToken, gate, notificationId, contentHash)
-        val generatePendingIntent = PendingIntent.getActivity(
+        val openPromptIntent = buildOpenPromptIntent(uri, ocrToken, gate).apply {
+            putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val generatePendingIntent = PendingIntent.getService(
             this,
             notificationId + 2,
-            buildPreviewIntent(uri, ocrToken, gate).apply {
-                putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
-            },
+            openPromptIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val ignoreIntent = Intent(this, ScreenshotMonitorService::class.java).apply {
@@ -309,26 +309,12 @@ class ScreenshotMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val content = buildPromptContent(gate)
-        val compactView = RemoteViews(packageName, R.layout.notification_action_suggestion).apply {
-            setTextViewText(R.id.notification_action_title, "可能有待办")
-            setTextViewText(R.id.notification_action_content, content)
-            setContentDescription(R.id.notification_action_root, "可能有待办")
-            setContentDescription(R.id.notification_action_content, content)
-            setContentDescription(R.id.notification_generate, "生成")
-            setContentDescription(R.id.notification_ignore, "忽略")
-            setOnClickPendingIntent(R.id.notification_action_root, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_action_content, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_generate, generatePendingIntent)
-            setOnClickPendingIntent(R.id.notification_ignore, ignorePendingIntent)
-        }
         val notification = NotificationCompat.Builder(this, PROMPT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("可能有待办")
             .setContentText(content)
             .setContentIntent(generatePendingIntent)
-            .setCustomContentView(compactView)
-            .setCustomBigContentView(compactView)
-            .addAction(R.drawable.ic_launcher_foreground, "生成", generatePendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "查看", generatePendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "忽略", ignorePendingIntent)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
@@ -337,7 +323,7 @@ class ScreenshotMonitorService : Service() {
             .setCategory(NotificationCompat.CATEGORY_RECOMMENDATION)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        NotificationManagerCompat.from(this).notify(notificationId, notification)
+        startForeground(notificationId, notification)
     }
 
     private fun replacePendingPrompt() {
@@ -347,14 +333,28 @@ class ScreenshotMonitorService : Service() {
         NotificationManagerCompat.from(this).cancel(PROMPT_NOTIFICATION_ID)
     }
 
-    private fun buildPreviewIntent(
+    private fun showMonitorNotification() {
+        startForeground(
+            SERVICE_NOTIFICATION_ID,
+            NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("随手办")
+                .setContentText("截图识别在本机静默运行")
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSilent(true)
+                .build()
+        )
+    }
+
+    private fun buildOpenPromptIntent(
         uri: Uri,
         ocrToken: String,
         gate: ScreenshotActionGateResult,
     ): Intent {
-        return Intent(this, ScreenshotPreviewActivity::class.java).apply {
-            action = ACTION_PROCESS_SCREENSHOT
+        return Intent(this, ScreenshotMonitorService::class.java).apply {
+            action = ACTION_OPEN_SCREENSHOT
             data = uri
+            putExtra(EXTRA_MEDIA_ID, -1L)
             putExtra(ScreenshotPreviewActivity.EXTRA_OCR_TOKEN, ocrToken)
             putExtra(ScreenshotPreviewActivity.EXTRA_GATE_REASON, gate.reason)
             putExtra(ScreenshotPreviewActivity.EXTRA_DEADLINE_HINT, gate.deadlineHint)
@@ -365,6 +365,14 @@ class ScreenshotMonitorService : Service() {
                 ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE,
                 ArrayList(gate.primaryEvidence),
             )
+        }
+    }
+
+    private fun buildPreviewActivityIntent(source: Intent): Intent {
+        return Intent(this, ScreenshotPreviewActivity::class.java).apply {
+            action = ACTION_PROCESS_SCREENSHOT
+            data = source.data
+            putExtras(source)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
@@ -395,6 +403,7 @@ class ScreenshotMonitorService : Service() {
             .putString(KEY_PENDING_PROMPT_SUMMARY, gate.promptSummary)
             .putString(KEY_PENDING_CONFIDENCE_BAND, gate.confidenceBand)
             .putString(KEY_PENDING_SCENARIO_TYPE, gate.scenarioType)
+            .putStringSet(KEY_PENDING_PRIMARY_EVIDENCE, gate.primaryEvidence.toSet())
             .putInt(KEY_PENDING_NOTIFICATION_ID, notificationId)
             .putLong(KEY_PENDING_CREATED_AT, System.currentTimeMillis())
             .apply()
@@ -482,6 +491,18 @@ class ScreenshotMonitorService : Service() {
 
     companion object {
         const val ACTION_PROCESS_SCREENSHOT = "com.suishouban.app.action.PROCESS_SCREENSHOT"
+        fun isTrustedPendingPreview(context: Context, intent: Intent?): Boolean {
+            if (intent?.action != ACTION_PROCESS_SCREENSHOT && intent?.action != ACTION_OPEN_SCREENSHOT) return false
+            val prefs = context.getSharedPreferences(PENDING_PROMPT_PREFS, Context.MODE_PRIVATE)
+            val createdAt = prefs.getLong(KEY_PENDING_CREATED_AT, 0L)
+            if (createdAt <= 0L || System.currentTimeMillis() - createdAt > PROMPT_TIMEOUT_MS) return false
+            val pendingUri = prefs.getString(KEY_PENDING_URI, null)
+            val pendingToken = prefs.getString(KEY_PENDING_OCR_TOKEN, null)
+            return pendingUri == intent.data?.toString() &&
+                !pendingToken.isNullOrBlank() &&
+                pendingToken == intent.getStringExtra(ScreenshotPreviewActivity.EXTRA_OCR_TOKEN)
+        }
+
         fun consumePendingOcrText(token: String?): String? {
             if (token.isNullOrBlank()) return null
             prunePendingOcrCache()
@@ -508,7 +529,10 @@ class ScreenshotMonitorService : Service() {
                 putExtra(ScreenshotPreviewActivity.EXTRA_PROMPT_SUMMARY, prefs.getString(KEY_PENDING_PROMPT_SUMMARY, null))
                 putExtra(ScreenshotPreviewActivity.EXTRA_CONFIDENCE_BAND, prefs.getString(KEY_PENDING_CONFIDENCE_BAND, null))
                 putExtra(ScreenshotPreviewActivity.EXTRA_SCENARIO_TYPE, prefs.getString(KEY_PENDING_SCENARIO_TYPE, null))
-                putStringArrayListExtra(ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE, arrayListOf())
+                putStringArrayListExtra(
+                    ScreenshotPreviewActivity.EXTRA_PRIMARY_EVIDENCE,
+                    ArrayList(prefs.getStringSet(KEY_PENDING_PRIMARY_EVIDENCE, emptySet()).orEmpty()),
+                )
                 putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, prefs.getInt(KEY_PENDING_NOTIFICATION_ID, 0))
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -540,12 +564,15 @@ class ScreenshotMonitorService : Service() {
             pendingOcrText.entries.removeIf { now - it.value.createdAt > PROMPT_TIMEOUT_MS }
         }
 
+        private const val ACTION_OPEN_SCREENSHOT = "com.suishouban.app.action.OPEN_SCREENSHOT_PROMPT"
         private const val ACTION_IGNORE_SCREENSHOT = "com.suishouban.app.action.IGNORE_SCREENSHOT"
         private const val EXTRA_MEDIA_ID = "com.suishouban.app.extra.MEDIA_ID"
         private const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         private const val MAX_OCR_EXTRA_CHARS = 8_000
         private const val SERVICE_CHANNEL_ID = "suishouban_screenshot_monitor"
         private const val PROMPT_CHANNEL_ID = "suishouban_action_suggestions"
+        private const val MONITOR_NOTIFICATION_GROUP = "suishouban.monitor"
+        private const val PROMPT_NOTIFICATION_GROUP = "suishouban.action_prompt"
         private const val SERVICE_NOTIFICATION_ID = 2026
         private const val PROMPT_NOTIFICATION_ID = 2027
         private const val READY_TIMEOUT_MS = 3_000L
@@ -564,6 +591,7 @@ class ScreenshotMonitorService : Service() {
         private const val KEY_PENDING_PROMPT_SUMMARY = "prompt_summary"
         private const val KEY_PENDING_CONFIDENCE_BAND = "confidence_band"
         private const val KEY_PENDING_SCENARIO_TYPE = "scenario_type"
+        private const val KEY_PENDING_PRIMARY_EVIDENCE = "primary_evidence"
         private const val KEY_PENDING_NOTIFICATION_ID = "notification_id"
         private const val KEY_PENDING_CREATED_AT = "created_at"
         private const val KEY_POLICY_LAST_HASH = "last_hash"

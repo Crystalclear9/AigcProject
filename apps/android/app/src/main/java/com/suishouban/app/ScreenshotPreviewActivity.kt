@@ -10,7 +10,6 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -78,8 +77,17 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         configureFloatingWindow()
         viewModel.beginFreshScreenshotPrompt()
 
-        val recoveredIntent = ScreenshotMonitorService.consumePendingPreviewIntent(this)
-        val sourceIntent = recoveredIntent ?: intent
+        val incomingIntent = intent
+        val sourceIntent = when {
+            ScreenshotMonitorService.isTrustedPendingPreview(this, incomingIntent) -> incomingIntent
+            incomingIntent.action == ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT ->
+                ScreenshotMonitorService.consumePendingPreviewIntent(this)
+            else -> null
+        }
+        if (sourceIntent == null) {
+            finish()
+            return
+        }
         val screenshotUri = sourceIntent.data
         val ocrText = sourceIntent.getStringExtra(EXTRA_OCR_TEXT)
             ?: ScreenshotMonitorService.consumePendingOcrText(sourceIntent.getStringExtra(EXTRA_OCR_TOKEN))
@@ -90,12 +98,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         val confidenceBand = sourceIntent.getStringExtra(EXTRA_CONFIDENCE_BAND)
         val scenarioType = sourceIntent.getStringExtra(EXTRA_SCENARIO_TYPE)
         val primaryEvidence = sourceIntent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
-        sourceIntent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
-            .takeIf { it != 0 }
-            ?.let { NotificationManagerCompat.from(this).cancel(it) }
-        if (recoveredIntent == null) {
-            ScreenshotMonitorService.clearPendingPreview(this)
-        }
+        ScreenshotMonitorService.clearPendingPreview(this)
 
         setContent {
             SuiShouBanTheme {
