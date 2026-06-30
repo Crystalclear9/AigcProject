@@ -199,7 +199,7 @@ class MainActivity : ComponentActivity() {
 
     private fun openProcessScreenshotIntent(source: Intent?): Boolean {
         if (source?.action != ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT) return false
-        ScreenshotMonitorService.clearPendingPreview(this)
+        if (!ScreenshotMonitorService.isTrustedPendingPreview(this, source)) return false
         val previewIntent = Intent(this, ScreenshotPreviewActivity::class.java).apply {
             action = ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT
             data = source.data

@@ -85,10 +85,21 @@ fun HomeScreen(
             ) {
                 Text("随手办", style = MaterialTheme.typography.headlineLarge, color = Color.White)
                 Text(
-                    "一截图，即执行",
+                    "先建议，后确认，再提醒",
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White.copy(alpha = 0.9f),
                 )
+                Text(
+                    "截图只会生成候选事项；你确认后才保存卡片、安排提醒或同步日历。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.82f),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HeroStepPill("识别")
+                    HeroStepPill("候选")
+                    HeroStepPill("确认")
+                    HeroStepPill("提醒")
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = { showImportOptions = true },
@@ -161,6 +172,17 @@ fun HomeScreen(
                 onImportFromCamera()
             },
         )
+    }
+}
+
+@Composable
+private fun HeroStepPill(text: String) {
+    Box(
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(text, color = Color.White, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
     }
 }
 

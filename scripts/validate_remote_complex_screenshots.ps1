@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:37065",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
@@ -36,7 +36,8 @@ if (-not (Test-Path -LiteralPath $artifactDir)) {
     New-Item -ItemType Directory -Path $artifactDir | Out-Null
 }
 $devicePortForLog = ($Device -replace '.*:', '') -replace '[^0-9A-Za-z_-]', '_'
-$transcriptPath = Join-Path $artifactDir "remote-$devicePortForLog-validation.log"
+$transcriptStamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$transcriptPath = Join-Path $artifactDir "remote-$devicePortForLog-validation-$transcriptStamp.log"
 try {
     Start-Transcript -Path $transcriptPath -Force | Out-Null
     Write-Host "Remote validation transcript: $transcriptPath"
@@ -54,7 +55,7 @@ function Initialize-AdbKeyEnvironment {
 }
 
 function Disconnect-StaleCloudDevices {
-    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36073", "36197", "37065", "37121", "38053", "38197", "39165")) {
+    foreach ($port in @("35029", "35033", "35121", "35173", "35181", "35185", "36009", "36073", "36197", "37033", "37065", "37121", "37133", "38053", "38141", "38197", "39017", "39165")) {
         $candidate = "val-vclinner-rt-contest.vivo.com.cn:$port"
         if ($candidate -ne $Device) {
             $disconnectCommand = '"' + $adb + '" disconnect ' + $candidate + ' >NUL 2>NUL'
@@ -140,6 +141,35 @@ function Assert-ApkHasNoSensitiveMarkers {
     Write-Host "APK safety scan passed. Size=$size SHA256=$hash"
 }
 
+function Assert-RepositoryHasNoSensitiveKeyMaterial {
+    $patterns = @(
+        ("sk" + "-xuanji"),
+        ("QXR5" + "T0pF" + "SnFT" + "U0lp" + "Z0Fi" + "Rw"),
+        ("2026" + "882787" + "-" + "QXR5"),
+        '(LANXIN_API_KEY|FAST_MODEL_API_KEY|EXPERT_MODEL_API_KEY|VIVO_OCR_APP_KEY|VIVO_IMAGE_GENERATION_API_KEY)\s*[:=]\s*[''"]?sk[-_A-Za-z0-9]',
+        'Authorization\s*:\s*Bearer\s+sk[-_A-Za-z0-9]',
+        'AppKey\s*=\s*[''"]sk[-_A-Za-z0-9]'
+    )
+    $files = & git -C $root -c core.quotePath=false ls-files
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not enumerate repository files for secret scan."
+    }
+    foreach ($relative in $files) {
+        if ($relative -match '(^|/)(artifacts|\.gradle|build|\.venv|node_modules)/') { continue }
+        if ($relative -match '\.(png|jpg|jpeg|webp|apk|db|sqlite|jar|keystore)$') { continue }
+        $path = Join-Path $root $relative
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $text = Get-Content -LiteralPath $path -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $text) { continue }
+        foreach ($pattern in $patterns) {
+            if ($text -match $pattern) {
+                throw "Sensitive key material pattern found in repository file: $relative"
+            }
+        }
+    }
+    Write-Host "Repository key-material scan passed."
+}
+
 function Utf8Text {
     param([string]$Base64)
     return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Base64))
@@ -147,12 +177,16 @@ function Utf8Text {
 
 $T = @{
     ContinueInstall = Utf8Text "57un57ut5a6J6KOF"
+    UsbConnected = Utf8Text "VVNCIOW3sui/nuaOpQ=="
+    Cancel = Utf8Text "5Y+W5raI"
     NotificationPermission = Utf8Text "6K+35rGC5ZCR5oKo5Y+R6YCB6YCa55+l"
     Allow = Utf8Text "5YWB6K64"
     MediaPermission = Utf8Text "6K+35rGC6K6/6Zeu5oKo55qE54Wn54mH5LiO6KeG6aKR"
     AllowAllMedia = Utf8Text "5YWB6K645a6M5YWo6K6/6Zeu"
-    LocalMode = Utf8Text "5pys5py65qih5byP"
+    LocalMode = Utf8Text "5omL5py656uv6K+G5Yir"
+    PhoneIndependentMode = Utf8Text "5omL5py654us56uL6L+Q6KGM"
     MaybeTodo = Utf8Text "5Y+v6IO95pyJ5b6F5Yqe"
+    OpenPrompt = Utf8Text "5p+l55yL"
     Generate = Utf8Text "55Sf5oiQ"
     GenerateDraft = Utf8Text "55Sf5oiQ6I2J56i/"
     Ignore = Utf8Text "5b+955Wl"
@@ -207,6 +241,47 @@ function Normalize-AdbArgs {
     return $flat
 }
 
+function Quote-ProcessArg {
+    param([string]$Value)
+    if ($Value -notmatch '[\s"]') { return $Value }
+    return '"' + $Value.Replace('\', '\\').Replace('"', '\"') + '"'
+}
+
+function Invoke-AdbConnectWithTimeout {
+    param([int]$TimeoutSeconds = 12)
+    return Invoke-AdbRawWithTimeout -Args @("connect", $Device) -TimeoutSeconds $TimeoutSeconds
+}
+
+function Invoke-AdbRawWithTimeout {
+    param(
+        [string[]]$Args,
+        [int]$TimeoutSeconds = 10
+    )
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $adb
+    $psi.Arguments = (($Args | ForEach-Object { Quote-ProcessArg $_ }) -join " ")
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::Start($psi)
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        try { $process.Kill() } catch {}
+        return @{ ExitCode = 124; Output = "adb connect timed out after ${TimeoutSeconds}s" }
+    }
+    $output = @($process.StandardOutput.ReadToEnd(), $process.StandardError.ReadToEnd()) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    return @{ ExitCode = $process.ExitCode; Output = ($output -join "`n") }
+}
+
+function Invoke-AdbDeviceRawWithTimeout {
+    param(
+        [string[]]$Args,
+        [int]$TimeoutSeconds = 10
+    )
+    return Invoke-AdbRawWithTimeout -Args (@("-s", $Device) + $Args) -TimeoutSeconds $TimeoutSeconds
+}
+
 function Invoke-Adb {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
     $normalizedArgs = Normalize-AdbArgs $Args
@@ -230,7 +305,7 @@ function Invoke-Adb {
             return $output
         }
         if ($text -match "offline|closed|device .*not found|no devices|cannot connect to daemon|failed to start daemon|daemon not running|failed to read copy response|EOF|protocol fault") {
-            & $adb kill-server 2>$null | Out-Null
+            Invoke-AdbRawWithTimeout -Args @("kill-server") -TimeoutSeconds 8 | Out-Null
             Start-Sleep -Seconds 2
             Wait-AdbDevice -Attempts 20
             Start-Sleep -Seconds 1
@@ -254,8 +329,8 @@ function Invoke-AdbLoose {
 
 function Reset-AdbAuthorization {
     Write-Host "Resetting local ADB authorization keys and server..."
-    & $adb disconnect $Device | Out-Null
-    & $adb kill-server | Out-Null
+    Invoke-AdbRawWithTimeout -Args @("disconnect", $Device) -TimeoutSeconds 8 | Out-Null
+    Invoke-AdbRawWithTimeout -Args @("kill-server") -TimeoutSeconds 8 | Out-Null
     $androidDir = Join-Path $env:USERPROFILE ".android"
     foreach ($name in @("adbkey", "adbkey.pub")) {
         $path = Join-Path $androidDir $name
@@ -269,7 +344,7 @@ function Reset-AdbAuthorization {
         }
     }
     Initialize-AdbKeyEnvironment
-    & $adb start-server | Out-Null
+    Invoke-AdbRawWithTimeout -Args @("start-server") -TimeoutSeconds 8 | Out-Null
 }
 
 function Escape-Xml {
@@ -295,30 +370,32 @@ function Wait-AdbDevice {
         $attempt++
         $oldPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
-        $connectOutput = & $adb connect $Device 2>&1
-        $connectExit = $LASTEXITCODE
+        $connectResult = Invoke-AdbConnectWithTimeout
+        $connectOutput = $connectResult.Output
+        $connectExit = $connectResult.ExitCode
         Start-Sleep -Seconds 2
-        $stateOutput = & $adb -s $Device get-state 2>&1
-        $stateExit = $LASTEXITCODE
-        $devicesOutput = & $adb devices 2>&1
+        $stateResult = Invoke-AdbDeviceRawWithTimeout -Args @("get-state") -TimeoutSeconds 8
+        $stateOutput = @($stateResult.Output)
+        $stateExit = $stateResult.ExitCode
+        $devicesResult = Invoke-AdbRawWithTimeout -Args @("devices") -TimeoutSeconds 8
+        $devicesOutput = @($devicesResult.Output)
         $ErrorActionPreference = $oldPreference
         if ($connectOutput) { $connectOutput | Out-Host }
         $state = ($stateOutput -join "").Trim()
         $devicesText = ($devicesOutput -join "`n")
         Write-Host "ADB wait attempt $attempt state=[$state]"
         $devicePattern = [regex]::Escape($Device) + "\s+device"
+        $oldPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        $probeResult = Invoke-AdbDeviceRawWithTimeout -Args @("shell", "echo", "adb-ready") -TimeoutSeconds 8
+        $probeOutput = @($probeResult.Output)
+        $probeExit = $probeResult.ExitCode
+        $ErrorActionPreference = $oldPreference
+        if ($probeExit -eq 0 -and (($probeOutput -join "`n") -match "adb-ready")) {
+            return
+        }
         if (($stateExit -eq 0 -and $state -eq "device") -or ($devicesText -match $devicePattern)) {
-            $oldPreference = $ErrorActionPreference
-            $ErrorActionPreference = "Continue"
-            $probeOutput = & $adb -s $Device shell echo adb-ready 2>&1
-            $probeExit = $LASTEXITCODE
-            $ErrorActionPreference = $oldPreference
-            if ($probeExit -eq 0 -and (($probeOutput -join "`n") -match "adb-ready")) {
-                return
-            }
-            & $adb disconnect $Device | Out-Null
-            Start-Sleep -Seconds 2
-            continue
+            return
         }
         if ($state -match "unauthorized" -or $devicesText -match ([regex]::Escape($Device) + "\s+unauthorized")) {
             if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
@@ -326,24 +403,24 @@ function Wait-AdbDevice {
             } else {
                 $oldPreference = $ErrorActionPreference
                 $ErrorActionPreference = "Continue"
-                & $adb disconnect $Device 2>&1 | Out-Null
+                Invoke-AdbRawWithTimeout -Args @("disconnect", $Device) -TimeoutSeconds 8 | Out-Null
                 $ErrorActionPreference = $oldPreference
             }
         } elseif ($state -match "offline|failed|not found" -or $devicesText -match "offline" -or $connectExit -ne 0) {
             $oldPreference = $ErrorActionPreference
             $ErrorActionPreference = "Continue"
-            & $adb disconnect $Device 2>&1 | Out-Null
-            & $adb kill-server 2>&1 | Out-Null
+            Invoke-AdbRawWithTimeout -Args @("disconnect", $Device) -TimeoutSeconds 8 | Out-Null
+            Invoke-AdbRawWithTimeout -Args @("kill-server") -TimeoutSeconds 8 | Out-Null
             Start-Sleep -Seconds 2
-            & $adb start-server 2>&1 | Out-Null
-            & $adb disconnect $Device 2>&1 | Out-Null
+            Invoke-AdbRawWithTimeout -Args @("start-server") -TimeoutSeconds 8 | Out-Null
+            Invoke-AdbRawWithTimeout -Args @("disconnect", $Device) -TimeoutSeconds 8 | Out-Null
             $ErrorActionPreference = $oldPreference
         }
     }
     $oldPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $finalState = (& $adb -s $Device get-state 2>&1) -join "`n"
-    $finalDevices = (& $adb devices 2>&1) -join "`n"
+    $finalState = (Invoke-AdbDeviceRawWithTimeout -Args @("get-state") -TimeoutSeconds 8).Output
+    $finalDevices = (Invoke-AdbRawWithTimeout -Args @("devices") -TimeoutSeconds 8).Output
     $ErrorActionPreference = $oldPreference
     throw "Remote device did not reach state=device. get-state=[$finalState] adb devices=[$finalDevices]"
 }
@@ -456,6 +533,29 @@ function Get-NodeBoundsByTextOrDescription {
     }
 }
 
+function Get-NotificationRowCenterByText {
+    param([string]$Xml, [string]$Text)
+    $escaped = [regex]::Escape($Text)
+    $textMatch = [regex]::Match($Xml, "<node[^>]*(text|content-desc)=""[^""]*$escaped[^""]*""[^>]*bounds=""\[(\d+),(\d+)\]\[(\d+),(\d+)\]""")
+    if (-not $textMatch.Success) { return $null }
+    $prefix = $Xml.Substring(0, $textMatch.Index)
+    $rowPattern = '<node[^>]*resource-id="com\.android\.systemui:id/expandableNotificationRow"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
+    $rows = [regex]::Matches($prefix, $rowPattern)
+    if ($rows.Count -le 0) {
+        $x1 = [int]$textMatch.Groups[2].Value
+        $y1 = [int]$textMatch.Groups[3].Value
+        $x2 = [int]$textMatch.Groups[4].Value
+        $y2 = [int]$textMatch.Groups[5].Value
+        return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+    }
+    $row = $rows[$rows.Count - 1]
+    $x1 = [int]$row.Groups[1].Value
+    $y1 = [int]$row.Groups[2].Value
+    $x2 = [int]$row.Groups[3].Value
+    $y2 = [int]$row.Groups[4].Value
+    return @{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
+}
+
 function Get-DeviceScreenHeight {
     $size = (Invoke-Adb shell wm size) -join "`n"
     if ($size -match "(\d+)x(\d+)") {
@@ -499,6 +599,43 @@ function Tap-RemotePoint {
     param([int]$X, [int]$Y)
     & $adb -s $Device shell input tap $X $Y 2>$null | Out-Null
     Start-Sleep -Milliseconds 650
+}
+
+function Dismiss-UsbConnectedPanel {
+    param([string]$Xml = "")
+    if ([string]::IsNullOrWhiteSpace($Xml)) {
+        try {
+            $Xml = Get-UiXml "usb-connected-panel.xml"
+        } catch {
+            return $false
+        }
+    }
+    if ($Xml -notmatch [regex]::Escape($T.UsbConnected)) { return $false }
+    $cancelButton = Get-ResourceCenter $Xml "android:id/button2"
+    if (-not $cancelButton) {
+        $cancelButton = Get-ClickableTextCenter $Xml $T.Cancel
+    }
+    if ($cancelButton) {
+        Tap-RemotePoint -X $cancelButton.X -Y $cancelButton.Y
+    } else {
+        Invoke-Adb shell input keyevent 4 | Out-Null
+        Start-Sleep -Milliseconds 700
+    }
+    return $true
+}
+
+function SafeCollapseStatusBar {
+    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    Start-Sleep -Milliseconds 500
+    try {
+        $xml = Get-UiXml "after-collapse.xml"
+        if (Dismiss-UsbConnectedPanel $xml) {
+            Start-Sleep -Milliseconds 700
+            Invoke-Adb shell cmd statusbar collapse | Out-Null
+        }
+    } catch {
+        # Ignore transient UI dump failures; the next assertion will collect diagnostics.
+    }
 }
 
 function Test-PreviewOpen {
@@ -616,16 +753,20 @@ function Wait-UiNotContains {
 
 function Confirm-VivoInstaller {
     for ($attempt = 1; $attempt -le 12; $attempt++) {
-        Wait-AdbDevice -Attempts 3
+        Wait-AdbDevice -Attempts 10
         $installedResult = Invoke-AdbLoose shell pm path com.suishouban.app
         $installed = ($installedResult.Output -join "")
         if ($installedResult.ExitCode -eq 0 -and $installed -match "package:") { return }
-        Invoke-Adb shell cmd statusbar collapse | Out-Null
+        SafeCollapseStatusBar
         Start-Sleep -Seconds 1
         $xml = ""
         try {
             $xml = Get-UiXml "suishouban-install.xml"
         } catch {
+            Start-Sleep -Seconds 2
+            continue
+        }
+        if (Dismiss-UsbConnectedPanel $xml) {
             Start-Sleep -Seconds 2
             continue
         }
@@ -667,7 +808,7 @@ function Install-App {
         Wait-AdbDevice -Attempts 20
     }
     $remoteApk = "/data/local/tmp/suishouban-debug.apk"
-    Invoke-Adb push $ApkPath $remoteApk | Out-Host
+    Invoke-Adb push $ApkPath $remoteApk | Out-Null
     Wait-AdbDevice -Attempts 80
     $apkSize = (Get-Item -LiteralPath $ApkPath).Length
     $createResult = (Invoke-Adb shell pm install-create -r -t -S $apkSize) -join "`n"
@@ -675,8 +816,8 @@ function Install-App {
         throw "Could not create package installer session: $createResult"
     }
     $sessionId = $Matches[1]
-    Invoke-Adb shell pm install-write -S $apkSize $sessionId base.apk $remoteApk | Out-Host
-    Invoke-Adb shell cmd package install-commit $sessionId | Out-Host
+    Invoke-Adb shell pm install-write -S $apkSize $sessionId base.apk $remoteApk | Out-Null
+    Invoke-Adb shell cmd package install-commit $sessionId | Out-Null
     Wait-AdbDevice -Attempts 80
     Confirm-VivoInstaller
     Invoke-Adb @("shell", "rm", "-f", $remoteApk) | Out-Null
@@ -778,7 +919,7 @@ function Open-MultiTaskPromptDirect {
         TrimEnd("=").
         Replace("+", "-").
         Replace("/", "_")
-    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    SafeCollapseStatusBar
     Invoke-Adb @(
         "shell",
         "am",
@@ -963,41 +1104,41 @@ function Configure-WorkflowUrl {
     if ([string]::IsNullOrWhiteSpace($WorkflowUrl)) { return }
     $trimmed = $WorkflowUrl.Trim()
     if (-not $trimmed.StartsWith("https://")) {
-        throw "WorkflowUrl must be HTTPS for remote validation: $trimmed"
+        throw "Workflow gateway URL must be HTTPS for remote validation: $trimmed"
     }
     $healthUrl = $trimmed.TrimEnd("/") + "/health"
     try {
         $health = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 8
     } catch {
-        throw "WorkflowUrl health check failed: $healthUrl"
+        throw "Workflow gateway health check failed: $healthUrl"
     }
     foreach ($field in @("ready", "chat_configured", "ocr_configured")) {
         if (-not ($health.PSObject.Properties.Name -contains $field)) {
-            throw "WorkflowUrl health check did not include $field."
+            throw "Workflow gateway health check did not include $field."
         }
         if (-not [bool]$health.$field) {
-            throw "WorkflowUrl health check reported $field=false."
+            throw "Workflow gateway health check reported $field=false."
         }
     }
     Assert-ProviderProbe $trimmed
     Assert-ProviderWorkflowParticipation $trimmed
-    Write-Host "Configuring WorkflowUrl in app settings..."
+    Write-Host "Configuring workflow gateway URL in app settings..."
     Write-WorkflowPrefsDirect $trimmed
     Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
     Start-App -SkipModeAssert
     Tap-Text $T.Settings "settings-nav.xml"
-    Wait-UiContains $T.WorkflowApiUrl "Settings screen did not show Workflow API URL field."
+    Wait-UiContains $T.WorkflowApiUrl "Settings screen did not show service address field."
     Tap-Text $T.TestService "test-workflow-url.xml"
     try {
-        Wait-UiContains $T.CloudConfigured "Phone-side WorkflowUrl connection test did not report cloud configured." 60
+        Wait-UiContains $T.CloudConfigured "Phone-side service connection test did not report cloud configured." 60
         Wait-UiContains $T.VivoModelCalled "Phone-side provider probe did not report vivo model call." 60
         Wait-UiContains $T.VivoOcrCalled "Phone-side provider probe did not report vivo OCR call." 60
-        Wait-UiContains $T.WorkflowRuntimeOk "Phone-side WorkflowUrl connection test did not report workflow runtime ok." 60
+        Wait-UiContains $T.WorkflowRuntimeOk "Phone-side service connection test did not report workflow runtime ok." 60
     } catch {
         Save-RemoteDiagnostics "workflow-url-test-failed"
         throw
     }
-    Write-Host "Configured WorkflowUrl through the phone UI."
+    Write-Host "Configured workflow gateway URL through the phone UI."
 }
 
 function Reset-AppData {
@@ -1028,10 +1169,16 @@ function Start-App {
         }
         Start-Sleep -Seconds 2
     }
-    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    SafeCollapseStatusBar
     Start-Sleep -Seconds 1
     if (-not $SkipModeAssert) {
-        Assert-UiContains $T.LocalMode "Home did not show local mode."
+        $homeXml = Get-UiXml "startup-mode.xml"
+        if (
+            $homeXml -notmatch [regex]::Escape($T.LocalMode) -and
+            $homeXml -notmatch [regex]::Escape($T.PhoneIndependentMode)
+        ) {
+            throw "Home did not show phone-side mode."
+        }
     }
 }
 
@@ -1042,13 +1189,13 @@ function Push-Sample {
         throw "Sample image missing: $localPath"
     }
     Invoke-Adb @("shell", "mkdir", "-p", $remoteSampleDir) | Out-Null
-    Invoke-Adb push $localPath "$remoteSampleDir/$Name" | Out-Host
+    Invoke-Adb push $localPath "$remoteSampleDir/$Name" | Out-Null
     Invoke-Adb @("shell", "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", "file://$remoteSampleDir/$Name") | Out-Null
 }
 
 function Open-SampleAndScreenshot {
     param([string]$Name)
-    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    SafeCollapseStatusBar
     Push-Sample $Name
     $shotName = "Screenshot_suishouban_validation_$([DateTimeOffset]::Now.ToUnixTimeMilliseconds())_$Name"
     $shotPath = "/sdcard/Pictures/Screenshots/$shotName"
@@ -1061,7 +1208,13 @@ function Open-SampleAndScreenshot {
 function Open-Notifications {
     Invoke-Adb shell cmd statusbar expand-notifications | Out-Null
     Start-Sleep -Seconds 1
-    return Get-UiXml "notifications.xml"
+    $xml = Get-UiXml "notifications.xml"
+    if (Dismiss-UsbConnectedPanel $xml) {
+        Invoke-Adb shell cmd statusbar expand-notifications | Out-Null
+        Start-Sleep -Seconds 1
+        $xml = Get-UiXml "notifications.xml"
+    }
+    return $xml
 }
 
 function Assert-NoActionSuggestionNotification {
@@ -1069,7 +1222,7 @@ function Assert-NoActionSuggestionNotification {
     if ($xml -match [regex]::Escape($T.MaybeTodo)) {
         throw "Unexpected action suggestion notification appeared."
     }
-    Invoke-Adb shell cmd statusbar collapse | Out-Null
+    SafeCollapseStatusBar
 }
 
 function Assert-ActionSuggestionNotification {
@@ -1080,14 +1233,14 @@ function Assert-ActionSuggestionNotification {
         }
     }
     $hasVisibleActions = $true
-    foreach ($text in @($T.Generate, $T.Ignore)) {
+    foreach ($text in @($T.OpenPrompt, $T.Ignore)) {
         if ($xml -notmatch [regex]::Escape($text)) {
             $hasVisibleActions = $false
         }
     }
     if (-not $hasVisibleActions) {
         $notificationDump = (Invoke-Adb @("shell", "dumpsys", "notification", "--noredact")) -join "`n"
-        foreach ($text in @($T.Generate, $T.Ignore)) {
+        foreach ($text in @($T.OpenPrompt, $T.Ignore)) {
             if ($notificationDump -notmatch [regex]::Escape("`"$text`"")) {
                 throw "Expected notification action missing from system notification record: $text"
             }
@@ -1109,17 +1262,6 @@ function Tap-NotificationAction {
     if (-not $center) {
         $xml = Expand-ActionSuggestionNotification
         $center = Get-TextCenter $xml $Text
-    }
-    if (-not $center) {
-        $resourceId = $null
-        if ($Text -eq $T.Ignore) {
-            $resourceId = "com.suishouban.app:id/notification_ignore"
-        } elseif ($Text -eq $T.Generate) {
-            $resourceId = "com.suishouban.app:id/notification_generate"
-        }
-        if ($resourceId) {
-            $center = Get-ResourceCenter $xml $resourceId
-        }
     }
     if (-not $center) {
         throw "Notification action not found: $Text"
@@ -1146,16 +1288,19 @@ function Expand-ActionSuggestionNotification {
 function Dismiss-ActionSuggestionWithIgnore {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
         try {
-            Tap-NotificationAction $T.Ignore
+            Tap-NotificationAction $T.OpenPrompt
+            SafeCollapseStatusBar
+            Wait-UiContains $T.Ignore "Compact prompt did not expose Ignore fallback." 10
+            Tap-Text $T.Ignore "compact-prompt-ignore.xml"
         } catch {
-            Write-Host "Notification ignore action is hidden; opening compact prompt and tapping Ignore there."
+            Write-Host "Notification view action is hidden; opening compact prompt through notification content."
             Tap-NotificationContentFallback
-            Invoke-Adb shell cmd statusbar collapse | Out-Null
+            SafeCollapseStatusBar
             Wait-UiContains $T.Ignore "Compact prompt did not expose Ignore fallback." 10
             Tap-Text $T.Ignore "compact-prompt-ignore.xml"
         }
         if (-not (Test-ActionSuggestionNotification)) {
-            Invoke-Adb shell cmd statusbar collapse | Out-Null
+            SafeCollapseStatusBar
             return
         }
         Start-Sleep -Seconds 1
@@ -1165,9 +1310,12 @@ function Dismiss-ActionSuggestionWithIgnore {
 
 function Tap-NotificationContentFallback {
     $xml = Open-Notifications
-    $center = Get-TextCenter $xml $T.LabReport
+    $center = Get-NotificationRowCenterByText $xml $T.MaybeTodo
     if (-not $center) {
-        $center = Get-TextCenter $xml $T.MaybeTodo
+        $center = Get-TextCenter $xml $T.LabReport
+        if (-not $center) {
+            $center = Get-TextCenter $xml $T.MaybeTodo
+        }
     }
     if (-not $center) {
         throw "Could not find notification content fallback."
@@ -1177,19 +1325,6 @@ function Tap-NotificationContentFallback {
 }
 
 function Tap-NotificationRootFallback {
-    $xml = Open-Notifications
-    foreach ($resourceId in @(
-        "com.suishouban.app:id/notification_action_content",
-        "com.suishouban.app:id/notification_action_root",
-        "com.suishouban.app:id/notification_generate"
-    )) {
-        $center = Get-ResourceCenter $xml $resourceId
-        if ($center) {
-            Invoke-Adb shell input tap $center.X $center.Y | Out-Null
-            Start-Sleep -Seconds 3
-            return
-        }
-    }
     Tap-NotificationContentFallback
 }
 
@@ -1209,9 +1344,9 @@ function Open-GeneratedPreviewFromNotification {
         throw "Action suggestion notification was not visible before generate."
     }
     try {
-        Tap-NotificationAction $T.Generate
-        Invoke-Adb shell cmd statusbar collapse | Out-Null
-        Wait-UiContains $T.GenerateDraft "Generate action did not open request panel." 10
+        Tap-NotificationAction $T.OpenPrompt
+        SafeCollapseStatusBar
+        Wait-UiContains $T.GenerateDraft "Notification view action did not open request panel." 10
         Assert-FloatingPanelHeightUnder 0.35 "request prompt"
         Tap-Text $T.GenerateDraft "generate-draft.xml"
         return
@@ -1220,7 +1355,7 @@ function Open-GeneratedPreviewFromNotification {
     }
     try {
         Tap-NotificationRootFallback
-        Invoke-Adb shell cmd statusbar collapse | Out-Null
+        SafeCollapseStatusBar
         Wait-UiContains $T.GenerateDraft "Notification root did not open request panel." 10
         Assert-FloatingPanelHeightUnder 0.35 "request prompt"
         Tap-Text $T.GenerateDraft "generate-draft.xml"
@@ -1356,12 +1491,71 @@ function Get-CardsXmlAcrossScroll {
     return $combined
 }
 
+function Escape-ShellSingleQuoted {
+    param([string]$Value)
+    return "'" + $Value.Replace("'", "'\''") + "'"
+}
+
+function Get-ReminderJobCount {
+    $jobs = (Invoke-Adb shell dumpsys jobscheduler) -join "`n"
+    return ([regex]::Matches(
+            $jobs,
+            "com\.suishouban\.app/androidx\.work\.impl\.background\.systemjob\.SystemJobService"
+        )).Count
+}
+
+function Get-CardDatabaseHitCount {
+    param([string[]]$Labels)
+    $sum = 0
+    foreach ($label in $Labels | Where-Object { $_ }) {
+        $quoted = Escape-ShellSingleQuoted $label
+        $remoteScript = "grep -aF -- $quoted databases/suishouban.db databases/suishouban.db-wal 2>/dev/null | wc -l"
+        $result = Invoke-AdbLoose @("shell", "run-as", "com.suishouban.app", "sh", "-c", $remoteScript)
+        if ($result.ExitCode -ne 0) {
+            throw "Could not inspect app Room database before confirmation. run-as exit=$($result.ExitCode) output=$($result.Output -join ' ')"
+        }
+        $text = ($result.Output -join "`n").Trim()
+        $match = [regex]::Match($text, "\d+")
+        if ($match.Success) {
+            $sum += [int]$match.Value
+        }
+    }
+    return $sum
+}
+
+function Get-SideEffectBaseline {
+    param([string[]]$Labels)
+    return @{
+        Jobs = Get-ReminderJobCount
+        DbHits = Get-CardDatabaseHitCount $Labels
+        Labels = $Labels
+    }
+}
+
+function Assert-NoPreConfirmationSideEffects {
+    param(
+        [hashtable]$Baseline,
+        [string]$Reason
+    )
+    $jobs = Get-ReminderJobCount
+    if ($jobs -ne [int]$Baseline.Jobs) {
+        Save-RemoteDiagnostics "preconfirm-workmanager-delta"
+        throw "WorkManager jobs changed before user confirmation for $Reason. before=$($Baseline.Jobs) after=$jobs"
+    }
+    $dbHits = Get-CardDatabaseHitCount $Baseline.Labels
+    if ($dbHits -ne [int]$Baseline.DbHits) {
+        Save-RemoteDiagnostics "preconfirm-room-delta"
+        throw "Room database task hits changed before user confirmation for $Reason. before=$($Baseline.DbHits) after=$dbHits"
+    }
+    Write-Host "No Room/WorkManager side effects before confirmation for ${Reason}."
+}
+
 function Assert-MultiSelectionSavedWithoutRegistration {
     $cardsXml = Get-CardsXmlAcrossScroll
+    Assert-XmlContains $cardsXml $T.LabReport "Selected lab report card was not saved."
     Assert-XmlContains $cardsXml $T.TeamReport "Selected meeting/report card was not saved."
     Assert-XmlNotContains $cardsXml $T.Registration "Unselected registration card was saved unexpectedly."
-    $jobs = (Invoke-Adb shell dumpsys jobscheduler) -join "`n"
-    if ($jobs -notmatch "com\.suishouban\.app/androidx\.work\.impl\.background\.systemjob\.SystemJobService") {
+    if ((Get-ReminderJobCount) -lt 1) {
         Save-RemoteDiagnostics "multi-workmanager-job-missing"
         throw "No WorkManager reminder jobs were registered after selective creation."
     }
@@ -1394,8 +1588,7 @@ function Assert-CardAndReminderCreated {
         Save-RemoteDiagnostics "card-list-missing-reminder"
         throw "Card list did not show reminder creation."
     }
-    $jobs = (Invoke-Adb shell dumpsys jobscheduler) -join "`n"
-    if ($jobs -notmatch "com\.suishouban\.app/androidx\.work\.impl\.background\.systemjob\.SystemJobService") {
+    if ((Get-ReminderJobCount) -lt 1) {
         Save-RemoteDiagnostics "workmanager-job-missing"
         throw "No WorkManager reminder jobs were registered."
     }
@@ -1409,6 +1602,7 @@ function Assert-NoBadLogs {
     }
 }
 
+Assert-RepositoryHasNoSensitiveKeyMaterial
 Build-DebugApk
 Assert-ApkHasNoSensitiveMarkers
 
@@ -1439,12 +1633,15 @@ Assert-NoActionSuggestionNotification
 Write-Host "Validating action screenshot notification and ignore action..."
 Open-SampleAndScreenshot "complex_chat_promise.png"
 Assert-ActionSuggestionNotification | Out-Null
+$ignoreSideEffectBaseline = Get-SideEffectBaseline @($T.LabReport, $T.TeamReport, $T.Registration, $T.Submit, $T.PrepareAttachment)
 Dismiss-ActionSuggestionWithIgnore
 Wait-UiNotContains $T.MaybeTodo "Ignore action unexpectedly opened the request panel."
+Assert-NoPreConfirmationSideEffects $ignoreSideEffectBaseline "ignored screenshot prompt"
 
 Write-Host "Validating action screenshot notification, generate action, preview, save, reminder..."
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
+$courseSideEffectBaseline = Get-SideEffectBaseline @($T.LabReport, $T.Submit, $T.PrepareAttachment)
 $courseProviderBefore = $null
 if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     $courseProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
@@ -1459,14 +1656,24 @@ if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     Assert-ProviderStatusAdvanced $WorkflowUrl $courseProviderBefore @("fast_model", "expert_model") "phone course screenshot workflow"
 }
 Assert-UiNotContains $T.GenericSchedule "Preview regressed to generic schedule title."
+Assert-NoPreConfirmationSideEffects $courseSideEffectBaseline "course preview before ReAct"
+$courseReactProviderBefore = $null
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    $courseReactProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
+}
 Trigger-ReActRefinement
 Assert-FloatingPanelHeightUnder 0.65 "course ReAct refinement"
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    Assert-ProviderStatusAdvanced $WorkflowUrl $courseReactProviderBefore @("fast_model", "expert_model") "course ReAct refinement"
+}
+Assert-NoPreConfirmationSideEffects $courseSideEffectBaseline "course ReAct before confirmation"
 Confirm-Preview
 Assert-CardAndReminderCreated
 
 Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
 Open-SampleAndScreenshot "complex_multi_tasks.png"
 Assert-ActionSuggestionNotification | Out-Null
+$multiSideEffectBaseline = Get-SideEffectBaseline @($T.LabReport, $T.TeamReport, $T.Registration)
 $multiProviderBefore = $null
 if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     $multiProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
@@ -1483,10 +1690,20 @@ if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     Assert-ProviderStatusAdvanced $WorkflowUrl $multiProviderBefore @("fast_model", "expert_model") "phone multi-task screenshot workflow"
 }
 Assert-XmlNotContains $multiPreviewXml $T.GenericSchedule "Multi-task preview regressed to generic schedule title."
+Assert-NoPreConfirmationSideEffects $multiSideEffectBaseline "multi-task preview before ReAct"
+$multiReactProviderBefore = $null
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    $multiReactProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
+}
 Trigger-ReActRefinement
 Assert-FloatingPanelHeightUnder 0.65 "multi-task ReAct refinement"
+if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
+    Assert-ProviderStatusAdvanced $WorkflowUrl $multiReactProviderBefore @("fast_model", "expert_model") "multi-task ReAct refinement"
+}
+Assert-NoPreConfirmationSideEffects $multiSideEffectBaseline "multi-task ReAct before confirmation"
 Toggle-PreviewCardSelectionByText $T.Registration
 Wait-UiContains $T.CreateSelected "Multi-task preview did not expose selected-create action after toggling one card." 8
+Assert-NoPreConfirmationSideEffects $multiSideEffectBaseline "multi-task selective toggle before confirmation"
 Confirm-Preview
 Assert-MultiSelectionSavedWithoutRegistration
 Assert-NoBadLogs

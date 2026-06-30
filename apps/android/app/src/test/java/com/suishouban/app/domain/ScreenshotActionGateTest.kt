@@ -133,11 +133,13 @@ class ScreenshotActionGateTest {
         val result = gate.evaluate(
             """
             随手办
-            设置中心
-            云端增强（可选）
-            Workflow API URL，可留空
-            提醒策略：高优先级 3 天 / 1 天 / 3 小时 / 30 分钟
-            已创建提醒 0
+            设置
+            AI 增强服务（可选）
+            服务地址，可留空
+            手机独立运行，不依赖开发主机
+            生成候选卡
+            查看候选卡
+            提醒策略：1 天 / 3 小时 / 30 分钟
             """.trimIndent()
         )
 
