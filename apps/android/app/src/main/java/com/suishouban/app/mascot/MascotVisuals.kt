@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
@@ -14,9 +15,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -27,6 +33,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -36,6 +43,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
+import com.suishouban.app.R
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlin.math.min
 
 /** Stable ARGB tokens used by both the Canvas renderer and future asset catalog. */
@@ -108,9 +118,30 @@ object MascotVisuals {
  * for every mood, while [MofeiVisual] keeps the v6 Canvas treatment available on all devices.
  */
 object MascotAssetCatalog {
+    private val frameNames = mapOf(
+        MascotMood.IDLE to listOf("mofei_idle_f01", "mofei_idle_f02", "mofei_idle_f03"),
+        MascotMood.FOCUS to listOf("mofei_focus_f01", "mofei_focus_f02", "mofei_focus_f03"),
+        MascotMood.CONFIRM to listOf("mofei_confirm_f01", "mofei_confirm_f02", "mofei_confirm_f03"),
+        MascotMood.REMINDER to listOf("mofei_reminder_f01", "mofei_reminder_f02", "mofei_reminder_f03"),
+        MascotMood.DUE_SOON to listOf("mofei_due_soon_f01", "mofei_due_soon_f02", "mofei_due_soon_f03"),
+        MascotMood.URGENT to listOf("mofei_urgent_f01", "mofei_urgent_f02", "mofei_urgent_f03"),
+        MascotMood.COMPLETE to listOf("mofei_complete_f01", "mofei_complete_f02", "mofei_complete_f03"),
+        MascotMood.REST to listOf("mofei_rest_f01", "mofei_rest_f02", "mofei_rest_f03"),
+    )
+
+    fun frameNamesFor(mood: MascotMood): List<String> = frameNames[mood] ?: frameNames.getValue(MascotMood.IDLE)
+
     @androidx.annotation.DrawableRes
-    fun fallbackDrawableFor(@Suppress("UNUSED_PARAMETER") mood: MascotMood): Int =
-        com.suishouban.app.R.drawable.mofei_glass_fallback
+    fun framesFor(mood: MascotMood): List<Int> = when (mood) {
+        MascotMood.IDLE, MascotMood.UNAVAILABLE -> listOf(R.drawable.mofei_idle_f01, R.drawable.mofei_idle_f02, R.drawable.mofei_idle_f03)
+        MascotMood.FOCUS -> listOf(R.drawable.mofei_focus_f01, R.drawable.mofei_focus_f02, R.drawable.mofei_focus_f03)
+        MascotMood.CONFIRM -> listOf(R.drawable.mofei_confirm_f01, R.drawable.mofei_confirm_f02, R.drawable.mofei_confirm_f03)
+        MascotMood.REMINDER -> listOf(R.drawable.mofei_reminder_f01, R.drawable.mofei_reminder_f02, R.drawable.mofei_reminder_f03)
+        MascotMood.DUE_SOON -> listOf(R.drawable.mofei_due_soon_f01, R.drawable.mofei_due_soon_f02, R.drawable.mofei_due_soon_f03)
+        MascotMood.URGENT -> listOf(R.drawable.mofei_urgent_f01, R.drawable.mofei_urgent_f02, R.drawable.mofei_urgent_f03)
+        MascotMood.COMPLETE -> listOf(R.drawable.mofei_complete_f01, R.drawable.mofei_complete_f02, R.drawable.mofei_complete_f03)
+        MascotMood.REST -> listOf(R.drawable.mofei_rest_f01, R.drawable.mofei_rest_f02, R.drawable.mofei_rest_f03)
+    }
 }
 
 private data class MofeiVisualDefinition(
@@ -173,26 +204,24 @@ fun MofeiVisual(
     modifier: Modifier = Modifier,
     reduceMotion: Boolean = false,
 ) {
-    val profile = MascotVisuals.profileFor(state, reduceMotion)
-    // Do not create an infinite transition when the system or user disables motion.
-    val progress = if (reduceMotion) 0f else animatedMofeiProgress(profile.motion)
-    val motion = motionTransform(profile.motion, progress)
-    Canvas(
-        modifier = modifier.graphicsLayer {
-            translationY = motion.verticalShiftDp
-            scaleX = motion.scale
-            scaleY = motion.scale
-            alpha = motion.alpha
-        },
-    ) {
-        drawMofei(
-            primary = Color(profile.primaryArgb),
-            mood = state.mood,
-            orbitProgress = motion.orbitProgress,
-            scanProgress = motion.scanProgress,
-        )
+    val frames = MascotAssetCatalog.framesFor(state.mood)
+    var frameIndex by remember(state.mood, reduceMotion) { mutableIntStateOf(0) }
+    LaunchedEffect(state.mood, reduceMotion) {
+        if (reduceMotion) return@LaunchedEffect
+        while (isActive) {
+            delay(FRAME_DURATION_MILLIS)
+            frameIndex = (frameIndex + 1) % frames.size
+        }
     }
+    Image(
+        painter = painterResource(frames[frameIndex]),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = modifier.testTag("mofei-image2-visual"),
+    )
 }
+
+private const val FRAME_DURATION_MILLIS = 250L
 
 @Composable
 private fun animatedMofeiProgress(motion: MofeiMotion): Float {
