@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +41,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
+import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.ui.components.GradientScreen
 import com.suishouban.app.ui.screens.CalendarScreen
 import com.suishouban.app.ui.screens.CardsScreen
@@ -49,18 +51,28 @@ import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import java.io.File
+import kotlinx.coroutines.flow.MutableStateFlow
+
+private data class OverlayNavigation(
+    val actionCardId: String? = null,
+    val requestId: Long = 0L,
+)
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
+    private val overlayNavigation = MutableStateFlow(OverlayNavigation())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val openedScreenshotPrompt = openProcessScreenshotIntent(intent)
         val sharedImageUri = if (openedScreenshotPrompt) null else extractSharedImage(intent)
+        handleOverlayNavigationIntent(intent)
 
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                val mascotState by viewModel.mascotState.collectAsStateWithLifecycle()
+                val requestedOverlayNavigation by overlayNavigation.collectAsStateWithLifecycle()
                 var current by rememberSaveable { mutableStateOf(Screen.Home.route) }
                 var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
                 val snackbarHostState = remember { SnackbarHostState() }
@@ -79,6 +91,18 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     pendingCameraUri = null
+                }
+                val overlayPermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.StartActivityForResult(),
+                ) {
+                    if (Settings.canDrawOverlays(this@MainActivity)) {
+                        // The overlay will appear after the app backgrounds; it remains hidden
+                        // while this activity owns the foreground.
+                        viewModel.updateSettings(state.settings.copy(mascotOverlayEnabled = true))
+                    } else {
+                        viewModel.updateSettings(state.settings.copy(mascotOverlayEnabled = false))
+                        Toast.makeText(this@MainActivity, "未授予悬浮窗权限，墨斐仅在应用内显示", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 fun launchCameraCapture() {
                     val uri = createCameraImageUri()
@@ -109,6 +133,9 @@ class MainActivity : ComponentActivity() {
                         snackbarHostState.showSnackbar(error)
                         viewModel.clearError()
                     }
+                }
+                LaunchedEffect(requestedOverlayNavigation.requestId) {
+                    requestedOverlayNavigation.actionCardId?.let { current = Screen.Cards.route }
                 }
 
                 Scaffold(
@@ -143,6 +170,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onPreview = { current = Screen.Preview.route },
+                                mascotState = mascotState,
                             )
                             Screen.Preview.route -> PreviewScreen(
                                 state = state,
@@ -151,6 +179,7 @@ class MainActivity : ComponentActivity() {
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
+                                mascotState = mascotState,
                             )
                             Screen.Cards.route -> CardsScreen(
                                 state = state,
@@ -158,6 +187,8 @@ class MainActivity : ComponentActivity() {
                                 onComplete = viewModel::completeCard,
                                 onArchive = viewModel::archiveCard,
                                 onImport = { current = Screen.Import.route },
+                                mascotState = mascotState,
+                                highlightCardId = requestedOverlayNavigation.actionCardId,
                             )
                             Screen.Calendar.route -> CalendarScreen(
                                 state = state,
@@ -168,6 +199,23 @@ class MainActivity : ComponentActivity() {
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
+                                onMascotOverlayToggle = { enabled ->
+                                    if (!enabled) {
+                                        viewModel.updateSettings(state.settings.copy(mascotOverlayEnabled = false))
+                                        startService(
+                                            Intent(this@MainActivity, MascotOverlayService::class.java)
+                                                .setAction(MascotOverlayService.ACTION_STOP),
+                                        )
+                                    } else if (Settings.canDrawOverlays(this@MainActivity)) {
+                                        viewModel.updateSettings(state.settings.copy(mascotOverlayEnabled = true))
+                                    } else {
+                                        // This user gesture is the only path that opens Android's
+                                        // special overlay permission screen.
+                                        overlayPermissionLauncher.launch(
+                                            MascotOverlayService.overlayPermissionIntent(this@MainActivity),
+                                        )
+                                    }
+                                },
                             )
                             else -> HomeScreen(
                                 state = state,
@@ -175,6 +223,7 @@ class MainActivity : ComponentActivity() {
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
                                 onComplete = viewModel::completeCard,
+                                mascotState = mascotState,
                             )
                         }
                     }
@@ -185,11 +234,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The app has its own inline companion; do not leave an accessibility-obscuring system
+        // window above active forms or lists while the activity is foregrounded.
+        MascotOverlayService.dismissForForeground(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) {
+            MascotOverlayService.restoreAfterAppBackground(this, viewModel.mascotState.value)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleOverlayNavigationIntent(intent)
         openProcessScreenshotIntent(intent)
     }
 
@@ -267,6 +327,15 @@ class MainActivity : ComponentActivity() {
         imageDir.mkdirs()
         val imageFile = File.createTempFile("capture_", ".jpg", imageDir)
         return FileProvider.getUriForFile(this, "$packageName.fileprovider", imageFile)
+    }
+
+    /** Overlay navigation is intentionally constrained to the existing Cards route and a card ID. */
+    private fun handleOverlayNavigationIntent(source: Intent?) {
+        if (source?.action != MascotOverlayService.ACTION_OPEN_CURRENT) return
+        overlayNavigation.value = OverlayNavigation(
+            actionCardId = source.getStringExtra(MascotOverlayService.EXTRA_ACTION_CARD_ID),
+            requestId = System.currentTimeMillis(),
+        )
     }
 }
 

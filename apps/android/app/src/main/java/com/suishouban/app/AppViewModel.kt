@@ -14,15 +14,26 @@ import com.suishouban.app.data.model.NodeTrace
 import com.suishouban.app.domain.ocr.OcrCandidate
 import com.suishouban.app.domain.ocr.OcrRaceController
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
+import com.suishouban.app.mascot.MascotCompletionEvent
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MascotStateResolver
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class AppUiState(
@@ -81,9 +92,32 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val locallyEditedDraftIds = mutableSetOf<String>()
     private var ignoreActiveWorkflowRestore: Boolean = false
     private var restoreWorkflowJob: Job? = null
+    private val mascotResolver = MascotStateResolver()
+    private val _mascotCompletionEvent = MutableStateFlow<MascotCompletionEvent?>(null)
+    private val _mascotInteractions = MutableSharedFlow<MascotCompletionEvent>(extraBufferCapacity = 1)
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
     val uiState: StateFlow<AppUiState> = _uiState
+
+    /**
+     * A single state stream feeds both the in-app companion and the system overlay. Completion is
+     * deliberately an event instead of a persisted card property, so it cannot mask urgent work.
+     */
+    val mascotState: StateFlow<MascotState> = combine(_uiState, _mascotCompletionEvent) { state, completion ->
+        mascotResolver.resolve(
+            cards = state.cards,
+            draftCards = state.draftCards,
+            workflowStatus = state.workflowStatus,
+            completionEvent = completion,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = mascotResolver.resolve(emptyList(), null),
+    )
+
+    /** One-shot completion feedback for surfaces that need to trigger a single celebration. */
+    val mascotInteractions: SharedFlow<MascotCompletionEvent> = _mascotInteractions.asSharedFlow()
 
     init {
         viewModelScope.launch {
@@ -928,6 +962,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun completeCard(id: String) {
         viewModelScope.launch {
             repository.complete(id)
+            val event = MascotCompletionEvent(actionCardId = id, occurredAt = Instant.now())
+            _mascotCompletionEvent.value = event
+            _mascotInteractions.emit(event)
+            // The resolver gives urgent and due-soon work precedence immediately. This only
+            // clears stale celebration feedback after its visible animation window has elapsed.
+            delay(MASCOT_COMPLETION_WINDOW_MILLIS)
+            if (_mascotCompletionEvent.value == event) _mascotCompletionEvent.value = null
         }
     }
 
@@ -1004,6 +1045,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "$prefix：工作流事件解析失败，请重试或查看诊断"
             else -> "$prefix：${message.ifBlank { "请稍后重试或查看诊断" }}"
         }
+    }
+
+    private companion object {
+        const val MASCOT_COMPLETION_WINDOW_MILLIS = 15_000L
     }
 }
 

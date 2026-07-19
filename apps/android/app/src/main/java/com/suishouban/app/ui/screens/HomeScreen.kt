@@ -45,6 +45,8 @@ import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.Priority
 import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MascotCompanion
 import com.suishouban.app.ui.components.Pill
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.brandGradient
@@ -61,6 +63,7 @@ fun HomeScreen(
     onImportFromCamera: () -> Unit,
     onCards: () -> Unit,
     onComplete: (String) -> Unit,
+    mascotState: MascotState,
 ) {
     var showImportOptions by rememberSaveable { mutableStateOf(false) }
     val activeCards = state.cards.filter { it.status != CardStatus.ARCHIVED && it.status != CardStatus.DONE }
@@ -110,6 +113,34 @@ fun HomeScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("导入截图", color = BrandBlue, fontWeight = FontWeight.Bold)
                     }
+                }
+            }
+        }
+
+        item {
+            // This sits in the scroll flow so the companion never covers the primary import action.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(20.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                MascotCompanion(
+                    state = mascotState,
+                    mascotSize = 64.dp,
+                    reduceMotion = state.settings.reduceMascotMotion,
+                    showMessage = false,
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("墨斐", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        mascotState.userMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
                 }
             }
         }
