@@ -22,30 +22,34 @@ class MascotStateResolver(
         val datedCards = openCards.mapNotNull { card ->
             parseDeadline(card.deadline)?.let { deadline -> TimedCard(card, deadline) }
         }
-        val closestDeadline = datedCards.minWithOrNull(
-            compareBy<TimedCard> { priorityRank(it.card.priority) }
-                .thenBy { it.deadline }
-                .thenBy { it.card.id },
+        val urgentDeadline = selectDeadline(
+            datedCards.filter { !it.deadline.isAfter(now.plus(URGENT_WINDOW)) },
+        )
+        val dueSoonDeadline = selectDeadline(
+            datedCards.filter {
+                it.deadline.isAfter(now.plus(URGENT_WINDOW)) &&
+                    !it.deadline.isAfter(now.plus(DUE_SOON_WINDOW))
+            },
         )
 
-        if (closestDeadline != null && !closestDeadline.deadline.isAfter(now.plus(URGENT_WINDOW))) {
+        if (urgentDeadline != null) {
             return state(
                 mood = MascotMood.URGENT,
-                card = closestDeadline.card,
-                message = if (closestDeadline.deadline.isBefore(now)) {
-                    "${closestDeadline.card.title} 已逾期"
+                card = urgentDeadline.card,
+                message = if (urgentDeadline.deadline.isBefore(now)) {
+                    "${urgentDeadline.card.title} 已逾期"
                 } else {
-                    "${closestDeadline.card.title} 将在 3 小时内到期"
+                    "${urgentDeadline.card.title} 将在 3 小时内到期"
                 },
                 color = MascotColorRole.URGENT,
                 animation = MascotAnimationHint.ALERT_PULSE,
             )
         }
-        if (closestDeadline != null && !closestDeadline.deadline.isAfter(now.plus(DUE_SOON_WINDOW))) {
+        if (dueSoonDeadline != null) {
             return state(
                 mood = MascotMood.DUE_SOON,
-                card = closestDeadline.card,
-                message = "${closestDeadline.card.title} 将在 24 小时内到期",
+                card = dueSoonDeadline.card,
+                message = "${dueSoonDeadline.card.title} 将在 24 小时内到期",
                 color = MascotColorRole.WARNING,
                 animation = MascotAnimationHint.WARNING_PULSE,
             )
@@ -135,6 +139,13 @@ class MascotStateResolver(
 
     private fun MascotCompletionEvent.isActiveAt(now: Instant): Boolean =
         !occurredAt.isAfter(now) && !occurredAt.isBefore(now.minus(COMPLETE_WINDOW))
+
+    // Priority resolves competing cards only after urgency has constrained the candidate set.
+    private fun selectDeadline(candidates: List<TimedCard>): TimedCard? = candidates.minWithOrNull(
+        compareBy<TimedCard> { priorityRank(it.card.priority) }
+            .thenBy { it.deadline }
+            .thenBy { it.card.id },
+    )
 
     private data class TimedCard(val card: ActionCard, val deadline: Instant)
 

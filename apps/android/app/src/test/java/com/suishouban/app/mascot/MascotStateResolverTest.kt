@@ -156,6 +156,20 @@ class MascotStateResolverTest {
     }
 
     @Test
+    fun urgentWindowIsSelectedBeforePriorityTieBreak() {
+        val state = resolver.resolve(
+            cards = listOf(
+                card(id = "high-future", deadline = "2026-07-21T08:00:00Z", priority = Priority.HIGH),
+                card(id = "normal-overdue", deadline = "2026-07-19T07:59:00Z", priority = Priority.NORMAL),
+            ),
+            workflowStatus = null,
+        )
+
+        assertEquals(MascotMood.URGENT, state.mood)
+        assertEquals("normal-overdue", state.actionCardId)
+    }
+
+    @Test
     fun malformedAndNoZoneDeadlinesDoNotCreateAlerts() {
         val state = resolver.resolve(
             cards = listOf(
