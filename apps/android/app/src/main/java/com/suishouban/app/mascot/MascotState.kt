@@ -1,5 +1,7 @@
 package com.suishouban.app.mascot
 
+import java.time.Instant
+
 /** The visual moods supported by the mascot asset catalog. */
 enum class MascotMood {
     IDLE,
@@ -45,4 +47,11 @@ data class MascotState(
     val userMessage: String,
     val colorRole: MascotColorRole,
     val animationHint: MascotAnimationHint,
+)
+
+/** A short-lived signal emitted by the completion action, not reconstructed from saved cards. */
+data class MascotCompletionEvent(
+    val actionCardId: String? = null,
+    val occurredAt: Instant,
+    val message: String? = null,
 )
