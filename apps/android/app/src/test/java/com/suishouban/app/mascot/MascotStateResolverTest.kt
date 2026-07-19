@@ -141,6 +141,22 @@ class MascotStateResolverTest {
     }
 
     @Test
+    fun futureTimedCardUsesReminderWithDeterministicSelection() {
+        val state = resolver.resolve(
+            cards = listOf(
+                card(id = "normal-earlier", deadline = "2026-07-22T08:00:00Z", priority = Priority.NORMAL),
+                card(id = "high-later", deadline = "2026-07-23T08:00:00Z", priority = Priority.HIGH),
+                card(id = "high-earlier", deadline = "2026-07-22T09:00:00Z", priority = Priority.HIGH),
+            ),
+            workflowStatus = null,
+        )
+
+        assertEquals(MascotMood.REMINDER, state.mood)
+        assertEquals("high-earlier", state.actionCardId)
+        assertEquals(MascotColorRole.REMINDER, state.colorRole)
+    }
+
+    @Test
     fun deadlineTieUsesPriorityThenDeadlineThenId() {
         val state = resolver.resolve(
             cards = listOf(

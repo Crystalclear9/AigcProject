@@ -54,6 +54,16 @@ class MascotPreferencesTest {
         val reloaded = AppSettingsRepository(preferences).settings.value
         assertEquals(0.1f, reloaded.mascotVerticalFraction)
     }
+
+    @Test
+    fun invalidDockSideFallsBackToRightWhenLoadingPreferences() {
+        val preferences = InMemorySharedPreferences()
+        preferences.edit().putString("mascot_dock_side", "top").commit()
+
+        val settings = AppSettingsRepository(preferences).settings.value
+
+        assertEquals("right", settings.mascotDockSide)
+    }
 }
 
 /** Minimal in-memory implementation used to exercise the real repository serialization. */

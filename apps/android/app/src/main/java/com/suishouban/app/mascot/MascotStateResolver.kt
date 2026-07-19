@@ -54,6 +54,17 @@ class MascotStateResolver(
                 animation = MascotAnimationHint.WARNING_PULSE,
             )
         }
+        // A dated open card outside alert windows is still actionable. Keep a deterministic
+        // target so the compact overlay can open the same card on every refresh.
+        selectDeadline(datedCards)?.let { reminder ->
+            return state(
+                mood = MascotMood.REMINDER,
+                card = reminder.card,
+                message = "${reminder.card.title} 有待处理事项",
+                color = MascotColorRole.REMINDER,
+                animation = MascotAnimationHint.NUDGE,
+            )
+        }
 
         draftCards.firstOrNull { it.status !in setOf(CardStatus.DONE, CardStatus.ARCHIVED) }?.let { draft ->
             return state(

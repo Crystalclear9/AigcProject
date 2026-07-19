@@ -6,6 +6,11 @@ import com.suishouban.app.data.repository.AppSettingsRepository
 import com.suishouban.app.ocr.TextRecognitionService
 import com.suishouban.app.reminder.CalendarSyncer
 import com.suishouban.app.reminder.ReminderScheduler
+import com.suishouban.app.mascot.MascotAnimationHint
+import com.suishouban.app.mascot.MascotColorRole
+import com.suishouban.app.mascot.MascotMood
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MascotStateStore
 
 class SuiShouBanApp : Application() {
     lateinit var settingsRepository: AppSettingsRepository
@@ -18,6 +23,14 @@ class SuiShouBanApp : Application() {
         private set
     lateinit var calendarSyncer: CalendarSyncer
         private set
+    val mascotStateStore = MascotStateStore(
+        MascotState(
+            mood = MascotMood.IDLE,
+            userMessage = "墨斐正在待命",
+            colorRole = MascotColorRole.DEFAULT,
+            animationHint = MascotAnimationHint.BREATHE,
+        ),
+    )
 
     override fun onCreate() {
         super.onCreate()

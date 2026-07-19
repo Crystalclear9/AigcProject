@@ -103,6 +103,16 @@ object MascotVisuals {
     }
 }
 
+/**
+ * The generated WebP action set is optional. This packaged vector is the deterministic fallback
+ * for every mood, while [MofeiVisual] keeps the v6 Canvas treatment available on all devices.
+ */
+object MascotAssetCatalog {
+    @androidx.annotation.DrawableRes
+    fun fallbackDrawableFor(@Suppress("UNUSED_PARAMETER") mood: MascotMood): Int =
+        com.suishouban.app.R.drawable.mofei_glass_fallback
+}
+
 private data class MofeiVisualDefinition(
     val primaryArgb: Long,
     val accessibilityLabel: String,
@@ -164,17 +174,9 @@ fun MofeiVisual(
     reduceMotion: Boolean = false,
 ) {
     val profile = MascotVisuals.profileFor(state, reduceMotion)
-    val transition = rememberInfiniteTransition(label = "mofei-motion")
-    val progress by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = motionDuration(profile.motion), easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "mofei-motion-progress",
-    )
-    val motion = motionTransform(profile.motion, if (reduceMotion) 0f else progress)
+    // Do not create an infinite transition when the system or user disables motion.
+    val progress = if (reduceMotion) 0f else animatedMofeiProgress(profile.motion)
+    val motion = motionTransform(profile.motion, progress)
     Canvas(
         modifier = modifier.graphicsLayer {
             translationY = motion.verticalShiftDp
@@ -190,6 +192,21 @@ fun MofeiVisual(
             scanProgress = motion.scanProgress,
         )
     }
+}
+
+@Composable
+private fun animatedMofeiProgress(motion: MofeiMotion): Float {
+    val transition = rememberInfiniteTransition(label = "mofei-motion")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = motionDuration(motion), easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "mofei-motion-progress",
+    )
+    return progress
 }
 
 private data class MofeiMotionTransform(

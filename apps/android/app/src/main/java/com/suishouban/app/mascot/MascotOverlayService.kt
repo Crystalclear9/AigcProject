@@ -4,7 +4,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -13,7 +12,8 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
-import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -26,6 +26,8 @@ import android.widget.TextView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
@@ -33,18 +35,38 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import com.suishouban.app.MainActivity
 import com.suishouban.app.R
 import com.suishouban.app.SuiShouBanApp
 import com.suishouban.app.data.repository.AppSettings
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
  * Explicit, opt-in system overlay. It is intentionally non-sticky: Android must never resurrect
  * it after a process or service stop without a new user action in the foreground app.
  */
-class MascotOverlayService : Service() {
+class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegistryOwner {
     private val controller = MascotOverlayController()
+    private val resolver = MascotStateResolver()
+    private val overlayViewModelStore = ViewModelStore()
+    private val overlaySavedStateController = SavedStateRegistryController.create(this)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var windowManager: WindowManager
     private lateinit var settingsRepository: com.suishouban.app.data.repository.AppSettingsRepository
     private var overlayView: FrameLayout? = null
@@ -53,13 +75,23 @@ class MascotOverlayService : Service() {
     private var placement = OverlayPlacement(OverlayDockSide.RIGHT, 0.5f)
     private var currentLayoutParams: WindowManager.LayoutParams? = null
     private var currentMascotState = idleMascotState()
+    private var foregroundStarted = false
+    private var hiddenRestore: Runnable? = null
+
+    override val viewModelStore: ViewModelStore
+        get() = overlayViewModelStore
+    override val savedStateRegistry: SavedStateRegistry
+        get() = overlaySavedStateController.savedStateRegistry
 
     override fun onCreate() {
+        overlaySavedStateController.performAttach()
+        overlaySavedStateController.performRestore(null)
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         settingsRepository = (application as SuiShouBanApp).settingsRepository
         placement = settingsRepository.settings.value.toOverlayPlacement()
         ensureNotificationChannel()
+        observeBackgroundState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -85,11 +117,10 @@ class MascotOverlayService : Service() {
             return START_NOT_STICKY
         }
         startForegroundWithNotification()
+        foregroundStarted = true
         showCollapsedOverlay()
         return START_NOT_STICKY
     }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // A removed task is not consent to keep an always-on overlay running in the background.
@@ -97,9 +128,53 @@ class MascotOverlayService : Service() {
     }
 
     override fun onDestroy() {
+        cancelHiddenRestore()
+        serviceScope.cancel()
         removeControls()
         removeOverlay()
+        overlayViewModelStore.clear()
         super.onDestroy()
+    }
+
+    /** Keeps the overlay semantic state live after the Activity's lifecycle collector has stopped. */
+    private fun observeBackgroundState() {
+        val app = application as SuiShouBanApp
+        serviceScope.launch {
+            app.mascotStateStore.state.collect { state -> updateMascotState(state) }
+        }
+        serviceScope.launch {
+            app.cardRepository.observeAll().collect { cards ->
+                val cardState = resolver.resolve(cards = cards, workflowStatus = null)
+                // Persisted deadlines are authoritative while the app is backgrounded. Preserve
+                // ephemeral focus/confirmation/completion state when there is no timed card.
+                if (cardState.mood in CARD_BACKED_MOODS) updateMascotState(cardState)
+            }
+        }
+        serviceScope.launch {
+            settingsRepository.settings.collect { settings -> handleSettingsChanged(settings) }
+        }
+    }
+
+    private fun updateMascotState(next: MascotState) {
+        if (currentMascotState == next) return
+        currentMascotState = next
+        if (overlayView != null) updateOverlayView()
+    }
+
+    private fun handleSettingsChanged(settings: AppSettings) {
+        placement = settings.toOverlayPlacement()
+        if (!settings.mascotOverlayEnabled || !Settings.canDrawOverlays(this)) {
+            if (foregroundStarted) stopSelf()
+            return
+        }
+        if (settings.mascotHiddenUntilMillis > System.currentTimeMillis()) {
+            removeControls()
+            removeOverlay()
+            scheduleHiddenRestore(settings.mascotHiddenUntilMillis)
+        } else {
+            cancelHiddenRestore()
+            if (foregroundStarted && overlayView == null) showCollapsedOverlay()
+        }
     }
 
     private fun canShowOverlay(): Boolean {
@@ -127,7 +202,11 @@ class MascotOverlayService : Service() {
         removeOverlay()
         val root = FrameLayout(this).apply {
             background = capsuleBackground(displayMode)
-            contentDescription = "墨斐悬浮助手"
+            contentDescription = overlayContentDescription()
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { handleTap() }
             addView(createMascotContent(), FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -141,6 +220,10 @@ class MascotOverlayService : Service() {
     }
 
     private fun createMascotContent(): View = ComposeView(this).apply {
+        // System overlays have no Activity decor tree, so install all owners explicitly.
+        setViewTreeLifecycleOwner(this@MascotOverlayService)
+        setViewTreeViewModelStoreOwner(this@MascotOverlayService)
+        setViewTreeSavedStateRegistryOwner(this@MascotOverlayService)
         setContent {
             val mascot = currentMascotState
             MaterialTheme {
@@ -150,7 +233,11 @@ class MascotOverlayService : Service() {
                 ) {
                     MofeiVisual(
                         state = mascot,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = if (displayMode == OverlayDisplayMode.COLLAPSED) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier.size(76.dp).align(Alignment.CenterStart)
+                        },
                         reduceMotion = settingsRepository.settings.value.reduceMascotMotion,
                     )
                     if (displayMode == OverlayDisplayMode.EXPANDED) {
@@ -159,7 +246,9 @@ class MascotOverlayService : Service() {
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
                                 .padding(end = 8.dp)
-                                .padding(start = 76.dp),
+                                .widthIn(max = 64.dp),
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -202,6 +291,14 @@ class MascotOverlayService : Service() {
         showCollapsedOverlay()
     }
 
+    private fun handleTap() {
+        when (controller.commandForTap(displayMode)) {
+            OverlayCommand.Expand -> showExpandedPreview()
+            OverlayCommand.OpenCurrentAction -> openCurrentAction()
+            OverlayCommand.ShowControls -> showControls()
+        }
+    }
+
     private fun showControls() {
         if (controlsView != null) return
         val controls = LinearLayout(this).apply {
@@ -234,8 +331,27 @@ class MascotOverlayService : Service() {
     }
 
     private fun hideForOneHour() {
-        updateSettings { it.copy(mascotHiddenUntilMillis = System.currentTimeMillis() + ONE_HOUR_MILLIS) }
-        stopSelf()
+        val hiddenUntil = System.currentTimeMillis() + ONE_HOUR_MILLIS
+        updateSettings { it.copy(mascotHiddenUntilMillis = hiddenUntil) }
+        removeControls()
+        removeOverlay()
+        scheduleHiddenRestore(hiddenUntil)
+    }
+
+    /** The opted-in foreground service remains alive, but never self-restarts after process death. */
+    private fun scheduleHiddenRestore(hiddenUntilMillis: Long) {
+        cancelHiddenRestore()
+        val restore = Runnable {
+            updateSettings { it.copy(mascotHiddenUntilMillis = 0L) }
+            if (canShowOverlay()) showCollapsedOverlay() else stopSelf()
+        }
+        hiddenRestore = restore
+        mainHandler.postDelayed(restore, (hiddenUntilMillis - System.currentTimeMillis()).coerceAtLeast(0L))
+    }
+
+    private fun cancelHiddenRestore() {
+        hiddenRestore?.let(mainHandler::removeCallbacks)
+        hiddenRestore = null
     }
 
     private fun disableOverlay() {
@@ -375,11 +491,7 @@ class MascotOverlayService : Service() {
                         showCollapsedOverlay()
                     }
                 } else if (!longPressTriggered && event.actionMasked == MotionEvent.ACTION_UP) {
-                    when (controller.commandForTap(displayMode)) {
-                        OverlayCommand.Expand -> showExpandedPreview()
-                        OverlayCommand.OpenCurrentAction -> openCurrentAction()
-                        OverlayCommand.ShowControls -> showControls()
-                    }
+                    view.performClick()
                 }
                 true
             }
@@ -398,6 +510,15 @@ class MascotOverlayService : Service() {
         colorRole = MascotColorRole.DEFAULT,
         animationHint = MascotAnimationHint.BREATHE,
     )
+
+    private fun overlayContentDescription(): String {
+        val profile = MascotVisuals.profileFor(
+            currentMascotState,
+            settingsRepository.settings.value.reduceMascotMotion,
+        )
+        val action = if (displayMode == OverlayDisplayMode.COLLAPSED) "轻点查看提醒，长按显示控制" else "轻点打开当前事项"
+        return "${profile.contentDescription}。$action"
+    }
 
     /** Restores the semantic snapshot sent by the foreground app without exposing card contents. */
     private fun Intent.toMascotState(): MascotState? {
@@ -432,6 +553,7 @@ class MascotOverlayService : Service() {
         private const val ONE_HOUR_MILLIS = 60 * 60 * 1_000L
         private const val LONG_PRESS_TIMEOUT_MILLIS = 550L
         private const val TOUCH_SLOP_PX = 12f
+        private val CARD_BACKED_MOODS = setOf(MascotMood.REMINDER, MascotMood.DUE_SOON, MascotMood.URGENT)
 
         /**
          * Task 5 calls this only from a foreground user gesture after the Settings permission
