@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="112dp"
+    android:height="112dp"
+    android:viewportWidth="112"
+    android:viewportHeight="112">
+    <!-- Lightweight packaged fallback for the v6 glass cabin silhouette. -->
+    <path android:fillColor="#BFEAF5FF" android:pathData="M16,55C16,28 33,16 56,16C79,16 96,28 96,55C96,82 79,94 56,94C33,94 16,82 16,55Z" />
+    <path android:fillColor="#FF0B2B68" android:pathData="M30,42C30,31 39,27 56,27C73,27 82,31 82,42L82,65C82,76 73,80 56,80C39,80 30,76 30,65Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M44,47C44,44 47,44 49,44C51,44 52,46 52,48L52,61C52,64 50,65 48,65C46,65 44,64 44,61Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M60,48C60,46 61,44 64,44C66,44 68,44 68,47L68,61C68,64 66,65 64,65C62,65 60,64 60,61Z" />
+    <path android:strokeColor="#FF5AA9FF" android:strokeWidth="3" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M18,43L18,32L29,32M94,43L94,32L83,32M18,68L18,79L29,79M94,68L94,79L83,79" />
+    <path android:strokeColor="#AA5AA9FF" android:strokeWidth="2" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M24,72C40,86 73,87 90,68" />
+</vector>

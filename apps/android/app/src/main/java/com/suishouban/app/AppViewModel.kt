@@ -121,6 +121,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            // Keep the system overlay current even after the activity composition stops collecting.
+            mascotState.collect(app.mascotStateStore::update)
+        }
+        viewModelScope.launch {
             repository.observeAll().collect { cards ->
                 _uiState.update { it.copy(cards = cards) }
             }

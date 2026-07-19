@@ -40,8 +40,10 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
             preferCloudModel = prefs.getBoolean("prefer_cloud", apiBaseUrl.trim().startsWith("https://")),
             mascotOverlayEnabled = prefs.getBoolean("mascot_overlay_enabled", false),
             mascotHiddenUntilMillis = prefs.getLong("mascot_hidden_until_millis", 0L),
-            mascotDockSide = prefs.getString("mascot_dock_side", DEFAULT_MASCOT_DOCK_SIDE)
-                ?: DEFAULT_MASCOT_DOCK_SIDE,
+            mascotDockSide = normalizeMascotDockSide(
+                prefs.getString("mascot_dock_side", DEFAULT_MASCOT_DOCK_SIDE)
+                    ?: DEFAULT_MASCOT_DOCK_SIDE,
+            ),
             mascotVerticalFraction = normalizeMascotVerticalFraction(
                 prefs.getFloat("mascot_vertical_fraction", DEFAULT_MASCOT_VERTICAL_FRACTION),
             ),
