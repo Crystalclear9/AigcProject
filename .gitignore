@@ -23,6 +23,7 @@ services/api/workflow_inputs/
 .pytest_cache/
 
 # IDE / OS
+.worktrees/
 .idea/
 .vscode/
 .DS_Store
