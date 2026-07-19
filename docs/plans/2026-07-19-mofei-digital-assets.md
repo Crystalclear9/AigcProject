@@ -4,9 +4,9 @@
 
 **Goal:** 生成一套可用于 Android 电子宠物的墨斐状态主视觉与动作关键帧，且所有素材保持 v6 角色设定的一致性。
 
-**Architecture:** 以已验收的横向 v2 待命图作为唯一像素母版。胶囊、面罩、眼睛槽位和外置截图框不再由生成模型重绘；导出脚本只在固定坐标叠加状态眼形、扫描线、固定半径光环和粒子。动作以同一母版的三种固定强度叠加组成短循环关键帧，视频文件由关键帧合成 GIF。
+**Architecture:** 单次使用 Paigod `gpt-image-2` 生成完整 6x4、24 帧的横向墨斐精灵图集。导出脚本只按原始 `256x256` 网格裁切和编排 GIF，不重绘、不缩放、不叠加任何角色像素；所有动作帧来自同一张生成图的共享视觉上下文。
 
-**Tech Stack:** Paigod `gpt-image-2`（母版）、Pillow、PNG、GIF、Android `drawable-nodpi`、关键帧序列。
+**Tech Stack:** Paigod `gpt-image-2`、Pillow、PNG、GIF、Android `drawable-nodpi`、关键帧序列。
 
 ---
 
@@ -30,39 +30,39 @@
 | complete | 薄荷绿 | 勾选和星点绽放 | 3 |
 | rest | 灰蓝 | 闭眼、光线变暗 | 3 |
 
-### Task 1: 锁定像素母版
+### Task 1: 生成统一精灵图集
 
 **Files:**
-- Read: `output/imagegen/mofei-runtime/mofei_idle_base.png`
+- Create: `output/imagegen/mofei-runtime/mofei-image2-sprite-atlas-v4.png`
 - Create: `output/imagegen/mofei-runtime/manifest.json`
 
-**Step 1:** 将待命图复制为不可变母版，记录 SHA-256 与 `512x512` 尺寸。
+**Step 1:** 通过单个 `gpt-image-2` 请求生成 6x4 图集，锁定横向胶囊、面罩、眼睛和外置 `[ ]` 框的设计参数。
 
-**Step 2:** 定义并测试固定眼睛、外置角框、轨道与光环坐标。所有帧必须复用这些常量。
+**Step 2:** 人工检查同一图集内的轮廓、面罩、眼睛和外置 `[ ]` 框一致性。
 
 **Step 3:** 写入清单，记录母版 SHA-256、提示词版本、状态与输出文件。
 
-### Task 2: 确定性导出八张状态主视觉
+### Task 2: 无变换裁切八张状态主视觉
 
 **Files:**
 - Create: `output/imagegen/mofei-runtime/mofei_<state>_base.png`
 
-**Step 1:** 每次从同一像素母版开始，在固定坐标叠加状态色与眼部表达。
+**Step 1:** 按 6x4 网格从单次图集裁切，不缩放或叠加。
 
-**Step 2:** 验证八张图胶囊、面罩和外置 `[ ]` 框区域的哈希完全相同。
+**Step 2:** 验证八张图均为原生 `256x256` 像素。
 
 **Step 3:** 若某张偏离角色母版，重复同一图生图请求并使用最符合资产契约的版本。
 
-### Task 3: 确定性导出 24 张动作关键帧与 GIF
+### Task 3: 无变换导出 24 张动作关键帧与 GIF
 
 **Files:**
 - Create: `output/imagegen/mofei-runtime/mofei_<state>_f01.png`
 - Create: `output/imagegen/mofei-runtime/mofei_<state>_f02.png`
 - Create: `output/imagegen/mofei-runtime/mofei_<state>_f03.png`
 
-**Step 1:** 每个状态使用同一母版和同一组固定坐标，生成静止、动作中段、回环三帧。
+**Step 1:** 每个状态从同一图集读取静止、动作中段、回环三帧。
 
-**Step 2:** 对每个状态将三帧合成为无损循环 GIF，并验证三帧的固定几何掩码一致。
+**Step 2:** 对每个状态将三帧合成为无损循环 GIF，并验证所有输出均保持原始格子尺寸。
 
 **Step 3:** 将各帧文件、提示词和验收结果写入清单。
 
