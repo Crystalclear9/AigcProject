@@ -36,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.mascot.MascotCompanion
+import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.WorkflowStrip
@@ -51,6 +53,7 @@ fun PreviewScreen(
     onConfirm: () -> Unit,
     onManualAdd: () -> Unit,
     onImport: () -> Unit,
+    mascotState: MascotState,
 ) {
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val localDraftValid = state.draftCards.all {
@@ -67,6 +70,34 @@ fun PreviewScreen(
 
         item {
             WorkflowStrip(currentStep = 2, modifier = Modifier.fillMaxWidth())
+        }
+
+        item {
+            // Recognition and confirmation feedback remains in the list rather than floating
+            // over editable candidate fields.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                MascotCompanion(
+                    state = mascotState,
+                    mascotSize = 62.dp,
+                    reduceMotion = state.settings.reduceMascotMotion,
+                    showMessage = false,
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text("墨斐", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        mascotState.userMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                    )
+                }
+            }
         }
 
         if (state.draftCards.isEmpty()) {

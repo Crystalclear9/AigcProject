@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Granted from Android system settings; never requested as a normal runtime permission. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Android 14+ requires an explicit type and permission for this opt-in overlay service. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".SuiShouBanApp"
@@ -43,6 +47,14 @@
             android:name=".reminder.ScreenshotMonitorService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".mascot.MascotOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled Mofei edge overlay that presents action reminders outside the app." />
+        </service>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
