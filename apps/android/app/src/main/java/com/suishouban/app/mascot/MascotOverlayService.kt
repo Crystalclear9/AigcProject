@@ -52,6 +52,7 @@ class MascotOverlayService : Service() {
     private var displayMode = OverlayDisplayMode.COLLAPSED
     private var placement = OverlayPlacement(OverlayDockSide.RIGHT, 0.5f)
     private var currentLayoutParams: WindowManager.LayoutParams? = null
+    private var currentMascotState = idleMascotState()
 
     override fun onCreate() {
         super.onCreate()
@@ -62,7 +63,13 @@ class MascotOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Both start and update intents may carry the latest state snapshot from AppViewModel.
+        intent?.toMascotState()?.let { currentMascotState = it }
         when (intent?.action) {
+            ACTION_DISMISS_FOR_FOREGROUND -> {
+                stopSelf()
+                return START_NOT_STICKY
+            }
             ACTION_STOP -> {
                 disableOverlay()
                 return START_NOT_STICKY
@@ -71,6 +78,7 @@ class MascotOverlayService : Service() {
                 hideForOneHour()
                 return START_NOT_STICKY
             }
+            ACTION_UPDATE -> Unit
         }
         if (!canShowOverlay()) {
             stopSelf()
@@ -134,7 +142,7 @@ class MascotOverlayService : Service() {
 
     private fun createMascotContent(): View = ComposeView(this).apply {
         setContent {
-            val mascot = idleMascotState()
+            val mascot = currentMascotState
             MaterialTheme {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp),
@@ -186,9 +194,9 @@ class MascotOverlayService : Service() {
     }
 
     private fun openCurrentAction() {
-        // Task 5 supplies action-card routing. Until then, this explicit intent opens the app only.
         startActivity(Intent(this, MainActivity::class.java).apply {
             action = ACTION_OPEN_CURRENT
+            putExtra(EXTRA_ACTION_CARD_ID, currentMascotState.actionCardId)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         })
         showCollapsedOverlay()
@@ -391,6 +399,20 @@ class MascotOverlayService : Service() {
         animationHint = MascotAnimationHint.BREATHE,
     )
 
+    /** Restores the semantic snapshot sent by the foreground app without exposing card contents. */
+    private fun Intent.toMascotState(): MascotState? {
+        val mood = getStringExtra(EXTRA_MOOD)?.let { runCatching { MascotMood.valueOf(it) }.getOrNull() } ?: return null
+        val color = getStringExtra(EXTRA_COLOR_ROLE)?.let { runCatching { MascotColorRole.valueOf(it) }.getOrNull() } ?: return null
+        val animation = getStringExtra(EXTRA_ANIMATION_HINT)?.let { runCatching { MascotAnimationHint.valueOf(it) }.getOrNull() } ?: return null
+        return MascotState(
+            mood = mood,
+            actionCardId = getStringExtra(EXTRA_ACTION_CARD_ID),
+            userMessage = getStringExtra(EXTRA_MESSAGE).orEmpty(),
+            colorRole = color,
+            animationHint = animation,
+        )
+    }
+
     private data class ScreenMetrics(val width: Int, val height: Int)
 
     companion object {
@@ -398,6 +420,13 @@ class MascotOverlayService : Service() {
         const val ACTION_STOP = "com.suishouban.app.action.STOP_MOFEI_OVERLAY"
         const val ACTION_HIDE_ONE_HOUR = "com.suishouban.app.action.HIDE_MOFEI_ONE_HOUR"
         const val ACTION_OPEN_CURRENT = "com.suishouban.app.action.OPEN_MOFEI_CURRENT"
+        const val ACTION_UPDATE = "com.suishouban.app.action.UPDATE_MOFEI_OVERLAY"
+        const val ACTION_DISMISS_FOR_FOREGROUND = "com.suishouban.app.action.DISMISS_MOFEI_FOR_FOREGROUND"
+        const val EXTRA_ACTION_CARD_ID = "com.suishouban.app.extra.MOFEI_ACTION_CARD_ID"
+        private const val EXTRA_MOOD = "com.suishouban.app.extra.MOFEI_MOOD"
+        private const val EXTRA_COLOR_ROLE = "com.suishouban.app.extra.MOFEI_COLOR_ROLE"
+        private const val EXTRA_ANIMATION_HINT = "com.suishouban.app.extra.MOFEI_ANIMATION_HINT"
+        private const val EXTRA_MESSAGE = "com.suishouban.app.extra.MOFEI_MESSAGE"
         private const val NOTIFICATION_CHANNEL_ID = "suishouban_mofei_overlay"
         private const val NOTIFICATION_ID = 2030
         private const val ONE_HOUR_MILLIS = 60 * 60 * 1_000L
@@ -421,6 +450,45 @@ class MascotOverlayService : Service() {
             )
             return true
         }
+
+        /** Starts only after the user has opted in; activity lifecycle uses it to restore the edge pill. */
+        fun restoreAfterAppBackground(context: Context, mascotState: MascotState): Boolean {
+            if (!Settings.canDrawOverlays(context)) return false
+            val settings = (context.applicationContext as SuiShouBanApp).settingsRepository.settings.value
+            val controller = MascotOverlayController()
+            if (!controller.canStart(settings.mascotOverlayEnabled, true, settings.mascotHiddenUntilMillis, System.currentTimeMillis())) {
+                return false
+            }
+            // Android can reject foreground-service starts after the short lifecycle grace
+            // window. The opt-in remains saved and the next foreground/background transition
+            // retries it; a rejected restore must never crash the host activity.
+            return runCatching {
+                ContextCompat.startForegroundService(
+                    context,
+                    overlayIntent(context, ACTION_START, mascotState),
+                )
+                true
+            }.getOrDefault(false)
+        }
+
+        /** Foreground content replaces the overlay without revoking the user's opt-in setting. */
+        fun dismissForForeground(context: Context) {
+            context.startService(Intent(context, MascotOverlayService::class.java).setAction(ACTION_DISMISS_FOR_FOREGROUND))
+        }
+
+        fun updateState(context: Context, mascotState: MascotState) {
+            context.startService(overlayIntent(context, ACTION_UPDATE, mascotState))
+        }
+
+        private fun overlayIntent(context: Context, action: String, mascotState: MascotState): Intent =
+            Intent(context, MascotOverlayService::class.java).apply {
+                this.action = action
+                putExtra(EXTRA_ACTION_CARD_ID, mascotState.actionCardId)
+                putExtra(EXTRA_MOOD, mascotState.mood.name)
+                putExtra(EXTRA_COLOR_ROLE, mascotState.colorRole.name)
+                putExtra(EXTRA_ANIMATION_HINT, mascotState.animationHint.name)
+                putExtra(EXTRA_MESSAGE, mascotState.userMessage)
+            }
 
         fun overlayPermissionIntent(context: Context): Intent = Intent(
             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,

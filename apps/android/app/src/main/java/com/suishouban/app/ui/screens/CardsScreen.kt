@@ -33,6 +33,9 @@ import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.mascot.MascotCompanion
+import com.suishouban.app.mascot.MascotMood
+import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
@@ -44,6 +47,8 @@ fun CardsScreen(
     onComplete: (String) -> Unit,
     onArchive: (String) -> Unit,
     onImport: () -> Unit,
+    mascotState: MascotState,
+    highlightCardId: String? = null,
 ) {
     var type by rememberSaveable { mutableStateOf("all") }
     var status by rememberSaveable { mutableStateOf("active") }
@@ -59,7 +64,7 @@ fun CardsScreen(
                 else -> true
             } &&
             (keyword.isBlank() || card.title.contains(keyword, ignoreCase = true) || card.summary.contains(keyword, ignoreCase = true) || card.sourceText.contains(keyword, ignoreCase = true))
-    }
+    }.sortedBy { card -> if (card.id == highlightCardId) 0 else 1 }
 
     LazyColumn(
         modifier = Modifier.padding(horizontal = 18.dp),
@@ -68,6 +73,25 @@ fun CardsScreen(
         item {
             Spacer(Modifier.height(12.dp))
             SectionHeader("卡片中心", "${filtered.size} 张")
+        }
+        if (mascotState.mood == MascotMood.COMPLETE) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    MascotCompanion(
+                        state = mascotState,
+                        mascotSize = 58.dp,
+                        reduceMotion = state.settings.reduceMascotMotion,
+                        showMessage = false,
+                    )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("墨斐已记录完成", style = MaterialTheme.typography.titleMedium)
+                        Text(mascotState.userMessage, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
         item {
             OutlinedTextField(

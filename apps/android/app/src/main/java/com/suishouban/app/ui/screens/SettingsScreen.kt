@@ -54,6 +54,7 @@ fun SettingsScreen(
     onUpdate: (AppSettings) -> Unit,
     onSync: () -> Unit,
     onTestConnection: () -> Unit,
+    onMascotOverlayToggle: (Boolean) -> Unit,
 ) {
     var apiBaseUrl by remember(state.settings.apiBaseUrl) { mutableStateOf(state.settings.apiBaseUrl) }
     val trimmedApiBaseUrl = apiBaseUrl.trim()
@@ -167,6 +168,27 @@ fun SettingsScreen(
                     title = "日历同步",
                     checked = state.settings.calendarSync,
                     onCheckedChange = { onUpdate(state.settings.copy(calendarSync = it)) },
+                )
+            }
+        }
+        item {
+            SettingsCard(title = "墨斐悬浮助手", icon = Icons.Outlined.Notifications) {
+                SettingSwitch(
+                    title = "在其他应用上显示墨斐",
+                    checked = state.settings.mascotOverlayEnabled,
+                    // Permission navigation stays in MainActivity so this composable never opens
+                    // system settings as a side effect of recomposition.
+                    onCheckedChange = onMascotOverlayToggle,
+                )
+                Text(
+                    "开启时会跳转系统“显示在其他应用上层”授权页。返回应用后才会启动侧边胶囊。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingSwitch(
+                    title = "减少墨斐动态效果",
+                    checked = state.settings.reduceMascotMotion,
+                    onCheckedChange = { onUpdate(state.settings.copy(reduceMascotMotion = it)) },
                 )
             }
         }
