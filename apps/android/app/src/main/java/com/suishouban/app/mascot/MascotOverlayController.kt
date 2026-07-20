@@ -1,5 +1,8 @@
 package com.suishouban.app.mascot
 
+import com.suishouban.app.mascot.action.MofeiAction
+import com.suishouban.app.mascot.action.MofeiActionCommand
+
 /** Persisted docking side for the system overlay. */
 enum class OverlayDockSide { LEFT, RIGHT }
 
@@ -7,7 +10,7 @@ enum class OverlayDockSide { LEFT, RIGHT }
 enum class OverlayDisplayMode { COLLAPSED, EXPANDED }
 
 /** Commands are platform independent so placement and gestures remain JVM-testable. */
-enum class OverlayCommand { Expand, OpenCurrentAction, ShowControls }
+enum class OverlayCommand { Expand, Collapse, ShowControls }
 
 data class OverlayPlacement(
     val dockSide: OverlayDockSide,
@@ -30,10 +33,15 @@ class MascotOverlayController {
 
     fun commandForTap(mode: OverlayDisplayMode): OverlayCommand = when (mode) {
         OverlayDisplayMode.COLLAPSED -> OverlayCommand.Expand
-        OverlayDisplayMode.EXPANDED -> OverlayCommand.OpenCurrentAction
+        OverlayDisplayMode.EXPANDED -> OverlayCommand.Collapse
     }
 
     fun commandForLongPress(): OverlayCommand = OverlayCommand.ShowControls
+
+    fun commandForAction(action: MofeiAction, cardId: String?): MofeiActionCommand =
+        MofeiActionCommand.forAction(action, cardId)
+
+    fun shouldMirrorCompactRing(dockSide: OverlayDockSide): Boolean = dockSide == OverlayDockSide.RIGHT
 
     /**
      * Snaps to the nearest side and stores a normalized center position. The vertical range is
@@ -69,7 +77,7 @@ class MascotOverlayController {
         val x = when (placement.dockSide) {
             // Collapsed capsule keeps exactly 24dp exposed; preview stays entirely visible.
             OverlayDockSide.LEFT -> if (mode == OverlayDisplayMode.COLLAPSED) visibleCollapsedWidthPx(density) - width else 0
-            OverlayDockSide.RIGHT -> if (mode == OverlayDisplayMode.COLLAPSED) screenWidthPx - visibleCollapsedWidthPx(density) else screenWidthPx - width
+            OverlayDockSide.RIGHT -> if (mode == OverlayDisplayMode.COLLAPSED) screenWidthPx - visibleCollapsedWidthPx(density) else (screenWidthPx - width).coerceAtLeast(0)
         }
         return OverlayWindowPosition(x, y)
     }
@@ -85,8 +93,8 @@ class MascotOverlayController {
         const val COLLAPSED_WIDTH_DP = 44
         const val COLLAPSED_HEIGHT_DP = 88
         const val COLLAPSED_VISIBLE_WIDTH_DP = 24
-        const val EXPANDED_WIDTH_DP = 156
-        const val EXPANDED_HEIGHT_DP = 112
+        const val EXPANDED_WIDTH_DP = 284
+        const val EXPANDED_HEIGHT_DP = 284
         const val MIN_VERTICAL_FRACTION = 0.1f
         const val MAX_VERTICAL_FRACTION = 0.9f
     }
