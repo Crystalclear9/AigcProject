@@ -2,6 +2,9 @@ package com.suishouban.app
 
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.Gravity
@@ -78,7 +81,9 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         viewModel.beginFreshScreenshotPrompt()
 
         val incomingIntent = intent
+        val fromPrivateCapture = isTrustedPrivateCapture(incomingIntent)
         val sourceIntent = when {
+            fromPrivateCapture -> incomingIntent
             ScreenshotMonitorService.isTrustedPendingPreview(this, incomingIntent) -> incomingIntent
             incomingIntent.action == ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT ->
                 ScreenshotMonitorService.consumePendingPreviewIntent(this)
@@ -98,7 +103,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         val confidenceBand = sourceIntent.getStringExtra(EXTRA_CONFIDENCE_BAND)
         val scenarioType = sourceIntent.getStringExtra(EXTRA_SCENARIO_TYPE)
         val primaryEvidence = sourceIntent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
-        ScreenshotMonitorService.clearPendingPreview(this)
+        if (!fromPrivateCapture) ScreenshotMonitorService.clearPendingPreview(this)
 
         setContent {
             SuiShouBanTheme {
@@ -177,6 +182,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val ACTION_CAPTURE_PREVIEW = "com.suishouban.app.action.PREVIEW_MOFEI_CAPTURE"
         const val EXTRA_OCR_TEXT = "com.suishouban.app.extra.OCR_TEXT"
         const val EXTRA_GATE_REASON = "com.suishouban.app.extra.GATE_REASON"
         const val EXTRA_DEADLINE_HINT = "com.suishouban.app.extra.DEADLINE_HINT"
@@ -187,6 +193,22 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
         const val EXTRA_OCR_TOKEN = "com.suishouban.app.extra.OCR_TOKEN"
+
+        /** Explicit and non-exported; only private FileProvider capture URIs are accepted. */
+        fun captureIntent(context: Context, uri: Uri): Intent =
+            Intent(context, ScreenshotPreviewActivity::class.java).apply {
+                action = ACTION_CAPTURE_PREVIEW
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+
+        private fun Context.isTrustedPrivateCapture(source: Intent?): Boolean {
+            val uri = source?.data ?: return false
+            return source.action == ACTION_CAPTURE_PREVIEW &&
+                uri.scheme == "content" &&
+                uri.authority == "$packageName.fileprovider" &&
+                uri.path.orEmpty().contains("mofei_capture")
+        }
     }
 }
 
