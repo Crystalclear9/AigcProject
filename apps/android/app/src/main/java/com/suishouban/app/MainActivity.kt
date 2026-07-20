@@ -14,7 +14,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
@@ -41,7 +43,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
+import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
+import com.suishouban.app.mascot.OverlayDockSide
 import com.suishouban.app.ui.components.GradientScreen
 import com.suishouban.app.ui.screens.CalendarScreen
 import com.suishouban.app.ui.screens.CardsScreen
@@ -73,6 +77,11 @@ class MainActivity : ComponentActivity() {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 val mascotState by viewModel.mascotState.collectAsStateWithLifecycle()
                 val requestedOverlayNavigation by overlayNavigation.collectAsStateWithLifecycle()
+                // A monotonically increasing counter drives the pet's one-shot celebration burst.
+                var celebrationSignal by remember { mutableStateOf(0) }
+                LaunchedEffect(Unit) {
+                    viewModel.mascotInteractions.collect { celebrationSignal++ }
+                }
                 var current by rememberSaveable { mutableStateOf(Screen.Home.route) }
                 var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
                 val snackbarHostState = remember { SnackbarHostState() }
@@ -155,8 +164,9 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                 ) { padding ->
-                    GradientScreen(padding) {
-                        when (current) {
+                    Box(Modifier.fillMaxSize()) {
+                        GradientScreen(padding) {
+                            when (current) {
                             Screen.Import.route -> ImportScreen(
                                 state = state,
                                 onPickImage = { uri ->
@@ -224,6 +234,42 @@ class MainActivity : ComponentActivity() {
                                 onCards = { current = Screen.Cards.route },
                                 onComplete = viewModel::completeCard,
                                 mascotState = mascotState,
+                            )
+                        }
+                        }
+                        // Resident in-app pet: always visible (no permission), above content and below
+                        // the navigation bar. Distinct from the simpler system-edge capsule overlay.
+                        if (state.settings.mascotInAppEnabled) {
+                            FloatingMascot(
+                                state = mascotState,
+                                dockSide = if (state.settings.mascotDockSide == "left") {
+                                    OverlayDockSide.LEFT
+                                } else {
+                                    OverlayDockSide.RIGHT
+                                },
+                                verticalFraction = state.settings.mascotVerticalFraction,
+                                reduceMotion = state.settings.reduceMascotMotion,
+                                completionSignal = celebrationSignal,
+                                onOpenCurrentAction = { cardId ->
+                                    overlayNavigation.value = OverlayNavigation(
+                                        actionCardId = cardId,
+                                        requestId = System.currentTimeMillis(),
+                                    )
+                                    current = Screen.Cards.route
+                                },
+                                onOpenSettings = { current = Screen.Settings.route },
+                                onDismissForNow = {
+                                    viewModel.updateSettings(state.settings.copy(mascotInAppEnabled = false))
+                                },
+                                onPlacementChange = { side, fraction ->
+                                    viewModel.updateSettings(
+                                        state.settings.copy(
+                                            mascotDockSide = if (side == OverlayDockSide.LEFT) "left" else "right",
+                                            mascotVerticalFraction = fraction,
+                                        ),
+                                    )
+                                },
+                                modifier = Modifier.padding(padding),
                             )
                         }
                     }

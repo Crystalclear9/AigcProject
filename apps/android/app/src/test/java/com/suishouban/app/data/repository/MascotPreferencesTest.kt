@@ -14,6 +14,7 @@ class MascotPreferencesTest {
         val settings = repository.settings.value
 
         assertFalse(settings.mascotOverlayEnabled)
+        assertTrue("in-app pet is on by default so it is always visible", settings.mascotInAppEnabled)
         assertEquals(0L, settings.mascotHiddenUntilMillis)
         assertEquals("right", settings.mascotDockSide)
         assertEquals(0.5f, settings.mascotVerticalFraction)
@@ -26,6 +27,7 @@ class MascotPreferencesTest {
         val repository = AppSettingsRepository(preferences)
         val saved = repository.settings.value.copy(
             mascotOverlayEnabled = true,
+            mascotInAppEnabled = false,
             mascotHiddenUntilMillis = 1_750_000_000_000L,
             mascotDockSide = "left",
             mascotVerticalFraction = 0.72f,
@@ -36,6 +38,7 @@ class MascotPreferencesTest {
 
         val reloaded = AppSettingsRepository(preferences).settings.value
         assertTrue(reloaded.mascotOverlayEnabled)
+        assertFalse(reloaded.mascotInAppEnabled)
         assertEquals(1_750_000_000_000L, reloaded.mascotHiddenUntilMillis)
         assertEquals("left", reloaded.mascotDockSide)
         assertEquals(0.72f, reloaded.mascotVerticalFraction)

@@ -174,6 +174,16 @@ fun SettingsScreen(
         item {
             SettingsCard(title = "墨斐悬浮助手", icon = Icons.Outlined.Notifications) {
                 SettingSwitch(
+                    title = "在应用内显示墨斐宠物",
+                    checked = state.settings.mascotInAppEnabled,
+                    onCheckedChange = { onUpdate(state.settings.copy(mascotInAppEnabled = it)) },
+                )
+                Text(
+                    "应用内常驻的悬浮墨斐：可拖拽吸边、轻点对话、长按菜单。无需任何权限。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingSwitch(
                     title = "在其他应用上显示墨斐",
                     checked = state.settings.mascotOverlayEnabled,
                     // Permission navigation stays in MainActivity so this composable never opens
@@ -181,7 +191,7 @@ fun SettingsScreen(
                     onCheckedChange = onMascotOverlayToggle,
                 )
                 Text(
-                    "开启时会跳转系统“显示在其他应用上层”授权页。返回应用后才会启动侧边胶囊。",
+                    "系统级仅在离开应用后、于其他应用上层显示为轻量状态胶囊（与应用内宠物不同）。开启时会跳转系统“显示在其他应用上层”授权页。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
