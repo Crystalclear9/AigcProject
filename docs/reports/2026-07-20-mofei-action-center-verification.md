@@ -6,7 +6,10 @@
 ## 已实现范围
 
 - 应用内七项能力环：当前屏幕、最近截图、相册、相机、通知草稿、当前事项、设置。
-- 跨 App 五项紧凑能力环；左右停靠时对应展开和镜像。
+- 跨 App 五项紧凑能力环；左右停靠时对应展开和镜像，5 秒无交互后自动收起。
+- 收起状态仅露出半个墨斐本体，不显示额外边框；墨斐本体支持横向、纵向拖动和侧边吸附。
+- 展开状态中墨斐本体仍可作为拖动把手；系统手势排除区仅覆盖墨斐，避免 vivo 侧边栏抢占拖动。
+- 环上功能第一次点击只展示名称，第二次点击才执行；名称使用环内深色胶囊，并始终置于墨斐和其他功能球上方。
 - 单次 MediaProjection 授权、单帧私有缓存、预览和完整资源释放。
 - 系统截图监听与主动捕获共用像素指纹；同一画面在两种来源之间按 10 分钟窗口去重。
 - 通知特殊访问、来源 App 白名单、本地候选、敏感内容过滤、24 小时过期。
@@ -26,11 +29,11 @@
 
 ## 视觉资产
 
-- `mofei_action_ring_full.png`：1024×1024，透明背景，约 689 KB。
-- `mofei_action_ring_compact.png`：768×768，透明背景，约 339 KB。
-- 两个能力环为 image2 生成原画，经色键透明化和本地尺寸校验后打包。
-- 小图标与权限印记由 `tools/mofei/build_action_assets.py` 确定性生成；原因是图像服务的图谱请求三次在远端回传阶段失败。图标仍复用冰蓝玻璃、深蓝内芯和青色发光语言。
-- 目视检查未发现白色矩形背景、生成文字或透明角残留；完整环七槽、紧凑环五槽与运行时动作数一致。
+- 能力环改为贴近墨斐的细线半环，环体仅占 132dp 宽，操作球 38dp，墨斐 64dp；透明交互预留区不参与视觉占用。
+- 应用内与跨 App 共用 `MofeiActionRing`，保证首次点击说明、顶层标签和收起时序一致。
+- 用户提供的图标原图重命名保存为 `apps/android/branding/mofei_app_icon_source.png`。
+- Android 使用的透明圆角版本保存为 `apps/android/branding/mofei_app_icon.png`，并生成 mdpi、hdpi、xhdpi、xxhdpi、xxxhdpi 五档资源；只去除原图黑色角区，没有重绘主体。
+- `AndroidManifest.xml` 的 `android:icon` 与 `android:roundIcon` 均指向 `@mipmap/mofei_app_icon`。
 
 ## 自动验证
 
@@ -41,13 +44,13 @@ cd apps\android
 .\gradlew.bat clean testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon --console=plain
 ```
 
-结果：退出码 0。JUnit 报告共 24 个测试套件、107 个测试，失败 0、错误 0。新增回归覆盖通知草稿关联、通知动态过期、跨来源截图指纹及两个来源并发争抢同一画面的原子去重；Compose 能力环、通知萤火和 Room 迁移测试已编译进测试 APK。因没有设备，本轮未执行 instrumentation。
+结果：退出码 0。JUnit 报告共 25 个测试套件、111 个测试，失败 0、错误 0。新增回归覆盖能力环几何、收起状态根手势捕获和墨斐拖动边界。
 
 - App APK：`apps/android/app/build/outputs/apk/debug/app-debug.apk`
-- APK 大小：85,719,431 bytes
-- SHA-256：`0860F57D9C6AA22ECD67F4DB4F35C8B9A5F9DB75AF593194F8FAF040E06C830F`
+- APK 大小：85,854,125 bytes
+- SHA-256：`C2C49611DEB33D678F66A1FA22D1C0ECE73818C8AF66F0C8C25349E51743C264`
 - AndroidTest APK：`apps/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`
-- AndroidTest APK 大小：994,925 bytes
+- AndroidTest APK 大小：998,221 bytes
 
 静态边界检查：
 
@@ -55,17 +58,20 @@ cd apps\android
 - 合并清单不得包含 `android.intent.action.SEND`。
 - 所有 `mofei_action_*.png` 必须包含透明像素且单文件不超过 1.5 MB。
 
-检查结果：MediaProjection 权限存在、服务类型存在、SEND intent 不存在；资产构建脚本退出码 0；`git diff --check` 退出码 0。
+检查结果：MediaProjection 权限存在、服务类型存在、SEND intent 不存在；APK 资源表包含五档 `mofei_app_icon`。
 
 ## 设备验证状态
 
-`adb devices -l` 在本次执行时没有返回设备，因此没有运行 `connectedDebugAndroidTest`，也没有把十项真机交互检查标记为通过。待连接设备后执行：
+设备：vivo V2509A，序列号 `10AFA30A7Z002Q5`。最终 App APK 已安装，`pm path com.suishouban.app` 返回有效安装路径。
 
-```powershell
-cd apps\android
-.\gradlew.bat connectedDebugAndroidTest --no-daemon --console=plain
-adb shell dumpsys activity services com.suishouban.app
-adb shell dumpsys notification
-```
+- instrumentation：6 个测试，`OK (6 tests)`；覆盖 Room 迁移、能力环首次点击说明、通知萤火和 Overlay ViewTree owners。
+- 手工拖动：墨斐从左侧拖到右侧，WindowManager 坐标最终为 `(990,1200)`，尺寸 `180x180`；未触发 vivo 侧边栏。
+- 跨 App 首次点击：功能名称“识别当前屏”以环内顶层胶囊显示，没有使用底部 Toast；第二次点击仍进入原动作。
+- 收起状态：仅半个墨斐停靠屏幕边缘，无外框。
 
-真机需要逐项验证：Photo Picker、相机、每次投影授权、受保护内容、系统截图监听、跨来源去重、通知白名单、敏感通知过滤、确认后创建、权限撤销以及减弱动效。
+证据截图：
+
+- `docs/reports/assets/mofei-inline-label-topmost-fast.png`
+- `docs/reports/assets/mofei-horizontal-body-drag.png`
+- `docs/reports/assets/mofei-half-peek.png`
+- `docs/reports/assets/mofei-snug-arc-overlay.png`

@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionItem
 import com.suishouban.app.mascot.action.MofeiSurface
@@ -159,6 +160,7 @@ fun FloatingMascot(
                 dockSide = dockSide,
                 modifier = Modifier
                     .size(MofeiSideArcGeometry.WIDTH_DP.dp, MofeiSideArcGeometry.HEIGHT_DP.dp)
+                    .zIndex(2f)
                     .graphicsLayer {
                         translationX = ringX
                         translationY = ringY

@@ -54,7 +54,7 @@ class MofeiActionRingTest {
         compose.onAllNodes(hasText("需要通知读取权限")).assertCountEquals(0)
         compose.onAllNodes(hasText("相册导入")).assertCountEquals(0)
         compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
-        compose.onNodeWithTag("mofei-action-hint").assertExists()
+        compose.onNodeWithTag("mofei-action-hint", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("拍照识别").assertExists()
         assertEquals(null, selected)
         compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
@@ -78,5 +78,34 @@ class MofeiActionRingTest {
 
         compose.onNodeWithTag("mofei-action-dismiss").performClick()
         assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun expandedRingAutoDismissesFiveSecondsAfterTheLatestInteraction() {
+        var dismissed = false
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MofeiActionRing(
+                surface = MofeiSurface.IN_APP,
+                items = listOf(
+                    MofeiActionItem(
+                        action = MofeiAction.TAKE_PHOTO,
+                        availability = MofeiActionAvailability.READY,
+                    ),
+                ),
+                expanded = true,
+                reduceMotion = true,
+                onAction = {},
+                onDismiss = { dismissed = true },
+                dockSide = OverlayDockSide.RIGHT,
+            )
+        }
+
+        compose.mainClock.advanceTimeBy(4_000L)
+        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(4_999L)
+        assertEquals(false, dismissed)
+        compose.mainClock.advanceTimeBy(2L)
+        compose.runOnIdle { assertEquals(true, dismissed) }
     }
 }

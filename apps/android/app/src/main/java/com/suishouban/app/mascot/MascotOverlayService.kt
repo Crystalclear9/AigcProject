@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -25,7 +26,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.ViewModelStore
@@ -82,6 +83,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     private var foregroundStarted = false
     private var hiddenRestore: Runnable? = null
     private var pendingNotificationDrafts: Int = 0
+    private var revealedOverlayAction: MofeiAction? = null
 
     override val viewModelStore: ViewModelStore
         get() = overlayViewModelStore
@@ -209,11 +211,13 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     private fun showCollapsedOverlay() {
+        revealedOverlayAction = null
         displayMode = OverlayDisplayMode.COLLAPSED
         updateOverlayView()
     }
 
     private fun showExpandedPreview() {
+        revealedOverlayAction = null
         displayMode = OverlayDisplayMode.EXPANDED
         updateOverlayView()
     }
@@ -221,21 +225,28 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     private fun updateOverlayView() {
         removeControls()
         removeOverlay()
-        val root = FrameLayout(this).apply {
-            background = if (displayMode == OverlayDisplayMode.COLLAPSED) {
-                capsuleBackground(displayMode)
+        val root = OverlayGestureFrameLayout().apply {
+            // The resting overlay is only a half-visible Mofei; chrome appears after expansion.
+            background = GradientDrawable().apply { setColor(Color.TRANSPARENT) }
+            if (displayMode == OverlayDisplayMode.COLLAPSED) {
+                contentDescription = overlayContentDescription()
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { handleTap() }
             } else {
-                GradientDrawable().apply { setColor(Color.TRANSPARENT) }
+                // Let each Compose action expose and handle its own click semantics.
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                isClickable = false
+                isFocusable = false
             }
-            contentDescription = overlayContentDescription()
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { handleTap() }
-            addView(createMascotContent(), FrameLayout.LayoutParams(
+            val content = createMascotContent()
+            addView(content, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             ))
+            // This parent intercepts only Mofei itself. The arc orbs continue to receive Compose
+            // clicks, while Mofei remains a reliable drag handle in both visual states.
             setOnTouchListener(OverlayTouchListener())
         }
         // WindowRecomposer searches from the WindowManager root during attachment.
@@ -244,6 +255,29 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         overlayView = root
         currentLayoutParams = params
         windowManager.addView(root, params)
+        excludeMofeiFromSystemEdgeGestures(root)
+    }
+
+    /** Keeps vivo's edge assistant/back gesture from stealing a drag that starts on Mofei. */
+    private fun excludeMofeiFromSystemEdgeGestures(root: View) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        root.post {
+            val mascotPx = dp(MofeiSideArcGeometry.MASCOT_SIZE_DP.toInt())
+            val top = ((root.height - mascotPx) / 2).coerceAtLeast(0)
+            val left = if (displayMode == OverlayDisplayMode.COLLAPSED || placement.dockSide == OverlayDockSide.LEFT) {
+                0
+            } else {
+                (root.width - mascotPx).coerceAtLeast(0)
+            }
+            root.systemGestureExclusionRects = listOf(
+                Rect(
+                    left,
+                    top,
+                    (left + mascotPx).coerceAtMost(root.width),
+                    (top + mascotPx).coerceAtMost(root.height),
+                ),
+            )
+        }
     }
 
     private fun createMascotContent(): View = ComposeView(this).apply {
@@ -270,17 +304,19 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                             reduceMotion = settings.reduceMascotMotion,
                             onAction = ::executeOverlayAction,
                             onDismiss = ::showCollapsedOverlay,
+                            revealedActionOverride = revealedOverlayAction,
+                            onActionPreview = ::previewOverlayAction,
                             dockSide = placement.dockSide,
                             modifier = Modifier.size(
                                 MofeiSideArcGeometry.WIDTH_DP.dp,
                                 MofeiSideArcGeometry.HEIGHT_DP.dp,
-                            ),
+                            ).zIndex(2f),
                         )
                     }
                     MofeiVisual(
                         state = mascot,
                         modifier = if (displayMode == OverlayDisplayMode.COLLAPSED) {
-                            Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp)
+                            Modifier.size(MofeiSideArcGeometry.MASCOT_SIZE_DP.dp)
                         } else {
                             Modifier
                                 .align(
@@ -317,8 +353,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             if (mode == OverlayDisplayMode.COLLAPSED) controller.collapsedHeightPx(density) else controller.expandedHeightPx(density),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -358,6 +393,14 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 if (command == MofeiActionCommand.RequestScreenCapture && canShowOverlay()) showCollapsedOverlay()
             }
         if (command != MofeiActionCommand.RequestScreenCapture) showCollapsedOverlay()
+    }
+
+    /** Rebuilds the WindowManager-hosted composition so OEM lifecycle quirks cannot hide feedback. */
+    private fun previewOverlayAction(action: MofeiAction) {
+        revealedOverlayAction = action
+        mainHandler.post {
+            if (displayMode == OverlayDisplayMode.EXPANDED && overlayView != null) updateOverlayView()
+        }
     }
 
     private fun showActionFallback(message: String) {
@@ -472,12 +515,6 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         controlsView = null
     }
 
-    private fun capsuleBackground(mode: OverlayDisplayMode): GradientDrawable = GradientDrawable().apply {
-        cornerRadius = dp(if (mode == OverlayDisplayMode.COLLAPSED) 22 else 18).toFloat()
-        setColor(Color.argb(if (mode == OverlayDisplayMode.COLLAPSED) 228 else 244, 225, 242, 255))
-        setStroke(dp(1), Color.argb(150, 112, 178, 255))
-    }
-
     private fun startForegroundWithNotification() {
         val contentIntent = PendingIntent.getActivity(
             this,
@@ -488,7 +525,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         val notification = Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("墨斐悬浮助手正在运行")
-            .setContentText("轻点侧边胶囊查看当前事项")
+            .setContentText("轻点侧边墨斐展开行动中心")
             .setContentIntent(contentIntent)
             .setOngoing(true)
             .build()
@@ -507,7 +544,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 "墨斐悬浮助手",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "墨斐在系统侧边以悬浮胶囊显示时的常驻通知"
+                description = "墨斐在系统侧边半隐藏显示时的常驻通知"
                 setSound(null, null)
                 enableVibration(false)
             },
@@ -531,6 +568,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         private var startWindowY = 0
         private var dragging = false
         private var longPressTriggered = false
+        private var acceptingGesture = false
         private val longPress = Runnable {
             if (!dragging) {
                 longPressTriggered = true
@@ -538,8 +576,19 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             }
         }
 
-        override fun onTouch(view: View, event: MotionEvent): Boolean = when (event.actionMasked) {
+        override fun onTouch(view: View, event: MotionEvent): Boolean {
+            return when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                acceptingGesture = controller.shouldCaptureRootGesture(
+                    mode = displayMode,
+                    dockSide = placement.dockSide,
+                    localX = event.x,
+                    localY = event.y,
+                    windowWidthPx = view.width,
+                    windowHeightPx = view.height,
+                    density = resources.displayMetrics.density,
+                )
+                if (!acceptingGesture) return false
                 downX = event.rawX
                 downY = event.rawY
                 startWindowX = currentLayoutParams?.x ?: 0
@@ -549,11 +598,8 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 view.postDelayed(longPress, LONG_PRESS_TIMEOUT_MILLIS)
                 true
             }
-            MotionEvent.ACTION_OUTSIDE -> {
-                if (displayMode == OverlayDisplayMode.EXPANDED) showCollapsedOverlay()
-                true
-            }
             MotionEvent.ACTION_MOVE -> {
+                if (!acceptingGesture) return false
                 val deltaX = event.rawX - downX
                 val deltaY = event.rawY - downY
                 if (abs(deltaX) > TOUCH_SLOP_PX || abs(deltaY) > TOUCH_SLOP_PX) {
@@ -562,12 +608,13 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                     currentLayoutParams?.let { params ->
                         params.x = startWindowX + deltaX.toInt()
                         params.y = (startWindowY + deltaY.toInt()).coerceIn(0, screenMetrics().height)
-                        windowManager.updateViewLayout(view, params)
+                        overlayView?.let { root -> windowManager.updateViewLayout(root, params) }
                     }
                 }
                 true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!acceptingGesture) return false
                 view.removeCallbacks(longPress)
                 if (dragging) {
                     val params = currentLayoutParams
@@ -584,11 +631,46 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                         showCollapsedOverlay()
                     }
                 } else if (!longPressTriggered && event.actionMasked == MotionEvent.ACTION_UP) {
-                    view.performClick()
+                    // performClick preserves accessibility behavior in the resting state. The
+                    // expanded root has no click listener, so tapping Mofei collapses explicitly.
+                    if (overlayView?.performClick() != true) handleTap()
                 }
+                acceptingGesture = false
                 true
             }
-            else -> true
+                else -> true
+            }
+        }
+    }
+
+    /**
+     * A normal FrameLayout lets Compose consume the pointer stream before a parent drag listener
+     * sees movement. Claiming the stream at dispatch time fixes dragging without covering the
+     * expanded action buttons with one large invisible touch target.
+     */
+    private inner class OverlayGestureFrameLayout : FrameLayout(this@MascotOverlayService) {
+        private var captureGesture = false
+
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    captureGesture = controller.shouldCaptureRootGesture(
+                        mode = displayMode,
+                        dockSide = placement.dockSide,
+                        localX = event.x,
+                        localY = event.y,
+                        windowWidthPx = width,
+                        windowHeightPx = height,
+                        density = resources.displayMetrics.density,
+                    )
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val captured = captureGesture
+                    captureGesture = false
+                    return captured
+                }
+            }
+            return captureGesture
         }
     }
 

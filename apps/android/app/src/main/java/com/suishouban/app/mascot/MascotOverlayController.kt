@@ -38,6 +38,28 @@ class MascotOverlayController {
 
     fun commandForLongPress(): OverlayCommand = OverlayCommand.ShowControls
 
+    /**
+     * The resting window is entirely draggable. Once expanded, only Mofei's body becomes the
+     * drag handle so the surrounding action orbs keep their independent click semantics.
+     */
+    fun shouldCaptureRootGesture(
+        mode: OverlayDisplayMode,
+        dockSide: OverlayDockSide,
+        localX: Float,
+        localY: Float,
+        windowWidthPx: Int,
+        windowHeightPx: Int,
+        density: Float,
+    ): Boolean {
+        if (mode == OverlayDisplayMode.COLLAPSED) return true
+
+        val mascotSize = MofeiSideArcGeometry.MASCOT_SIZE_DP * density
+        val mascotLeft = if (dockSide == OverlayDockSide.LEFT) 0f else windowWidthPx - mascotSize
+        val mascotTop = (windowHeightPx - mascotSize) / 2f
+        return localX in mascotLeft..(mascotLeft + mascotSize) &&
+            localY in mascotTop..(mascotTop + mascotSize)
+    }
+
     fun commandForAction(action: MofeiAction, cardId: String?): MofeiActionCommand =
         MofeiActionCommand.forAction(action, cardId)
 
@@ -75,7 +97,7 @@ class MascotOverlayController {
         val fraction = placement.verticalFraction.coerceIn(MIN_VERTICAL_FRACTION, MAX_VERTICAL_FRACTION)
         val y = ((screenHeightPx - height).coerceAtLeast(0) * fraction).toInt()
         val x = when (placement.dockSide) {
-            // Collapsed capsule keeps exactly 24dp exposed; preview stays entirely visible.
+        // Resting Mofei peeks exactly halfway past the screen edge; the arc stays visible.
             OverlayDockSide.LEFT -> if (mode == OverlayDisplayMode.COLLAPSED) visibleCollapsedWidthPx(density) - width else 0
             OverlayDockSide.RIGHT -> if (mode == OverlayDisplayMode.COLLAPSED) screenWidthPx - visibleCollapsedWidthPx(density) else (screenWidthPx - width).coerceAtLeast(0)
         }
@@ -90,9 +112,9 @@ class MascotOverlayController {
     private fun visibleCollapsedWidthPx(density: Float): Int = (COLLAPSED_VISIBLE_WIDTH_DP * density).toInt()
 
     companion object {
-        const val COLLAPSED_WIDTH_DP = 44
-        const val COLLAPSED_HEIGHT_DP = 88
-        const val COLLAPSED_VISIBLE_WIDTH_DP = 24
+        const val COLLAPSED_WIDTH_DP = 64
+        const val COLLAPSED_HEIGHT_DP = 64
+        const val COLLAPSED_VISIBLE_WIDTH_DP = COLLAPSED_WIDTH_DP / 2
         const val EXPANDED_WIDTH_DP = MofeiSideArcGeometry.WIDTH_DP.toInt()
         const val EXPANDED_HEIGHT_DP = MofeiSideArcGeometry.HEIGHT_DP.toInt()
         const val MIN_VERTICAL_FRACTION = 0.1f

@@ -11,7 +11,7 @@ class MascotOverlayControllerTest {
     private val controller = MascotOverlayController()
 
     @Test
-    fun collapsedPlacementLeavesOnlyTwentyFourPixelsVisibleAtTheLeftEdge() {
+    fun collapsedPlacementLeavesExactlyHalfOfMofeiVisibleAtTheLeftEdge() {
         val placement = OverlayPlacement(OverlayDockSide.LEFT, verticalFraction = 0.5f)
 
         val position = controller.windowPosition(
@@ -22,8 +22,10 @@ class MascotOverlayControllerTest {
             density = 1f,
         )
 
-        assertEquals(-20, position.x)
-        assertEquals(356, position.y)
+        assertEquals(64, controller.collapsedWidthPx(1f))
+        assertEquals(64, controller.collapsedHeightPx(1f))
+        assertEquals(-32, position.x)
+        assertEquals(368, position.y)
     }
 
     @Test
@@ -53,13 +55,50 @@ class MascotOverlayControllerTest {
     }
 
     @Test
+    fun rootDragLayerClaimsTheCollapsedWindowAndOnlyExpandedMofeiBody() {
+        assertTrue(
+            controller.shouldCaptureRootGesture(
+                mode = OverlayDisplayMode.COLLAPSED,
+                dockSide = OverlayDockSide.LEFT,
+                localX = 8f,
+                localY = 8f,
+                windowWidthPx = 64,
+                windowHeightPx = 64,
+                density = 1f,
+            ),
+        )
+        assertTrue(
+            controller.shouldCaptureRootGesture(
+                mode = OverlayDisplayMode.EXPANDED,
+                dockSide = OverlayDockSide.LEFT,
+                localX = 32f,
+                localY = 95f,
+                windowWidthPx = 210,
+                windowHeightPx = 190,
+                density = 1f,
+            ),
+        )
+        assertFalse(
+            controller.shouldCaptureRootGesture(
+                mode = OverlayDisplayMode.EXPANDED,
+                dockSide = OverlayDockSide.LEFT,
+                localX = 108f,
+                localY = 95f,
+                windowWidthPx = 210,
+                windowHeightPx = 190,
+                density = 1f,
+            ),
+        )
+    }
+
+    @Test
     fun compactArcUsesNarrowEdgeWindowAndMirrorsAtRightEdge() {
-        assertEquals(184, controller.expandedWidthPx(1f))
-        assertEquals(276, controller.expandedHeightPx(1f))
+        assertEquals(210, controller.expandedWidthPx(1f))
+        assertEquals(190, controller.expandedHeightPx(1f))
         assertFalse(controller.shouldMirrorCompactRing(OverlayDockSide.LEFT))
         assertTrue(controller.shouldMirrorCompactRing(OverlayDockSide.RIGHT))
         assertEquals(
-            216,
+            190,
             controller.windowPosition(
                 OverlayPlacement(OverlayDockSide.RIGHT, 0.5f),
                 OverlayDisplayMode.EXPANDED,
