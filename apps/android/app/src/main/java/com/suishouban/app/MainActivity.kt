@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -44,6 +45,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
+import com.suishouban.app.data.repository.LatestScreenshotRepository
 import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.mascot.OverlayDockSide
@@ -66,6 +68,7 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 private data class OverlayNavigation(
     val actionCardId: String? = null,
@@ -90,6 +93,14 @@ class MainActivity : ComponentActivity() {
                 val currentPermissionRevision by permissionRevision.collectAsStateWithLifecycle()
                 val notificationAccessGranted = remember(currentPermissionRevision) {
                     MofeiPermissionState.notificationAccessGranted(this@MainActivity)
+                }
+                val actionScope = rememberCoroutineScope()
+                val latestScreenshotRepository = remember {
+                    LatestScreenshotRepository(applicationContext)
+                }
+                var latestScreenshotUri by remember { mutableStateOf<Uri?>(null) }
+                LaunchedEffect(currentPermissionRevision) {
+                    latestScreenshotUri = latestScreenshotRepository.findLatest()
                 }
                 var notificationApps by remember { mutableStateOf(emptyList<InstalledAppInfo>()) }
                 LaunchedEffect(Unit) {
@@ -151,11 +162,21 @@ class MainActivity : ComponentActivity() {
                             "正在准备当前屏幕识别",
                             Toast.LENGTH_SHORT,
                         ).show()
-                        MofeiActionCommand.OpenLatestScreenshot -> Toast.makeText(
-                            this@MainActivity,
-                            "正在查找最近截图",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        MofeiActionCommand.OpenLatestScreenshot -> actionScope.launch {
+                            val uri = latestScreenshotRepository.findLatest()
+                            latestScreenshotUri = uri
+                            if (uri == null) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "没有找到可读取的系统截图",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                viewModel.analyzeImage(uri) { hasCards ->
+                                    if (hasCards) current = Screen.Preview.route
+                                }
+                            }
+                        }
                         MofeiActionCommand.OpenNotificationDrafts -> Toast.makeText(
                             this@MainActivity,
                             "暂无待确认的通知事项",
@@ -174,6 +195,7 @@ class MainActivity : ComponentActivity() {
                 val mofeiActionItems = remember(
                     notificationAccessGranted,
                     state.settings.mofeiNotificationDraftsEnabled,
+                    latestScreenshotUri,
                 ) {
                     MofeiActionCoordinator().actionsFor(
                         surface = MofeiSurface.IN_APP,
@@ -181,6 +203,7 @@ class MainActivity : ComponentActivity() {
                             overlayGranted = Settings.canDrawOverlays(this@MainActivity),
                             notificationAccessGranted = notificationAccessGranted,
                             notificationDraftsEnabled = state.settings.mofeiNotificationDraftsEnabled,
+                            latestScreenshotAvailable = latestScreenshotUri != null,
                         ),
                     )
                 }
