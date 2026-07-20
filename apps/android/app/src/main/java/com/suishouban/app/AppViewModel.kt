@@ -17,6 +17,7 @@ import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import com.suishouban.app.mascot.MascotCompletionEvent
 import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.mascot.MascotStateResolver
+import com.suishouban.app.notification.NotificationCandidateUiModel
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.Instant
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -88,6 +90,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val ocr = app.textRecognitionService
     private val scheduler = app.reminderScheduler
     private val calendarSyncer = app.calendarSyncer
+    private val notificationCandidateRepository = app.notificationCandidateRepository
     private val ocrRaceController = OcrRaceController
     private val locallyEditedDraftIds = mutableSetOf<String>()
     private var ignoreActiveWorkflowRestore: Boolean = false
@@ -95,9 +98,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val mascotResolver = MascotStateResolver()
     private val _mascotCompletionEvent = MutableStateFlow<MascotCompletionEvent?>(null)
     private val _mascotInteractions = MutableSharedFlow<MascotCompletionEvent>(extraBufferCapacity = 1)
+    private var openedNotificationCandidateId: String? = null
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
     val uiState: StateFlow<AppUiState> = _uiState
+    val notificationCandidates: StateFlow<List<NotificationCandidateUiModel>> =
+        notificationCandidateRepository.observeActive()
+            .map { NotificationCandidateUiModel.from(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val pendingNotificationCandidateCount: StateFlow<Int> = notificationCandidates
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /**
      * A single state stream feeds both the in-app companion and the system overlay. Completion is
@@ -120,6 +131,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val mascotInteractions: SharedFlow<MascotCompletionEvent> = _mascotInteractions.asSharedFlow()
 
     init {
+        viewModelScope.launch { notificationCandidateRepository.deleteExpired() }
         viewModelScope.launch {
             // Keep the system overlay current even after the activity composition stops collecting.
             mascotState.collect(app.mascotStateStore::update)
@@ -307,6 +319,36 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
         }
+    }
+
+    /** Notification text remains local and becomes ordinary drafts only after this explicit tap. */
+    fun analyzeNotificationCandidate(id: String, onDone: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val candidate = notificationCandidateRepository.findById(id)
+            if (candidate == null) {
+                openedNotificationCandidateId = null
+                _uiState.update { it.copy(error = "这条通知草稿已过期") }
+                onDone(false)
+                return@launch
+            }
+            openedNotificationCandidateId = id
+            val text = listOf(candidate.title, candidate.body).filter { it.isNotBlank() }.joinToString("\n")
+            analyzeText(text) { hasDrafts ->
+                if (!hasDrafts) openedNotificationCandidateId = null
+                onDone(hasDrafts)
+            }
+        }
+    }
+
+    fun rejectNotificationCandidate(id: String) {
+        viewModelScope.launch {
+            notificationCandidateRepository.delete(id)
+            if (openedNotificationCandidateId == id) openedNotificationCandidateId = null
+        }
+    }
+
+    fun clearOpenedNotificationCandidate() {
+        openedNotificationCandidateId = null
     }
 
     fun prepareScreenshotPrompt(
@@ -912,6 +954,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         confirmationMessages += calendarResult.message
                     }
                 }
+            }
+            // A notification candidate is consumed only after selected drafts are actually saved.
+            openedNotificationCandidateId?.let { candidateId ->
+                notificationCandidateRepository.delete(candidateId)
+                openedNotificationCandidateId = null
             }
             _uiState.update {
                 it.copy(
