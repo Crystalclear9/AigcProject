@@ -90,6 +90,8 @@ class MainActivity : ComponentActivity() {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 val mascotState by viewModel.mascotState.collectAsStateWithLifecycle()
+                val notificationCandidates by viewModel.notificationCandidates.collectAsStateWithLifecycle()
+                val pendingNotificationCandidates by viewModel.pendingNotificationCandidateCount.collectAsStateWithLifecycle()
                 val requestedOverlayNavigation by overlayNavigation.collectAsStateWithLifecycle()
                 val currentPermissionRevision by permissionRevision.collectAsStateWithLifecycle()
                 val notificationAccessGranted = remember(currentPermissionRevision) {
@@ -176,11 +178,20 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        MofeiActionCommand.OpenNotificationDrafts -> Toast.makeText(
-                            this@MainActivity,
-                            "暂无待确认的通知事项",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        MofeiActionCommand.OpenNotificationDrafts -> {
+                            val candidate = notificationCandidates.firstOrNull()
+                            if (candidate == null) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "暂无待确认的通知事项",
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            } else {
+                                viewModel.analyzeNotificationCandidate(candidate.id) { hasDrafts ->
+                                    if (hasDrafts) current = Screen.Preview.route
+                                }
+                            }
+                        }
                         is MofeiActionCommand.OpenCard -> {
                             overlayNavigation.value = OverlayNavigation(
                                 actionCardId = command.cardId,
@@ -195,6 +206,7 @@ class MainActivity : ComponentActivity() {
                     notificationAccessGranted,
                     state.settings.mofeiNotificationDraftsEnabled,
                     latestScreenshotUri,
+                    pendingNotificationCandidates,
                 ) {
                     MofeiActionCoordinator().actionsFor(
                         surface = MofeiSurface.IN_APP,
@@ -203,6 +215,7 @@ class MainActivity : ComponentActivity() {
                             notificationAccessGranted = notificationAccessGranted,
                             notificationDraftsEnabled = state.settings.mofeiNotificationDraftsEnabled,
                             latestScreenshotAvailable = latestScreenshotUri != null,
+                            pendingNotificationDrafts = pendingNotificationCandidates,
                         ),
                     )
                 }
@@ -369,6 +382,13 @@ class MainActivity : ComponentActivity() {
                                         MofeiActionCommand.forAction(action, mascotState.actionCardId),
                                     )
                                 },
+                                notificationCandidates = notificationCandidates,
+                                onOpenNotificationCandidate = { id ->
+                                    viewModel.analyzeNotificationCandidate(id) { hasDrafts ->
+                                        if (hasDrafts) current = Screen.Preview.route
+                                    }
+                                },
+                                onRejectNotificationCandidate = viewModel::rejectNotificationCandidate,
                                 modifier = Modifier.padding(padding),
                             )
                         }
