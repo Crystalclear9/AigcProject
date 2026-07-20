@@ -36,9 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
-import com.suishouban.app.mascot.MofeiMoodBanner
-import com.suishouban.app.mascot.MofeiMoodHero
-import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.WorkflowStrip
@@ -54,7 +51,6 @@ fun PreviewScreen(
     onConfirm: () -> Unit,
     onManualAdd: () -> Unit,
     onImport: () -> Unit,
-    mascotState: MascotState,
 ) {
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val localDraftValid = state.draftCards.all {
@@ -73,24 +69,9 @@ fun PreviewScreen(
             WorkflowStrip(currentStep = 2, modifier = Modifier.fillMaxWidth())
         }
 
-        item {
-            // Recognition and confirmation feedback stays in the list rather than floating over
-            // editable candidate fields.
-            MofeiMoodBanner(
-                state = mascotState,
-                reduceMotion = state.settings.reduceMascotMotion,
-                spriteSize = 62.dp,
-            )
-        }
-
         if (state.draftCards.isEmpty()) {
             item {
-                EmptyPreviewCard(
-                    mascotState = mascotState,
-                    reduceMotion = state.settings.reduceMascotMotion,
-                    onImport = onImport,
-                    onManualAdd = onManualAdd,
-                )
+                EmptyPreviewCard(onImport = onImport, onManualAdd = onManualAdd)
             }
         } else {
             item {
@@ -366,24 +347,26 @@ private fun DraftEditor(
 }
 
 @Composable
-private fun EmptyPreviewCard(
-    mascotState: MascotState,
-    reduceMotion: Boolean,
-    onImport: () -> Unit,
-    onManualAdd: () -> Unit,
-) {
-    MofeiMoodHero(
-        state = mascotState,
-        title = "暂无预览",
-        reduceMotion = reduceMotion,
-        message = "墨斐没有识别到稳定行动事项。可以重新导入截图，也可以先手动创建一张候选卡再补全字段。",
+private fun EmptyPreviewCard(onImport: () -> Unit, onManualAdd: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Line),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onImport, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
-                Text("重新导入")
-            }
-            TextButton(onClick = onManualAdd, modifier = Modifier.weight(1f)) {
-                Text("手动添加")
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("暂无预览", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "没有识别到稳定行动事项。可以重新导入截图，也可以先手动创建一张候选卡再补全字段。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = onImport, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
+                    Text("重新导入")
+                }
+                TextButton(onClick = onManualAdd, modifier = Modifier.weight(1f)) {
+                    Text("手动添加")
+                }
             }
         }
     }

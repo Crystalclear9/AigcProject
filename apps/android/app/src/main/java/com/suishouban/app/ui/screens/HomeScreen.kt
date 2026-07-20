@@ -45,9 +45,6 @@ import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.Priority
 import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
-import com.suishouban.app.mascot.MascotState
-import com.suishouban.app.mascot.MofeiMoodBanner
-import com.suishouban.app.mascot.MofeiMoodHero
 import com.suishouban.app.ui.components.Pill
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.brandGradient
@@ -64,7 +61,6 @@ fun HomeScreen(
     onImportFromCamera: () -> Unit,
     onCards: () -> Unit,
     onComplete: (String) -> Unit,
-    mascotState: MascotState,
 ) {
     var showImportOptions by rememberSaveable { mutableStateOf(false) }
     val activeCards = state.cards.filter { it.status != CardStatus.ARCHIVED && it.status != CardStatus.DONE }
@@ -119,15 +115,6 @@ fun HomeScreen(
         }
 
         item {
-            // A mood-aware strip so 墨斐 stays in the scroll flow and never covers the import action.
-            MofeiMoodBanner(
-                state = mascotState,
-                reduceMotion = state.settings.reduceMascotMotion,
-                spriteSize = 64.dp,
-            )
-        }
-
-        item {
             ImpactDashboard(
                 activeCards = activeCards.size,
                 needConfirm = needConfirm,
@@ -144,18 +131,7 @@ fun HomeScreen(
 
         if (activeCards.isEmpty()) {
             item {
-                MofeiMoodHero(
-                    state = mascotState,
-                    title = "从第一张截图开始",
-                    reduceMotion = state.settings.reduceMascotMotion,
-                    message = "导入截图或粘贴通知文字，墨斐先生成候选卡，确认后才会保存、提醒或同步日历。",
-                ) {
-                    Button(onClick = { showImportOptions = true }, shape = RoundedCornerShape(16.dp)) {
-                        Icon(Icons.Outlined.PhotoCamera, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("导入截图")
-                    }
-                }
+                EmptyHomeCard(onImport = { showImportOptions = true })
             }
         } else {
             items(urgentCards.ifEmpty { activeCards.take(3) }) { card ->
@@ -327,6 +303,27 @@ private fun FlatMetric(label: String, value: String, color: Color, modifier: Mod
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(value, style = MaterialTheme.typography.titleLarge, color = color, fontWeight = FontWeight.Bold)
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun EmptyHomeCard(onImport: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("从第一张截图开始", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "导入截图或粘贴通知文字，先生成候选卡，确认后才会保存、提醒或同步日历。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
+                Text("导入截图")
+            }
         }
     }
 }
