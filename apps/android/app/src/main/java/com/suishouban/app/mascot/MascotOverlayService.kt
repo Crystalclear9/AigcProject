@@ -38,8 +38,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
-import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import com.suishouban.app.MainActivity
 import com.suishouban.app.R
 import com.suishouban.app.SuiShouBanApp
@@ -54,7 +52,6 @@ import com.suishouban.app.mascot.action.MofeiSurface
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -241,6 +238,8 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             ))
             setOnTouchListener(OverlayTouchListener())
         }
+        // WindowRecomposer searches from the WindowManager root during attachment.
+        MofeiOverlayViewTreeOwners.install(root, this, this, this)
         val params = createLayoutParams(displayMode, placement)
         overlayView = root
         currentLayoutParams = params
@@ -248,10 +247,6 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     private fun createMascotContent(): View = ComposeView(this).apply {
-        // System overlays have no Activity decor tree, so install all owners explicitly.
-        setViewTreeLifecycleOwner(this@MascotOverlayService)
-        setViewTreeViewModelStoreOwner(this@MascotOverlayService)
-        setViewTreeSavedStateRegistryOwner(this@MascotOverlayService)
         setContent {
             val mascot = currentMascotState
             MaterialTheme {
