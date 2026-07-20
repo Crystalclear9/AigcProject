@@ -40,46 +40,54 @@ fun MofeiNotificationFireflies(
     val ordered = candidates.sortedByDescending { it.postedAtMillis }
     Box(modifier = modifier.size(width = 270.dp, height = 150.dp).testTag("mofei-fireflies")) {
         ordered.take(3).forEachIndexed { index, candidate ->
-            val x = (index * 78).dp
+            // Three cards fit the 270dp strip without covering a neighbour's reject target.
+            val x = (index * 90).dp
             val y = (if (index == 1) 4 else 42).dp
             Box(
                 modifier = Modifier
                     .offset(x, y)
-                    .width(112.dp)
-                    .testTag("mofei-firefly-${candidate.id}")
-                    .semantics {
-                        contentDescription = "${candidate.sourceLabel} 的待确认通知：${candidate.summary}"
-                        role = Role.Button
-                    }
-                    .clickable { onOpen(candidate.id) },
+                    .width(90.dp),
             ) {
-                Image(
-                    painter = painterResource(com.suishouban.app.R.drawable.mofei_action_notification_drafts),
-                    contentDescription = null,
-                    modifier = Modifier.size(54.dp).align(Alignment.TopCenter),
-                )
-                Column(
+                // Open and reject are siblings so the parent click semantics cannot absorb the
+                // smaller reject target. This also gives TalkBack two distinct actions.
+                Box(
                     modifier = Modifier
-                        .padding(top = 43.dp)
-                        .background(Color(0xEB092452), RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp))
-                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                        .width(90.dp)
+                        .testTag("mofei-firefly-${candidate.id}")
+                        .semantics {
+                            contentDescription = "${candidate.sourceLabel} 的待确认通知：${candidate.summary}"
+                            role = Role.Button
+                        }
+                        .clickable { onOpen(candidate.id) },
                 ) {
-                    Text(
-                        candidate.sourceLabel,
-                        color = Color(0xFF85EDFF),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    Image(
+                        painter = painterResource(com.suishouban.app.R.drawable.mofei_action_notification_drafts),
+                        contentDescription = null,
+                        modifier = Modifier.size(54.dp).align(Alignment.TopCenter),
                     )
-                    Text(
-                        candidate.summary,
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        lineHeight = 12.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column(
+                        modifier = Modifier
+                            .padding(top = 43.dp)
+                            .background(Color(0xEB092452), RoundedCornerShape(18.dp, 18.dp, 18.dp, 5.dp))
+                            .padding(horizontal = 9.dp, vertical = 7.dp),
+                    ) {
+                        Text(
+                            candidate.sourceLabel,
+                            color = Color(0xFF85EDFF),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            candidate.summary,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Text(
                     text = "×",
@@ -89,8 +97,6 @@ fun MofeiNotificationFireflies(
                         .align(Alignment.TopEnd)
                         .size(28.dp)
                         .background(Color(0xD97A42F4), CircleShape)
-                        // Keep the nested reject action as its own semantics boundary. If the
-                        // tag precedes clickable, the parent card can merge it with "open".
                         .clickable { onReject(candidate.id) }
                         .testTag("mofei-firefly-reject-${candidate.id}")
                         .semantics { contentDescription = "忽略这条通知草稿" }

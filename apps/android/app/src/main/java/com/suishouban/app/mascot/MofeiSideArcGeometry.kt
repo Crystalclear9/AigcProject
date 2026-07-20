@@ -7,21 +7,24 @@ data class MofeiArcPoint(val x: Float, val y: Float)
 
 /** Shared dp-space geometry for the compact in-app and WindowManager side arcs. */
 object MofeiSideArcGeometry {
-    const val WIDTH_DP = 184f
-    const val HEIGHT_DP = 276f
-    const val ACTION_SIZE_DP = 42f
+    // The track itself is narrow and centered on Mofei. Extra transparent width is reserved for
+    // the one-at-a-time action hint so labels do not push the arc away from the mascot.
+    const val WIDTH_DP = 210f
+    const val TRACK_WIDTH_DP = 132f
+    const val HEIGHT_DP = 190f
+    const val ACTION_SIZE_DP = 38f
     const val MASCOT_SIZE_DP = 64f
     const val MASCOT_CENTER_X_DP = MASCOT_SIZE_DP / 2f
-    const val ARC_CENTER_X_DP = 55f
+    const val ARC_CENTER_X_DP = MASCOT_CENTER_X_DP
     const val CENTER_Y_DP = HEIGHT_DP / 2f
-    const val RADIUS_DP = 108f
+    const val RADIUS_DP = 76f
 
     fun actionCenters(dockSide: OverlayDockSide, count: Int): List<MofeiArcPoint> {
         if (count <= 0) return emptyList()
         return List(count) { index ->
             val progress = if (count == 1) 0.5 else index.toDouble() / (count - 1)
-            // Coordinates align icon hit targets with the restrained generated glass sockets.
-            val angleDegrees = -68.0 + 136.0 * progress
+            // A full 180-degree fan keeps seven 38dp targets separate at this close radius.
+            val angleDegrees = -90.0 + 180.0 * progress
             val angle = Math.toRadians(angleDegrees)
             val leftX = ARC_CENTER_X_DP + cos(angle).toFloat() * RADIUS_DP
             MofeiArcPoint(

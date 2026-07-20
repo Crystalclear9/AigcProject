@@ -9,10 +9,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,10 +39,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionAvailability
 import com.suishouban.app.mascot.action.MofeiActionItem
 import com.suishouban.app.mascot.action.MofeiSurface
+import kotlinx.coroutines.delay
+
+internal const val MOFEI_ACTION_RING_IDLE_TIMEOUT_MS = 5_000L
 
 /**
  * Compact action center that opens only toward screen content from the docked Mofei.
@@ -56,12 +60,22 @@ fun MofeiActionRing(
     reduceMotion: Boolean,
     onAction: (MofeiAction) -> Unit,
     onDismiss: () -> Unit,
+    revealedActionOverride: MofeiAction? = null,
+    onActionPreview: (MofeiAction) -> Unit = {},
     dockSide: OverlayDockSide = OverlayDockSide.RIGHT,
     modifier: Modifier = Modifier,
 ) {
     var revealedAction by remember { mutableStateOf<MofeiAction?>(null) }
+    val effectiveRevealedAction = revealedActionOverride ?: revealedAction
+    var interactionVersion by remember { mutableStateOf(0) }
     LaunchedEffect(expanded) {
         if (!expanded) revealedAction = null
+    }
+    LaunchedEffect(expanded, interactionVersion) {
+        if (expanded) {
+            delay(MOFEI_ACTION_RING_IDLE_TIMEOUT_MS)
+            onDismiss()
+        }
     }
     val transition = if (reduceMotion) {
         fadeIn() to fadeOut()
@@ -95,7 +109,17 @@ fun MofeiActionRing(
                     contentDescription = null,
                     contentScale = ContentScale.FillBounds,
                     modifier = Modifier
-                        .fillMaxSize()
+                        .align(
+                            if (dockSide == OverlayDockSide.LEFT) {
+                                Alignment.CenterStart
+                            } else {
+                                Alignment.CenterEnd
+                            },
+                        )
+                        .size(
+                            MofeiSideArcGeometry.TRACK_WIDTH_DP.dp,
+                            MofeiSideArcGeometry.HEIGHT_DP.dp,
+                        )
                         .alpha(0.82f)
                         .graphicsLayer {
                             // The generated source opens from the right edge; mirror for left dock.
@@ -103,73 +127,48 @@ fun MofeiActionRing(
                         },
                 )
                 val centers = MofeiSideArcGeometry.actionCenters(dockSide, items.size)
-                items.zip(centers).forEach { (item, center) ->
-                    MofeiActionOrb(
-                        item = item,
-                        onClick = {
-                            if (revealedAction == item.action) {
-                                revealedAction = null
-                                onAction(item.action)
-                            } else {
-                                // First tap explains the icon; a second tap confirms execution.
-                                revealedAction = item.action
-                            }
-                        },
-                        modifier = Modifier.offset(
-                            (center.x - MofeiSideArcGeometry.ACTION_SIZE_DP / 2f).dp,
-                            (center.y - MofeiSideArcGeometry.ACTION_SIZE_DP / 2f).dp,
-                        ),
-                    )
-                }
-                revealedAction?.let { selected ->
-                    val index = items.indexOfFirst { it.action == selected }
-                    if (index >= 0 && index < centers.size) {
-                        MofeiActionHint(
-                            text = actionLabel(selected),
-                            center = centers[index],
+                // Draw the selected pill last and on a higher layer so nearby orbs never cover it.
+                items.zip(centers)
+                    .sortedBy { (item, _) -> item.action == effectiveRevealedAction }
+                    .forEach { (item, center) ->
+                        val selected = effectiveRevealedAction == item.action
+                        val orbWidth = if (selected) SELECTED_ACTION_WIDTH_DP else MofeiSideArcGeometry.ACTION_SIZE_DP
+                        val orbX = if (selected && dockSide == OverlayDockSide.RIGHT) {
+                            center.x - orbWidth + MofeiSideArcGeometry.ACTION_SIZE_DP / 2f
+                        } else {
+                            center.x - MofeiSideArcGeometry.ACTION_SIZE_DP / 2f
+                        }
+                        MofeiActionOrb(
+                            item = item,
+                            selected = selected,
                             dockSide = dockSide,
+                            onClick = {
+                                interactionVersion += 1
+                                if (effectiveRevealedAction == item.action) {
+                                    revealedAction = null
+                                    onAction(item.action)
+                                } else {
+                                    // First tap explains the icon; a second tap confirms execution.
+                                    revealedAction = item.action
+                                    onActionPreview(item.action)
+                                }
+                            },
+                            modifier = Modifier.offset(
+                                orbX.dp,
+                                (center.y - MofeiSideArcGeometry.ACTION_SIZE_DP / 2f).dp,
+                            ).zIndex(if (selected) 10f else 0f),
                         )
                     }
-                }
             }
         }
     }
 }
 
 @Composable
-private fun MofeiActionHint(
-    text: String,
-    center: MofeiArcPoint,
-    dockSide: OverlayDockSide,
-) {
-    val width = 78f
-    val height = 24f
-    val x = if (dockSide == OverlayDockSide.LEFT) {
-        (center.x + 24f).coerceAtMost(MofeiSideArcGeometry.WIDTH_DP - width)
-    } else {
-        (center.x - width - 24f).coerceAtLeast(0f)
-    }
-    val y = (center.y - height / 2f).coerceIn(0f, MofeiSideArcGeometry.HEIGHT_DP - height)
-
-    Text(
-        text = text,
-        color = Color.White,
-        fontSize = 9.sp,
-        fontWeight = FontWeight.SemiBold,
-        textAlign = TextAlign.Center,
-        maxLines = 1,
-        modifier = Modifier
-            .offset(x.dp, y.dp)
-            .widthIn(min = width.dp, max = width.dp)
-            .background(Color(0xE61A315D), RoundedCornerShape(12.dp))
-            .padding(horizontal = 7.dp, vertical = 5.dp)
-            .testTag("mofei-action-hint"),
-    )
-}
-
-@Composable
 private fun MofeiActionOrb(
     item: MofeiActionItem,
+    selected: Boolean,
+    dockSide: OverlayDockSide,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -185,23 +184,52 @@ private fun MofeiActionOrb(
 
     Box(
         modifier = modifier
-            .size(MofeiSideArcGeometry.ACTION_SIZE_DP.dp)
-            .testTag("mofei-action-item"),
+            .size(
+                width = (if (selected) SELECTED_ACTION_WIDTH_DP else MofeiSideArcGeometry.ACTION_SIZE_DP).dp,
+                height = MofeiSideArcGeometry.ACTION_SIZE_DP.dp,
+            )
+            .then(
+                if (selected) {
+                    Modifier.background(Color(0xEB142B50), RoundedCornerShape(19.dp))
+                } else {
+                    Modifier
+                },
+            )
+            .testTag("mofei-action-item")
+            .semantics {
+                contentDescription = label + stateHint
+                role = Role.Button
+            }
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Image(
             painter = painterResource(MofeiActionAssets.glyphs.getValue(item.action)),
             contentDescription = null,
             modifier = Modifier
-                .fillMaxSize()
+                .align(
+                    if (!selected) Alignment.Center else if (dockSide == OverlayDockSide.LEFT) Alignment.CenterStart else Alignment.CenterEnd,
+                )
+                .size(MofeiSideArcGeometry.ACTION_SIZE_DP.dp)
                 .alpha(if (enabled) 1f else 0.46f)
                 .testTag("mofei-action-${actionSlug(item.action)}")
-                .semantics {
-                    contentDescription = label + stateHint
-                    role = Role.Button
-                }
                 .clickable(enabled = enabled, onClick = onClick),
         )
+        if (selected) {
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier
+                    .align(if (dockSide == OverlayDockSide.LEFT) Alignment.CenterEnd else Alignment.CenterStart)
+                    .width((SELECTED_ACTION_WIDTH_DP - MofeiSideArcGeometry.ACTION_SIZE_DP).dp)
+                    .padding(horizontal = 3.dp)
+                    .testTag("mofei-action-hint"),
+            )
+        }
         if (item.availability == MofeiActionAvailability.NEEDS_PERMISSION) {
             Image(
                 painter = painterResource(MofeiActionAssets.seal),
@@ -236,3 +264,5 @@ private fun actionLabel(action: MofeiAction): String = when (action) {
 }
 
 private fun actionSlug(action: MofeiAction): String = action.name.lowercase().replace('_', '-')
+
+private const val SELECTED_ACTION_WIDTH_DP = 104f

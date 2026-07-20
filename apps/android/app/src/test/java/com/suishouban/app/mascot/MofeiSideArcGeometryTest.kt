@@ -3,6 +3,7 @@ package com.suishouban.app.mascot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.hypot
 
 class MofeiSideArcGeometryTest {
     @Test
@@ -16,6 +17,23 @@ class MofeiSideArcGeometryTest {
             assertTrue(point.x <= MofeiSideArcGeometry.WIDTH_DP - halfAction)
             assertTrue(point.y >= halfAction)
             assertTrue(point.y <= MofeiSideArcGeometry.HEIGHT_DP - halfAction)
+        }
+    }
+
+    @Test
+    fun actionArcSharesMofeisCenterAndHugsAtASeventySixDpRadius() {
+        val mascot = MofeiSideArcGeometry.mascotCenter(OverlayDockSide.LEFT)
+        val points = MofeiSideArcGeometry.actionCenters(OverlayDockSide.LEFT, count = 7)
+
+        assertEquals(210f, MofeiSideArcGeometry.WIDTH_DP, 0.001f)
+        assertEquals(132f, MofeiSideArcGeometry.TRACK_WIDTH_DP, 0.001f)
+        assertEquals(190f, MofeiSideArcGeometry.HEIGHT_DP, 0.001f)
+        points.forEach { point ->
+            assertEquals(
+                76f,
+                hypot(point.x - mascot.x, point.y - mascot.y),
+                0.01f,
+            )
         }
     }
 
