@@ -347,6 +347,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun pruneNotificationCandidates() {
+        viewModelScope.launch { notificationCandidateRepository.deleteExpired() }
+    }
+
     fun clearOpenedNotificationCandidate() {
         openedNotificationCandidateId = null
     }

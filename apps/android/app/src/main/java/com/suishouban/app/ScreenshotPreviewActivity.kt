@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 
 class ScreenshotPreviewActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
+    private var privateCaptureUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,6 +83,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
 
         val incomingIntent = intent
         val fromPrivateCapture = isTrustedPrivateCapture(incomingIntent)
+        if (fromPrivateCapture) privateCaptureUri = incomingIntent.data
         val sourceIntent = when {
             fromPrivateCapture -> incomingIntent
             ScreenshotMonitorService.isTrustedPendingPreview(this, incomingIntent) -> incomingIntent
@@ -209,6 +211,13 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                 uri.authority == "$packageName.fileprovider" &&
                 uri.path.orEmpty().contains("mofei_capture")
         }
+    }
+
+    override fun onDestroy() {
+        // FileProvider owns this app-private cache URI; system MediaStore screenshots are untouched.
+        privateCaptureUri?.let { uri -> runCatching { contentResolver.delete(uri, null, null) } }
+        privateCaptureUri = null
+        super.onDestroy()
     }
 }
 
