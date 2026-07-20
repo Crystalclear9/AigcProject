@@ -80,3 +80,12 @@ placement / 气泡方向 / 快捷操作可见性等像 `MascotOverlayController`
 
 - 验证：抠图后每帧中心 alpha≈255（角色完整）、四角 alpha≈0（背景干净）、玻璃壳与轨道光点 100% 保留、无硬白边光晕；`assembleDebug` 通过。
 - 复现：`pip install rembg onnxruntime` 后运行 `python tools/mofei/build_sprites.py`（首次会下载模型）。
+
+## 收敛为单一常驻形象（2026-07-20 追加）
+
+早期把 `MofeiMoodBanner` 铺到了六个页面、空状态还叠了 `MofeiMoodHero`，加上常驻悬浮宠物，一屏会同时出现 2–3 个墨斐，显得冗杂。现收敛为：
+
+- **悬浮宠物 `FloatingMascot` 是 App 内唯一常驻形象**，贯穿所有页面。
+- 各内容页（今日/导入/预览/卡片/日历）**移除所有页面内 banner 与空状态小精灵**，空状态恢复为纯文字卡片。
+- **仅设置页「墨斐悬浮助手」卡片保留一个 `MofeiMoodBanner` 实时预览**——因为那里本就是在配置宠物，预览有意义。
+- 删除不再使用的 `MofeiMoodHero`；`MofeiMoodBanner` 仅剩设置页一处引用。相关页面移除未使用的 `mascotState` 参数。

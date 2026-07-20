@@ -189,7 +189,6 @@ class MainActivity : ComponentActivity() {
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
-                                mascotState = mascotState,
                             )
                             Screen.Cards.route -> CardsScreen(
                                 state = state,
@@ -197,13 +196,11 @@ class MainActivity : ComponentActivity() {
                                 onComplete = viewModel::completeCard,
                                 onArchive = viewModel::archiveCard,
                                 onImport = { current = Screen.Import.route },
-                                mascotState = mascotState,
                                 highlightCardId = requestedOverlayNavigation.actionCardId,
                             )
                             Screen.Calendar.route -> CalendarScreen(
                                 state = state,
                                 onComplete = viewModel::completeCard,
-                                mascotState = mascotState,
                             )
                             Screen.Settings.route -> SettingsScreen(
                                 state = state,
@@ -235,7 +232,6 @@ class MainActivity : ComponentActivity() {
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
                                 onComplete = viewModel::completeCard,
-                                mascotState = mascotState,
                             )
                         }
                         }

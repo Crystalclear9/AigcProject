@@ -38,7 +38,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
-import com.suishouban.app.mascot.MofeiMoodBanner
 import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
@@ -67,15 +66,14 @@ fun ImportScreen(
             SectionHeader("截图导入", "先识别，再确认")
         }
 
-        item {
-            // Always present: while loading it reads FOCUS/SCAN copy; otherwise it invites a first
-            // screenshot, so 墨斐 has a persistent scan-state presence here rather than only mid-load.
-            MofeiMoodBanner(
-                state = mascotState,
-                reduceMotion = state.settings.reduceMascotMotion,
-                spriteSize = 60.dp,
-                message = if (state.loading) mascotState.userMessage else "选择截图或粘贴文字，墨斐会先提取候选事项。",
-            )
+        if (state.loading) {
+            item {
+                Text(
+                    mascotState.userMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
         item {

@@ -33,10 +33,6 @@ import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.CardTypes
-import com.suishouban.app.mascot.MofeiMoodBanner
-import com.suishouban.app.mascot.MofeiMoodHero
-import com.suishouban.app.mascot.MascotMood
-import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
@@ -48,7 +44,6 @@ fun CardsScreen(
     onComplete: (String) -> Unit,
     onArchive: (String) -> Unit,
     onImport: () -> Unit,
-    mascotState: MascotState,
     highlightCardId: String? = null,
 ) {
     var type by rememberSaveable { mutableStateOf("all") }
@@ -74,16 +69,6 @@ fun CardsScreen(
         item {
             Spacer(Modifier.height(12.dp))
             SectionHeader("卡片中心", "${filtered.size} 张")
-        }
-        if (mascotState.mood == MascotMood.COMPLETE) {
-            item {
-                MofeiMoodBanner(
-                    state = mascotState,
-                    reduceMotion = state.settings.reduceMascotMotion,
-                    spriteSize = 58.dp,
-                    title = "墨斐已记录完成",
-                )
-            }
         }
         item {
             OutlinedTextField(
@@ -128,12 +113,9 @@ fun CardsScreen(
 
         if (filtered.isEmpty()) {
             item {
-                MofeiMoodHero(
-                    state = mascotState,
-                    title = "暂无匹配卡片",
-                    reduceMotion = state.settings.reduceMascotMotion,
-                    message = "换个筛选条件，或让墨斐从截图重新生成候选卡。",
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("暂无匹配卡片", style = MaterialTheme.typography.titleLarge)
+                    Text("换个筛选条件，或从截图重新生成候选卡。", style = MaterialTheme.typography.bodyMedium)
                     Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
                         Text("导入截图生成卡片")
                     }
