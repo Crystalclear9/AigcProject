@@ -7,6 +7,7 @@ object ScreenCaptureResult {
     const val PROTECTED_CONTENT = 3
     const val TIMEOUT = 4
     const val FAILURE = 5
+    const val DUPLICATE = 6
 
     const val KEY_URI = "capture_uri"
     const val KEY_MESSAGE = "capture_message"

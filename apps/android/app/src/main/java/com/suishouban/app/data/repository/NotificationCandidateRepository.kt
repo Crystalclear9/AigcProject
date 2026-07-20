@@ -2,7 +2,13 @@ package com.suishouban.app.data.repository
 
 import com.suishouban.app.data.local.NotificationCandidateDao
 import com.suishouban.app.data.local.NotificationCandidateEntity
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.transformLatest
 
 /** Stores only candidates accepted by the local privacy policy. */
 class NotificationCandidateRepository(
@@ -10,9 +16,20 @@ class NotificationCandidateRepository(
     private val policy: NotificationCandidatePolicy,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
-    fun observeActive(): Flow<List<NotificationCandidateEntity>> = dao.observeActive(nowMillis())
+    /** Re-evaluates expiry at the exact next boundary, even when Room emits no database change. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeActive(): Flow<List<NotificationCandidateEntity>> = dao.observeAll().transformLatest { candidates ->
+        while (true) {
+            val now = nowMillis()
+            val active = activeAt(candidates, now)
+            emit(active)
+            val nextExpiry = active.minOfOrNull(NotificationCandidateEntity::expiresAtMillis)
+                ?: awaitCancellation()
+            delay((nextExpiry - now).coerceAtLeast(1L))
+        }
+    }
 
-    fun observeActiveCount(): Flow<Int> = dao.observeActiveCount(nowMillis())
+    fun observeActiveCount(): Flow<Int> = observeActive().map { it.size }.distinctUntilChanged()
 
     suspend fun ingest(
         input: NotificationCandidateInput,
@@ -39,9 +56,17 @@ class NotificationCandidateRepository(
         return decision
     }
 
-    suspend fun findById(id: String): NotificationCandidateEntity? = dao.findById(id)
+    suspend fun findById(id: String): NotificationCandidateEntity? =
+        dao.findById(id)?.takeIf { it.expiresAtMillis > nowMillis() }
 
     suspend fun delete(id: String) = dao.delete(id)
 
     suspend fun deleteExpired(): Int = dao.deleteExpired(nowMillis())
+
+    companion object {
+        internal fun activeAt(
+            candidates: List<NotificationCandidateEntity>,
+            nowMillis: Long,
+        ): List<NotificationCandidateEntity> = candidates.filter { it.expiresAtMillis > nowMillis }
+    }
 }

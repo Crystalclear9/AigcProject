@@ -13,6 +13,9 @@ data class ScreenshotFingerprintState(
     val ignoredAt: Long = 0L,
     val windowStart: Long = 0L,
     val windowCount: Int = 0,
+    val lastImageHash: String? = null,
+    val lastImageAt: Long = 0L,
+    val lastImageSource: ScreenshotCaptureSource? = null,
 )
 
 interface ScreenshotFingerprintPersistence {
@@ -24,15 +27,15 @@ interface ScreenshotFingerprintPersistence {
 class ScreenshotFingerprintStore(
     private val persistence: ScreenshotFingerprintPersistence,
 ) {
-    fun canPrompt(text: String, source: ScreenshotCaptureSource, now: Long): Boolean {
+    fun canPrompt(text: String, source: ScreenshotCaptureSource, now: Long): Boolean = synchronized(LOCK) {
         // Source is deliberately diagnostic only: the same pixels must dedupe across both routes.
         source.name
         val hash = contentHash(text)
         val state = persistence.load()
-        if (state.lastHash == hash && now - state.lastAt < DUPLICATE_COOLDOWN_MS) return false
-        if (state.ignoredHash == hash && now - state.ignoredAt < IGNORED_COOLDOWN_MS) return false
-        if (now - state.windowStart < RATE_WINDOW_MS && state.windowCount >= MAX_PROMPTS_PER_WINDOW) return false
-        return true
+        if (state.lastHash == hash && now - state.lastAt < DUPLICATE_COOLDOWN_MS) return@synchronized false
+        if (state.ignoredHash == hash && now - state.ignoredAt < IGNORED_COOLDOWN_MS) return@synchronized false
+        if (now - state.windowStart < RATE_WINDOW_MS && state.windowCount >= MAX_PROMPTS_PER_WINDOW) return@synchronized false
+        true
     }
 
     fun recordPrompt(text: String, source: ScreenshotCaptureSource, now: Long) {
@@ -40,7 +43,7 @@ class ScreenshotFingerprintStore(
     }
 
     /** Records a hash already computed for a pending prompt, avoiding divergent normalization. */
-    fun recordPromptHash(contentHash: String, source: ScreenshotCaptureSource, now: Long) {
+    fun recordPromptHash(contentHash: String, source: ScreenshotCaptureSource, now: Long) = synchronized(LOCK) {
         val current = persistence.load()
         val expiredWindow = now - current.windowStart >= RATE_WINDOW_MS
         persistence.save(
@@ -54,8 +57,28 @@ class ScreenshotFingerprintStore(
         )
     }
 
-    fun markIgnored(contentHash: String, now: Long) {
+    fun markIgnored(contentHash: String, now: Long) = synchronized(LOCK) {
         persistence.save(persistence.load().copy(ignoredHash = contentHash, ignoredAt = now))
+    }
+
+    /** Atomically claims a frame before OCR so concurrent Android capture routes cannot both process it. */
+    fun checkAndRecordImage(
+        imageHash: String,
+        source: ScreenshotCaptureSource,
+        now: Long,
+    ): Boolean = synchronized(LOCK) {
+        val state = persistence.load()
+        if (state.lastImageHash == imageHash && now - state.lastImageAt < DUPLICATE_COOLDOWN_MS) {
+            return@synchronized false
+        }
+        persistence.save(
+            state.copy(
+                lastImageHash = imageHash,
+                lastImageAt = now,
+                lastImageSource = source,
+            ),
+        )
+        true
     }
 
     fun contentHash(text: String): String {
@@ -66,6 +89,7 @@ class ScreenshotFingerprintStore(
     }
 
     companion object {
+        private val LOCK = Any()
         const val DUPLICATE_COOLDOWN_MS = 10 * 60 * 1000L
         const val IGNORED_COOLDOWN_MS = 60 * 60 * 1000L
         const val RATE_WINDOW_MS = 10 * 60 * 1000L
@@ -89,6 +113,11 @@ private class SharedPreferencesScreenshotPersistence(context: Context) : Screens
         ignoredAt = preferences.getLong(KEY_IGNORED_AT, 0L),
         windowStart = preferences.getLong(KEY_WINDOW_START, 0L),
         windowCount = preferences.getInt(KEY_WINDOW_COUNT, 0),
+        lastImageHash = preferences.getString(KEY_LAST_IMAGE_HASH, null),
+        lastImageAt = preferences.getLong(KEY_LAST_IMAGE_AT, 0L),
+        lastImageSource = preferences.getString(KEY_LAST_IMAGE_SOURCE, null)?.let {
+            runCatching { ScreenshotCaptureSource.valueOf(it) }.getOrNull()
+        },
     )
 
     override fun save(state: ScreenshotFingerprintState) {
@@ -100,7 +129,11 @@ private class SharedPreferencesScreenshotPersistence(context: Context) : Screens
             .putLong(KEY_IGNORED_AT, state.ignoredAt)
             .putLong(KEY_WINDOW_START, state.windowStart)
             .putInt(KEY_WINDOW_COUNT, state.windowCount)
-            .apply()
+            .putString(KEY_LAST_IMAGE_HASH, state.lastImageHash)
+            .putLong(KEY_LAST_IMAGE_AT, state.lastImageAt)
+            .putString(KEY_LAST_IMAGE_SOURCE, state.lastImageSource?.name)
+            // Cross-component capture can follow immediately, so persistence must be synchronous.
+            .commit()
     }
 
     private companion object {
@@ -112,5 +145,8 @@ private class SharedPreferencesScreenshotPersistence(context: Context) : Screens
         const val KEY_IGNORED_AT = "ignored_at"
         const val KEY_WINDOW_START = "window_start"
         const val KEY_WINDOW_COUNT = "window_count"
+        const val KEY_LAST_IMAGE_HASH = "last_image_hash"
+        const val KEY_LAST_IMAGE_AT = "last_image_at"
+        const val KEY_LAST_IMAGE_SOURCE = "last_image_source"
     }
 }

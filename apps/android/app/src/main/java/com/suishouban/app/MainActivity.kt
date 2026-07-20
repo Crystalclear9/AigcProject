@@ -123,6 +123,10 @@ class MainActivity : ComponentActivity() {
                     viewModel.mascotInteractions.collect { celebrationSignal++ }
                 }
                 var current by rememberSaveable { mutableStateOf(Screen.Home.route) }
+                LaunchedEffect(current) {
+                    // Leaving Preview severs the candidate-to-draft link; later imports cannot consume it.
+                    if (current != Screen.Preview.route) viewModel.clearOpenedNotificationCandidate()
+                }
                 var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
                 val snackbarHostState = remember { SnackbarHostState() }
                 val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->

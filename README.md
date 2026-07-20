@@ -18,7 +18,7 @@
 ## 用户路径
 
 ```text
-截图 / 相册 / 分享 / 粘贴文字
+系统截图 / 墨斐当前屏幕 / 相册 / 拍照 / 粘贴文字
   -> 端侧 ML Kit OCR 与噪声清洗
   -> 行动证据判定
   -> 无明确行动：静默忽略
@@ -39,6 +39,17 @@
 - **用户确认优先**：保存、提醒、日历写入都必须由用户确认触发。
 - **云端可插拔**：vivo/蓝心 provider 只由后端代理调用，Android 只保存 Workflow HTTPS 网关 URL。
 - **可降级**：无网、模型失败、OCR 失败时保留本地规则和手动补全入口。
+
+## 墨斐行动中心
+
+应用内轻点墨斐会展开七项冰蓝能力环：识别当前屏幕、最近截图、相册导入、拍照识别、通知草稿、当前事项和能力设置。系统悬浮墨斐展开为五项紧凑环，不提供相册和相机入口。
+
+- 当前屏幕识别每次都使用 Android 系统 MediaProjection 授权；只取一帧，随后释放投影和前台服务。受保护页面不会得到伪造结果。
+- “最近截图”只匹配系统截图名称或目录，不会退化为读取最近一张普通照片。
+- 通知草稿默认关闭。开启通知读取并选择 App 白名单后，墨斐只保存本地候选并仅用端侧规则分析；验证码、支付内容、常驻通知和分组摘要会被过滤。
+- 通知候选以“消息萤火”显示。打开后仍进入普通候选预览，只有用户选择并确认才会创建行动卡。
+- 图片分享入口已经移除；应用不再声明 ACTION_SEND image/*。
+- 截屏缓存位于 App 私有缓存目录，预览关闭后删除；通知候选 24 小时过期。
 
 ## 代码结构
 
@@ -504,7 +515,7 @@ GET  /api/metrics/performance
 
 Android：
 
-- `apps/android/app/src/main/java/com/suishouban/app/AppViewModel.kt`：截图/相册/分享文本进入分析流程，协调端侧规则和云端 Workflow。
+- `apps/android/app/src/main/java/com/suishouban/app/AppViewModel.kt`：截图、相册、拍照、通知候选和粘贴文本进入分析流程，协调端侧规则和云端 Workflow。
 - `apps/android/app/src/main/java/com/suishouban/app/domain/`：本地行动抽取、截图 gate、OCR 清洗。
 - `apps/android/app/src/main/java/com/suishouban/app/ocr/TextRecognitionService.kt`：ML Kit OCR。
 - `apps/android/app/src/main/java/com/suishouban/app/data/remote/`：后端 API DTO、Retrofit 接口和 API factory。
