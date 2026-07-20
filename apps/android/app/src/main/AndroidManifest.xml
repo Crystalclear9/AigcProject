@@ -55,6 +55,15 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-enabled Mofei edge overlay that presents action reminders outside the app." />
         </service>
+        <service
+            android:name=".notification.MofeiNotificationListenerService"
+            android:exported="false"
+            android:label="墨斐通知草稿"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -46,6 +46,9 @@ import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.mascot.OverlayDockSide
+import com.suishouban.app.mascot.action.MofeiPermissionState
+import com.suishouban.app.notification.InstalledAppInfo
+import com.suishouban.app.notification.InstalledAppRepository
 import com.suishouban.app.ui.components.GradientScreen
 import com.suishouban.app.ui.screens.CalendarScreen
 import com.suishouban.app.ui.screens.CardsScreen
@@ -55,7 +58,9 @@ import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 
 private data class OverlayNavigation(
     val actionCardId: String? = null,
@@ -65,6 +70,7 @@ private data class OverlayNavigation(
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private val overlayNavigation = MutableStateFlow(OverlayNavigation())
+    private val permissionRevision = MutableStateFlow(0L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,6 +83,17 @@ class MainActivity : ComponentActivity() {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 val mascotState by viewModel.mascotState.collectAsStateWithLifecycle()
                 val requestedOverlayNavigation by overlayNavigation.collectAsStateWithLifecycle()
+                val currentPermissionRevision by permissionRevision.collectAsStateWithLifecycle()
+                val notificationAccessGranted = remember(currentPermissionRevision) {
+                    MofeiPermissionState.notificationAccessGranted(this@MainActivity)
+                }
+                var notificationApps by remember { mutableStateOf(emptyList<InstalledAppInfo>()) }
+                LaunchedEffect(Unit) {
+                    // PackageManager enumeration can touch disk; keep it off the Compose thread.
+                    notificationApps = withContext(Dispatchers.IO) {
+                        InstalledAppRepository(applicationContext).listSelectableApps()
+                    }
+                }
                 // A monotonically increasing counter drives the pet's one-shot celebration burst.
                 var celebrationSignal by remember { mutableStateOf(0) }
                 LaunchedEffect(Unit) {
@@ -208,6 +225,19 @@ class MainActivity : ComponentActivity() {
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
                                 mascotState = mascotState,
+                                notificationAccessGranted = notificationAccessGranted,
+                                notificationApps = notificationApps,
+                                onOpenNotificationAccessSettings = {
+                                    runCatching {
+                                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                                    }.onFailure {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "当前系统无法打开通知访问设置",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
                                 onMascotOverlayToggle = { enabled ->
                                     if (!enabled) {
                                         viewModel.updateSettings(state.settings.copy(mascotOverlayEnabled = false))
@@ -278,6 +308,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Special-access screens do not return a permission result; refresh from system state.
+        permissionRevision.value = System.currentTimeMillis()
         // The app has its own inline companion; do not leave an accessibility-obscuring system
         // window above active forms or lists while the activity is foregrounded.
         MascotOverlayService.dismissForForeground(this)
