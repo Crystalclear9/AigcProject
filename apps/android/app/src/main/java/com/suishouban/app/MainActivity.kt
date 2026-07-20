@@ -203,12 +203,14 @@ class MainActivity : ComponentActivity() {
                             Screen.Calendar.route -> CalendarScreen(
                                 state = state,
                                 onComplete = viewModel::completeCard,
+                                mascotState = mascotState,
                             )
                             Screen.Settings.route -> SettingsScreen(
                                 state = state,
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
+                                mascotState = mascotState,
                                 onMascotOverlayToggle = { enabled ->
                                     if (!enabled) {
                                         viewModel.updateSettings(state.settings.copy(mascotOverlayEnabled = false))
