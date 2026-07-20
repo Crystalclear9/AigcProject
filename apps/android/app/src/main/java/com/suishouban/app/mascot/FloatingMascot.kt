@@ -139,11 +139,13 @@ fun FloatingMascot(
         val profile = MascotVisuals.profileFor(state, reduceMotion)
 
         if (actionRingOpen && actionItems.isNotEmpty()) {
-            val ringPx = with(density) { 340.dp.toPx() }
-            val ringX = (offsetX.value + petPx / 2f - ringPx / 2f)
-                .coerceIn(0f, (trackSize.x - ringPx).coerceAtLeast(0f))
-            val ringY = (offsetY.value + petPx / 2f - ringPx / 2f)
-                .coerceIn(0f, (trackSize.y - ringPx).coerceAtLeast(0f))
+            val ringWidthPx = with(density) { MofeiSideArcGeometry.WIDTH_DP.dp.toPx() }
+            val ringHeightPx = with(density) { MofeiSideArcGeometry.HEIGHT_DP.dp.toPx() }
+            val mascotCenter = MofeiSideArcGeometry.mascotCenter(dockSide)
+            val ringX = (offsetX.value + petPx / 2f - with(density) { mascotCenter.x.dp.toPx() })
+                .coerceIn(0f, (trackSize.x - ringWidthPx).coerceAtLeast(0f))
+            val ringY = (offsetY.value + petPx / 2f - with(density) { mascotCenter.y.dp.toPx() })
+                .coerceIn(0f, (trackSize.y - ringHeightPx).coerceAtLeast(0f))
             MofeiActionRing(
                 surface = MofeiSurface.IN_APP,
                 items = actionItems,
@@ -154,10 +156,13 @@ fun FloatingMascot(
                     onAction(it)
                 },
                 onDismiss = { actionRingOpen = false },
-                modifier = Modifier.graphicsLayer {
-                    translationX = ringX
-                    translationY = ringY
-                },
+                dockSide = dockSide,
+                modifier = Modifier
+                    .size(MofeiSideArcGeometry.WIDTH_DP.dp, MofeiSideArcGeometry.HEIGHT_DP.dp)
+                    .graphicsLayer {
+                        translationX = ringX
+                        translationY = ringY
+                    },
             )
         }
 

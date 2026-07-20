@@ -21,5 +21,6 @@ class MofeiActionAssetCatalogTest {
         assertEquals(R.drawable.mofei_action_ring_full, MofeiActionAssets.fullRing)
         assertEquals(R.drawable.mofei_action_ring_compact, MofeiActionAssets.compactRing)
         assertEquals(R.drawable.mofei_action_seal, MofeiActionAssets.seal)
+        assertEquals(R.drawable.mofei_action_side_arc, MofeiActionAssets.sideArc)
     }
 }

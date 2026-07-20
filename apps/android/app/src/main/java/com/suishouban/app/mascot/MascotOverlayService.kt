@@ -275,8 +275,11 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                             reduceMotion = settings.reduceMascotMotion,
                             onAction = ::executeOverlayAction,
                             onDismiss = ::showCollapsedOverlay,
-                            mirrorCompact = controller.shouldMirrorCompactRing(placement.dockSide),
-                            modifier = Modifier.size(276.dp),
+                            dockSide = placement.dockSide,
+                            modifier = Modifier.size(
+                                MofeiSideArcGeometry.WIDTH_DP.dp,
+                                MofeiSideArcGeometry.HEIGHT_DP.dp,
+                            ),
                         )
                     }
                     MofeiVisual(
@@ -284,7 +287,15 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                         modifier = if (displayMode == OverlayDisplayMode.COLLAPSED) {
                             Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 5.dp)
                         } else {
-                            Modifier.size(66.dp)
+                            Modifier
+                                .align(
+                                    if (placement.dockSide == OverlayDockSide.LEFT) {
+                                        Alignment.CenterStart
+                                    } else {
+                                        Alignment.CenterEnd
+                                    },
+                                )
+                                .size(MofeiSideArcGeometry.MASCOT_SIZE_DP.dp)
                         },
                         reduceMotion = settingsRepository.settings.value.reduceMascotMotion,
                     )
