@@ -96,6 +96,7 @@ fun FloatingMascot(
     onPlacementChange: (OverlayDockSide, Float) -> Unit,
     actionItems: List<MofeiActionItem> = emptyList(),
     onAction: (MofeiAction) -> Unit = {},
+    onActionCenterOpen: () -> Unit = {},
     notificationCandidates: List<NotificationCandidateUiModel> = emptyList(),
     onOpenNotificationCandidate: (String) -> Unit = {},
     onRejectNotificationCandidate: (String) -> Unit = {},
@@ -182,6 +183,7 @@ fun FloatingMascot(
                                 bubbleOpen = !bubbleOpen
                             } else {
                                 bubbleOpen = false
+                                if (!actionRingOpen) onActionCenterOpen()
                                 actionRingOpen = !actionRingOpen
                             }
                         },

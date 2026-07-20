@@ -65,6 +65,14 @@ class MofeiNotificationListenerService : NotificationListenerService() {
         serviceScope.launch { app.notificationCandidateRepository.deleteExpired() }
     }
 
+    override fun onListenerDisconnected() {
+        // Android may revoke special access while the process is alive. Do not reconnect or open
+        // settings automatically; the capability ring will seal this action from live state.
+        val app = application as? SuiShouBanApp
+        if (app != null) serviceScope.launch { app.notificationCandidateRepository.deleteExpired() }
+        super.onListenerDisconnected()
+    }
+
     override fun onDestroy() {
         serviceScope.cancel()
         super.onDestroy()

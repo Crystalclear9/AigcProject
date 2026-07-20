@@ -13,12 +13,18 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.suishouban.app.ScreenshotPreviewActivity
+import com.suishouban.app.mascot.action.MofeiFailure
+import com.suishouban.app.mascot.action.MofeiRecoveryPolicy
 
 /** Owns the per-session Android screen-capture consent and receives exactly one result. */
 class MofeiScreenCaptureActivity : ComponentActivity() {
     private val captureConsent = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode != Activity.RESULT_OK || result.data == null) {
-            Toast.makeText(this, "已取消当前屏幕识别", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                MofeiRecoveryPolicy.forFailure(MofeiFailure.PROJECTION_CANCELLED).message,
+                Toast.LENGTH_SHORT,
+            ).show()
             finish()
             return@registerForActivityResult
         }
@@ -40,7 +46,9 @@ class MofeiScreenCaptureActivity : ComponentActivity() {
                     val uri = resultData?.getString(ScreenCaptureResult.KEY_URI)?.let(android.net.Uri::parse)
                     if (uri != null) startActivity(ScreenshotPreviewActivity.captureIntent(this@MofeiScreenCaptureActivity, uri))
                 }
-                ScreenCaptureResult.PROTECTED_CONTENT -> show("该页面禁止截屏，墨斐没有读取到画面")
+                ScreenCaptureResult.PROTECTED_CONTENT -> show(
+                    MofeiRecoveryPolicy.forFailure(MofeiFailure.PROTECTED_CONTENT).message,
+                )
                 ScreenCaptureResult.TIMEOUT -> show("当前屏幕读取超时，请重试")
                 ScreenCaptureResult.CANCELLED -> show("当前屏幕读取已停止")
                 else -> show(resultData?.getString(ScreenCaptureResult.KEY_MESSAGE) ?: "当前屏幕读取失败")

@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.data.repository.LatestScreenshotRepository
 import com.suishouban.app.capture.MofeiScreenCaptureActivity
+import com.suishouban.app.capture.ScreenCaptureImageWriter
 import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.mascot.OverlayDockSide
@@ -85,6 +86,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Capture files are private and ephemeral; process death must not make them permanent.
+        ScreenCaptureImageWriter.deleteStale(this, CAPTURE_CACHE_MAX_AGE_MS)
         openProcessScreenshotIntent(intent)
         handleOverlayNavigationIntent(intent)
 
@@ -388,6 +391,7 @@ class MainActivity : ComponentActivity() {
                                         MofeiActionCommand.forAction(action, mascotState.actionCardId),
                                     )
                                 },
+                                onActionCenterOpen = viewModel::pruneNotificationCandidates,
                                 notificationCandidates = notificationCandidates,
                                 onOpenNotificationCandidate = { id ->
                                     viewModel.analyzeNotificationCandidate(id) { hasDrafts ->
@@ -518,6 +522,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
+private const val CAPTURE_CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
 
 private sealed class Screen(
     val route: String,
