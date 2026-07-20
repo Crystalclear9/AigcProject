@@ -43,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.repository.AppSettings
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MofeiMoodBanner
 import com.suishouban.app.data.repository.WorkflowUrlPolicy
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.theme.BrandBlue
@@ -55,6 +57,7 @@ fun SettingsScreen(
     onSync: () -> Unit,
     onTestConnection: () -> Unit,
     onMascotOverlayToggle: (Boolean) -> Unit,
+    mascotState: MascotState,
 ) {
     var apiBaseUrl by remember(state.settings.apiBaseUrl) { mutableStateOf(state.settings.apiBaseUrl) }
     val trimmedApiBaseUrl = apiBaseUrl.trim()
@@ -173,6 +176,13 @@ fun SettingsScreen(
         }
         item {
             SettingsCard(title = "墨斐悬浮助手", icon = Icons.Outlined.Notifications) {
+                // A live preview reacts to the current mood and the reduce-motion toggle below it.
+                MofeiMoodBanner(
+                    state = mascotState,
+                    reduceMotion = state.settings.reduceMascotMotion,
+                    spriteSize = 56.dp,
+                    message = "这是墨斐当前的状态预览，会随你的事项与下方开关变化。",
+                )
                 SettingSwitch(
                     title = "在应用内显示墨斐宠物",
                     checked = state.settings.mascotInAppEnabled,

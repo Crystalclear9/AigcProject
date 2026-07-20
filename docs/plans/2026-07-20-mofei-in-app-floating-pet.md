@@ -53,3 +53,21 @@ placement / 气泡方向 / 快捷操作可见性等像 `MascotOverlayController`
 - `:app:testDebugUnitTest`：`MascotAssetCatalogTest`（8 帧×8 情绪）、`MascotPreferencesTest`（`mascotInAppEnabled` 持久化/默认）、`FloatingMascotControllerTest`（placement/气泡/快捷操作）。
 - `:app:assembleDebug`：确认 35 张新增帧与新增 Compose 均可编译打包。
 - 运行：启动即在任意页面看到悬浮墨斐（无需权限）；切页仍在；轻点弹气泡、「查看事项」跳转高亮；拖拽吸边并在重启后保持；制造 urgent/complete 数据验证变色与庆祝；系统级开启后退到后台看到素色胶囊。
+
+## 页面级融入（2026-07-20 追加）
+
+除常驻悬浮宠物外，墨斐还以统一的情绪面板融入每个页面的既有布局，替换此前各页手写的 companion 行与无角色的空状态。新增共享组件 `mascot/MofeiMoodPanels.kt`：
+
+- `MofeiMoodBanner`：紧凑情绪条（精灵 + 光晕 + 「墨斐」名 + 情绪文案），情绪色随 `MascotState` 渐变着色。用于 Home/Import/Preview/Cards/Calendar/Settings 的行内位置。
+- `MofeiMoodHero`：大号居中英雄区（精灵 + 光晕 + 标题 + 文案 + 页面动作），用于空状态。
+
+各页集成：
+
+- **Home**：companion 行 → `MofeiMoodBanner`；空状态 `EmptyHomeCard` → `MofeiMoodHero`（导入按钮）。
+- **Import**：加载态 Mofei → 常驻 `MofeiMoodBanner`（加载时显示 SCAN 文案，空闲时邀请首张截图）。
+- **Preview**：companion 行 → `MofeiMoodBanner`；空态 `EmptyPreviewCard` → `MofeiMoodHero`（重新导入 / 手动添加）。
+- **Cards**：完成态 companion → `MofeiMoodBanner`（保留 `mood == COMPLETE` 门控）；空态 → `MofeiMoodHero`。
+- **Calendar**：新增 `mascotState` 参数（`MainActivity` 接线）；顶部 `MofeiMoodBanner`；空日程卡内嵌小号 `MofeiPetSprite` + 放松文案。
+- **Settings**：新增 `mascotState` 参数；「墨斐悬浮助手」卡片顶部加 `MofeiMoodBanner` **实时预览**，随事项与「减少动态效果」开关变化。
+
+所有面板复用 `MascotVisuals.profileFor` 的颜色与文案、`MofeiPetSprite` 的 8 帧精灵，并遵守 reduce-motion。`assembleDebug` 与 `testDebugUnitTest` 通过。

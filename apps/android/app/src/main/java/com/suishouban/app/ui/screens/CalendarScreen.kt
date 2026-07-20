@@ -45,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MofeiMoodBanner
+import com.suishouban.app.mascot.MofeiPetSprite
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.primaryTime
@@ -66,6 +69,7 @@ import java.util.Locale
 fun CalendarScreen(
     state: AppUiState,
     onComplete: (String) -> Unit,
+    mascotState: MascotState,
 ) {
     val active = state.cards.filter { it.status != CardStatus.ARCHIVED }
     val today = LocalDate.now()
@@ -82,6 +86,13 @@ fun CalendarScreen(
         item {
             Spacer(Modifier.height(12.dp))
             SectionHeader("日历视图", "${active.size} 项")
+        }
+        item {
+            MofeiMoodBanner(
+                state = mascotState,
+                reduceMotion = state.settings.reduceMascotMotion,
+                spriteSize = 56.dp,
+            )
         }
         item {
             MonthCalendarCard(
@@ -105,6 +116,8 @@ fun CalendarScreen(
                 selectedDate = selectedDate,
                 cards = selectedCards,
                 onComplete = onComplete,
+                mascotState = mascotState,
+                reduceMotion = state.settings.reduceMascotMotion,
             )
         }
         if (undatedCards.isNotEmpty()) {
@@ -268,6 +281,8 @@ private fun SelectedDaySection(
     selectedDate: LocalDate,
     cards: List<ActionCard>,
     onComplete: (String) -> Unit,
+    mascotState: MascotState,
+    reduceMotion: Boolean,
 ) {
     val selectedDateLabel = remember(selectedDate) {
         selectedDate.format(DateTimeFormatter.ofPattern("M 月 d 日", Locale.CHINA))
@@ -293,14 +308,24 @@ private fun SelectedDaySection(
                 border = BorderStroke(1.dp, Line),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
             ) {
-                Text(
-                    "当天暂无日程",
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(18.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    MofeiPetSprite(
+                        state = mascotState,
+                        reduceMotion = reduceMotion,
+                        modifier = Modifier.size(48.dp),
+                    )
+                    Text(
+                        "这天暂无日程，墨斐陪你放松一下。",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         } else {
             cards.forEach { card ->
