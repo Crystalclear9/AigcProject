@@ -15,6 +15,9 @@ object MofeiActionAssets {
     @DrawableRes
     val seal: Int = R.drawable.mofei_action_seal
 
+    @DrawableRes
+    val sideArc: Int = R.drawable.mofei_action_side_arc
+
     /** Keep semantic action-to-art mapping out of composables and overlay services. */
     val glyphs: Map<MofeiAction, Int> = mapOf(
         MofeiAction.CAPTURE_CURRENT_SCREEN to R.drawable.mofei_action_capture_current_screen,

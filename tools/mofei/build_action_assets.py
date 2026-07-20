@@ -30,6 +30,14 @@ def _fit(source: Path, destination: Path, size: int) -> None:
     canvas.save(destination, optimize=True)
 
 
+def _fit_exact(source: Path, destination: Path, width: int, height: int) -> None:
+    """Resize a generated UI shell to its exact Compose aspect ratio."""
+    image = Image.open(source).convert("RGBA")
+    image = image.resize((width, height), Image.Resampling.LANCZOS)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    image.save(destination, optimize=True)
+
+
 def _base_glyph(size: int = 192) -> tuple[Image.Image, ImageDraw.ImageDraw]:
     image = Image.new("RGBA", (size, size))
     glow = Image.new("RGBA", image.size)
@@ -112,11 +120,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--side-arc-source", type=Path)
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     _fit(args.source_dir / "mofei_action_ring_full_alpha.png", args.out_dir / "mofei_action_ring_full.png", 1024)
     _fit(args.source_dir / "mofei_action_ring_compact_alpha.png", args.out_dir / "mofei_action_ring_compact.png", 768)
+    if args.side_arc_source:
+        _fit_exact(args.side_arc_source, args.out_dir / "mofei_action_side_arc.png", 368, 552)
     for kind in (
         "capture_current_screen", "latest_screenshot", "pick_image", "take_photo",
         "notification_drafts", "open_current_card", "open_settings", "seal",

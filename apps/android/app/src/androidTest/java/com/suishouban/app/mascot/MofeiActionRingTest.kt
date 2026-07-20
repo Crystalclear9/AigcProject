@@ -2,6 +2,7 @@ package com.suishouban.app.mascot
 
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -41,14 +42,17 @@ class MofeiActionRingTest {
                 reduceMotion = true,
                 onAction = { selected = it },
                 onDismiss = {},
+                dockSide = OverlayDockSide.RIGHT,
             )
         }
 
         compose.onNodeWithTag("mofei-action-ring").assertExists()
+        compose.onNodeWithTag("mofei-side-arc-right").assertExists()
         compose.onAllNodes(hasTestTag("mofei-action-item"), useUnmergedTree = true)
             .assertCountEquals(MofeiAction.entries.size)
         compose.onNodeWithText("3").assertExists()
-        compose.onNodeWithText("需要通知读取权限").assertExists()
+        compose.onAllNodes(hasText("需要通知读取权限")).assertCountEquals(0)
+        compose.onAllNodes(hasText("相册导入")).assertCountEquals(0)
         compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
         assertEquals(MofeiAction.TAKE_PHOTO, selected)
     }
@@ -64,6 +68,7 @@ class MofeiActionRingTest {
                 reduceMotion = true,
                 onAction = {},
                 onDismiss = { dismissed = true },
+                dockSide = OverlayDockSide.LEFT,
             )
         }
 
