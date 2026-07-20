@@ -46,6 +46,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.data.repository.LatestScreenshotRepository
+import com.suishouban.app.capture.MofeiScreenCaptureActivity
 import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.mascot.OverlayDockSide
@@ -157,11 +158,9 @@ class MainActivity : ComponentActivity() {
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                         MofeiActionCommand.LaunchCamera -> launchCameraCapture()
-                        MofeiActionCommand.RequestScreenCapture -> Toast.makeText(
-                            this@MainActivity,
-                            "正在准备当前屏幕识别",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        MofeiActionCommand.RequestScreenCapture -> startActivity(
+                            MofeiScreenCaptureActivity.intent(this@MainActivity),
+                        )
                         MofeiActionCommand.OpenLatestScreenshot -> actionScope.launch {
                             val uri = latestScreenshotRepository.findLatest()
                             latestScreenshotUri = uri
