@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -47,6 +48,10 @@ import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.mascot.OverlayDockSide
 import com.suishouban.app.mascot.action.MofeiPermissionState
+import com.suishouban.app.mascot.action.MofeiActionCommand
+import com.suishouban.app.mascot.action.MofeiActionCoordinator
+import com.suishouban.app.mascot.action.MofeiCapabilityState
+import com.suishouban.app.mascot.action.MofeiSurface
 import com.suishouban.app.notification.InstalledAppInfo
 import com.suishouban.app.notification.InstalledAppRepository
 import com.suishouban.app.ui.components.GradientScreen
@@ -74,8 +79,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val openedScreenshotPrompt = openProcessScreenshotIntent(intent)
-        val sharedImageUri = if (openedScreenshotPrompt) null else extractSharedImage(intent)
+        openProcessScreenshotIntent(intent)
         handleOverlayNavigationIntent(intent)
 
         setContent {
@@ -102,7 +106,7 @@ class MainActivity : ComponentActivity() {
                 var current by rememberSaveable { mutableStateOf(Screen.Home.route) }
                 var pendingCameraUri by rememberSaveable { mutableStateOf<Uri?>(null) }
                 val snackbarHostState = remember { SnackbarHostState() }
-                val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+                val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
                     if (uri != null) {
                         viewModel.analyzeImage(uri) { hasCards ->
                             if (hasCards) current = Screen.Preview.route
@@ -136,13 +140,49 @@ class MainActivity : ComponentActivity() {
                     pendingCameraUri = uri
                     cameraLauncher.launch(uri)
                 }
-
-                LaunchedEffect(sharedImageUri) {
-                    if (sharedImageUri != null) {
-                        viewModel.analyzeImage(sharedImageUri, notifyWhenEmpty = false) { hasCards ->
-                            if (hasCards) current = Screen.Preview.route
+                fun executeMofeiCommand(command: MofeiActionCommand) {
+                    when (command) {
+                        MofeiActionCommand.LaunchPhotoPicker -> galleryLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                        MofeiActionCommand.LaunchCamera -> launchCameraCapture()
+                        MofeiActionCommand.RequestScreenCapture -> Toast.makeText(
+                            this@MainActivity,
+                            "正在准备当前屏幕识别",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        MofeiActionCommand.OpenLatestScreenshot -> Toast.makeText(
+                            this@MainActivity,
+                            "正在查找最近截图",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        MofeiActionCommand.OpenNotificationDrafts -> Toast.makeText(
+                            this@MainActivity,
+                            "暂无待确认的通知事项",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                        is MofeiActionCommand.OpenCard -> {
+                            overlayNavigation.value = OverlayNavigation(
+                                actionCardId = command.cardId,
+                                requestId = System.currentTimeMillis(),
+                            )
+                            current = Screen.Cards.route
                         }
+                        MofeiActionCommand.OpenSettings -> current = Screen.Settings.route
                     }
+                }
+                val mofeiActionItems = remember(
+                    notificationAccessGranted,
+                    state.settings.mofeiNotificationDraftsEnabled,
+                ) {
+                    MofeiActionCoordinator().actionsFor(
+                        surface = MofeiSurface.IN_APP,
+                        state = MofeiCapabilityState(
+                            overlayGranted = Settings.canDrawOverlays(this@MainActivity),
+                            notificationAccessGranted = notificationAccessGranted,
+                            notificationDraftsEnabled = state.settings.mofeiNotificationDraftsEnabled,
+                        ),
+                    )
                 }
                 LaunchedEffect(state.settings.autoDetectScreenshots) {
                     val serviceIntent = Intent(this@MainActivity, ScreenshotMonitorService::class.java)
@@ -258,7 +298,11 @@ class MainActivity : ComponentActivity() {
                             )
                             else -> HomeScreen(
                                 state = state,
-                                onImportFromGallery = { galleryLauncher.launch("image/*") },
+                                onImportFromGallery = {
+                                    galleryLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                    )
+                                },
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
                                 onComplete = viewModel::completeCard,
@@ -295,6 +339,12 @@ class MainActivity : ComponentActivity() {
                                             mascotDockSide = if (side == OverlayDockSide.LEFT) "left" else "right",
                                             mascotVerticalFraction = fraction,
                                         ),
+                                    )
+                                },
+                                actionItems = mofeiActionItems,
+                                onAction = { action ->
+                                    executeMofeiCommand(
+                                        MofeiActionCommand.forAction(action, mascotState.actionCardId),
                                     )
                                 },
                                 modifier = Modifier.padding(padding),
@@ -390,12 +440,6 @@ class MainActivity : ComponentActivity() {
         if (denied.any { it == Manifest.permission.READ_MEDIA_IMAGES || it == Manifest.permission.READ_EXTERNAL_STORAGE }) {
             Toast.makeText(this, "图片权限未开启，截图监听和相册导入可能不可用", Toast.LENGTH_LONG).show()
         }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun extractSharedImage(intent: Intent?): Uri? {
-        if (intent?.action != Intent.ACTION_SEND) return null
-        return intent.getParcelableExtra(Intent.EXTRA_STREAM)
     }
 
     private fun createCameraImageUri(): Uri {
