@@ -24,6 +24,41 @@
 .\scripts\deploy_remote_android.ps1
 ```
 
+### 墨斐行动中心权限与验收
+
+构建与安装：
+
+```powershell
+cd apps\android
+.\gradlew.bat testDebugUnitTest assembleDebug assembleDebugAndroidTest --no-daemon --console=plain
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+权限按能力分离，不能用一个总开关代替：
+
+1. 应用内墨斐不需要悬浮窗权限。轻点后可直接使用 Photo Picker 和相机。
+2. 跨 App 墨斐需要在系统“显示在其他应用上层”页面单独授权。
+3. “识别当前屏幕”每次由 Android MediaProjection 系统页确认。授权只对本次捕获有效，App 不保存授权结果。
+4. 通知草稿需要在设置中同时开启功能、授予“通知使用权”、选择来源 App 白名单。撤销通知使用权后只有该能力被锁定。
+5. Android 13+ 的系统截图监听和“最近截图”需要图片读取权限；Photo Picker 本身不依赖全量相册权限。
+
+通知隐私验收：
+
+- 未在白名单内的 App 不产生候选。
+- 验证码、支付内容、常驻通知、分组摘要和空通知不产生候选。
+- 候选只保存在本地 Room 表中，24 小时到期；收到通知时不调用分析后端、不创建行动卡。
+- 点“消息萤火”后仅用端侧规则生成预览草稿，不把通知原文送入 Workflow；忽略会删除候选，只有该候选关联的草稿保存成功后才删除并创建卡片。
+- 不记录验收通知正文到文档或日志。
+
+主动截屏验收：
+
+- 从跨 App 能力环点击“识别当前屏”，确认悬浮墨斐在截屏前隐藏，预览关闭后恢复。
+- 取消授权、受保护黑屏和 6 秒超时均应停止前台服务且不打开伪预览。
+- 读取成功后检查 `adb shell dumpsys activity services com.suishouban.app`，不应残留 MofeiScreenCaptureService。
+- 私有截屏文件位于 FileProvider 对应的 App 缓存路径，预览销毁后删除；系统截图和相机照片不受该清理影响。
+
+当前产品不接受系统图片分享。清单中不应出现 `android.intent.action.SEND`；相册导入统一走系统 Photo Picker。
+
 真实手机验收的目标不是绑定开发主机，而是确认 App 在手机上能独立完成截图判定、候选预览、用户确认、保存和提醒。默认不填写 Workflow URL 时，App 不访问本机地址、局域网地址或 vivo 原始 provider endpoint。
 
 开发阶段可使用实体机、云真机或自动化脚本。当前脚本默认设备为 `val-vclinner-rt-contest.vivo.com.cn:37065`，但它只是测试环境；产品运行不依赖 ADB、`adb reverse` 或开发主机。vivo 安装器可能要求勾选风险提示并确认安装，部署脚本会尝试自动处理该页面。

@@ -18,6 +18,7 @@ import com.suishouban.app.mascot.MascotCompletionEvent
 import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.mascot.MascotStateResolver
 import com.suishouban.app.notification.NotificationCandidateUiModel
+import com.suishouban.app.notification.NotificationDraftAssociation
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.Instant
@@ -98,7 +99,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val mascotResolver = MascotStateResolver()
     private val _mascotCompletionEvent = MutableStateFlow<MascotCompletionEvent?>(null)
     private val _mascotInteractions = MutableSharedFlow<MascotCompletionEvent>(extraBufferCapacity = 1)
-    private var openedNotificationCandidateId: String? = null
+    private var notificationDraftAssociation: NotificationDraftAssociation? = null
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
     val uiState: StateFlow<AppUiState> = _uiState
@@ -165,6 +166,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun beginFreshScreenshotPrompt() {
+        clearNotificationDraftAssociation()
         ignoreActiveWorkflowRestore = true
         restoreWorkflowJob?.cancel()
         restoreWorkflowJob = null
@@ -220,6 +222,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         notifyWhenEmpty: Boolean = true,
         onDone: (Boolean) -> Unit = {},
     ) {
+        clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update {
@@ -297,6 +300,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun analyzeText(text: String, onDone: (Boolean) -> Unit = {}) {
+        clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update {
@@ -323,27 +327,56 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Notification text remains local and becomes ordinary drafts only after this explicit tap. */
     fun analyzeNotificationCandidate(id: String, onDone: (Boolean) -> Unit = {}) {
+        // Stop any prior workflow stream before establishing the notification's local-only review.
+        beginFreshScreenshotPrompt()
         viewModelScope.launch {
             val candidate = notificationCandidateRepository.findById(id)
             if (candidate == null) {
-                openedNotificationCandidateId = null
                 _uiState.update { it.copy(error = "这条通知草稿已过期") }
                 onDone(false)
                 return@launch
             }
-            openedNotificationCandidateId = id
             val text = listOf(candidate.title, candidate.body).filter { it.isNotBlank() }.joinToString("\n")
-            analyzeText(text) { hasDrafts ->
-                if (!hasDrafts) openedNotificationCandidateId = null
-                onDone(hasDrafts)
+            locallyEditedDraftIds.clear()
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    ocrText = text,
+                    draftCards = emptyList(),
+                    actionCandidates = emptyList(),
+                    selectedDraftIds = emptySet(),
+                    previewActions = emptyList(),
+                    screenshotWorkflowStage = null,
+                    reactSuggestions = emptyList(),
+                    aiRefinementStatus = null,
+                )
             }
+            // Notification originals are a local-only privacy boundary and never enter Workflow APIs.
+            val result = runCatching {
+                repository.analyzeTextLocal(text, enginePrefix = "notification-local")
+            }.getOrElse { error ->
+                _uiState.update {
+                    it.copy(loading = false, error = "通知事项生成失败：${error.message ?: "未知错误"}")
+                }
+                onDone(false)
+                return@launch
+            }
+            val hasDrafts = applyAnalyzeResult(result, notifyWhenEmpty = true)
+            if (hasDrafts) {
+                notificationDraftAssociation = NotificationDraftAssociation(
+                    candidateId = id,
+                    draftIds = result.cards.map(ActionCard::id).toSet(),
+                )
+            }
+            onDone(hasDrafts)
         }
     }
 
     fun rejectNotificationCandidate(id: String) {
         viewModelScope.launch {
             notificationCandidateRepository.delete(id)
-            if (openedNotificationCandidateId == id) openedNotificationCandidateId = null
+            if (notificationDraftAssociation?.candidateId == id) clearNotificationDraftAssociation()
         }
     }
 
@@ -352,7 +385,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearOpenedNotificationCandidate() {
-        openedNotificationCandidateId = null
+        clearNotificationDraftAssociation()
+    }
+
+    private fun clearNotificationDraftAssociation() {
+        notificationDraftAssociation = null
     }
 
     fun prepareScreenshotPrompt(
@@ -959,11 +996,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            // A notification candidate is consumed only after selected drafts are actually saved.
-            openedNotificationCandidateId?.let { candidateId ->
+            // Consume only the candidate that produced at least one of the drafts actually saved.
+            notificationDraftAssociation?.candidateToConsume(cardsToSave.map(ActionCard::id).toSet())?.let { candidateId ->
                 notificationCandidateRepository.delete(candidateId)
-                openedNotificationCandidateId = null
             }
+            clearNotificationDraftAssociation()
             _uiState.update {
                 it.copy(
                     draftCards = emptyList(),

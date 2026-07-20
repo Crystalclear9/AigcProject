@@ -22,6 +22,9 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.IntentCompat
 import com.suishouban.app.R
+import com.suishouban.app.domain.screenshot.ScreenshotCaptureSource
+import com.suishouban.app.domain.screenshot.ScreenshotFingerprintStore
+import com.suishouban.app.domain.screenshot.ScreenshotImageFingerprint
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Foreground, one-frame MediaProjection service with one idempotent cleanup path. */
@@ -87,7 +90,23 @@ class MofeiScreenCaptureService : Service() {
                 val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
                 image.use {
                     runCatching { ScreenCaptureImageWriter.write(this, it) }
-                        .onSuccess { uri -> finishSuccess(uri.toString()) }
+                        .onSuccess { uri ->
+                            val store = ScreenshotFingerprintStore.sharedPreferences(this)
+                            val imageHash = ScreenshotImageFingerprint.fromUri(this, uri)
+                            val now = System.currentTimeMillis()
+                            if (imageHash != null && !store.checkAndRecordImage(
+                                    imageHash,
+                                    ScreenshotCaptureSource.MEDIA_PROJECTION,
+                                    now,
+                                )
+                            ) {
+                                // This URI is app-private and was created by this one-shot capture.
+                                runCatching { contentResolver.delete(uri, null, null) }
+                                finishWith(ScreenCaptureResult.DUPLICATE, "同一画面刚刚已经处理")
+                                return@onSuccess
+                            }
+                            finishSuccess(uri.toString())
+                        }
                         .onFailure { error ->
                             if (error is ProtectedContentException) {
                                 // Some devices emit an initial black transition frame; wait for the

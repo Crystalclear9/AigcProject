@@ -28,6 +28,7 @@ import com.suishouban.app.domain.screenshot.ScreenshotActionGate
 import com.suishouban.app.domain.screenshot.ScreenshotActionGateResult
 import com.suishouban.app.domain.screenshot.ScreenshotCaptureSource
 import com.suishouban.app.domain.screenshot.ScreenshotFingerprintStore
+import com.suishouban.app.domain.screenshot.ScreenshotImageFingerprint
 import com.suishouban.app.ocr.TextRecognitionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -250,6 +251,20 @@ class ScreenshotMonitorService : Service() {
 
     private fun inspectScreenshot(id: Long, uri: Uri) {
         serviceScope.launch {
+            val now = System.currentTimeMillis()
+            val imageHash = withContext(Dispatchers.IO) {
+                ScreenshotImageFingerprint.fromUri(this@ScreenshotMonitorService, uri)
+            }
+            if (imageHash != null && !fingerprintStore.checkAndRecordImage(
+                    imageHash,
+                    ScreenshotCaptureSource.MEDIA_STORE,
+                    now,
+                )
+            ) {
+                lastNotifiedId = maxOf(lastNotifiedId, id)
+                Log.i(TAG, "Screenshot image suppressed as a cross-source duplicate: id=$id")
+                return@launch
+            }
             val text = withContext(Dispatchers.IO) {
                 runCatching { ocr.recognize(this@ScreenshotMonitorService, uri) }.getOrNull()
             }.orEmpty()

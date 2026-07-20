@@ -118,6 +118,16 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 hideForOneHour()
                 return START_NOT_STICKY
             }
+            ACTION_RESTORE_AFTER_CAPTURE -> {
+                if (canShowOverlay()) {
+                    if (!foregroundStarted) startForegroundWithNotification()
+                    foregroundStarted = true
+                    showCollapsedOverlay()
+                } else {
+                    stopSelf()
+                }
+                return START_NOT_STICKY
+            }
             ACTION_UPDATE -> Unit
         }
         if (!canShowOverlay()) {
@@ -314,7 +324,10 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     private fun executeOverlayAction(action: MofeiAction) {
         val command = controller.commandForAction(action, currentMascotState.actionCardId)
         val intent = when (command) {
-            MofeiActionCommand.RequestScreenCapture -> MofeiScreenCaptureActivity.intent(this)
+            MofeiActionCommand.RequestScreenCapture -> MofeiScreenCaptureActivity.intent(
+                this,
+                restoreOverlayAfter = true,
+            )
             else -> Intent(this, MainActivity::class.java).apply {
                 this.action = ACTION_OPEN_MOFEI_ACTION
                 putExtra(EXTRA_MOFEI_ACTION, action.name)
@@ -328,9 +341,17 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        if (command == MofeiActionCommand.RequestScreenCapture) {
+            // Keep Mofei out of captured pixels. Consent/preview restores it on every exit path.
+            removeControls()
+            removeOverlay()
+        }
         runCatching { pending.send() }
-            .onFailure { showActionFallback("无法打开${actionFallbackLabel(action)}，请进入随手办重试") }
-        showCollapsedOverlay()
+            .onFailure { showActionFallback("无法打开" + actionFallbackLabel(action) + "，请进入随手办重试") }
+            .onFailure {
+                if (command == MofeiActionCommand.RequestScreenCapture && canShowOverlay()) showCollapsedOverlay()
+            }
+        if (command != MofeiActionCommand.RequestScreenCapture) showCollapsedOverlay()
     }
 
     private fun showActionFallback(message: String) {
@@ -609,6 +630,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         const val ACTION_OPEN_CURRENT = "com.suishouban.app.action.OPEN_MOFEI_CURRENT"
         const val ACTION_OPEN_MOFEI_ACTION = "com.suishouban.app.action.OPEN_MOFEI_ACTION"
         const val ACTION_UPDATE = "com.suishouban.app.action.UPDATE_MOFEI_OVERLAY"
+        private const val ACTION_RESTORE_AFTER_CAPTURE = "com.suishouban.app.action.RESTORE_MOFEI_AFTER_CAPTURE"
         const val ACTION_DISMISS_FOR_FOREGROUND = "com.suishouban.app.action.DISMISS_MOFEI_FOR_FOREGROUND"
         const val EXTRA_ACTION_CARD_ID = "com.suishouban.app.extra.MOFEI_ACTION_CARD_ID"
         const val EXTRA_MOFEI_ACTION = "com.suishouban.app.extra.MOFEI_ACTION"
@@ -668,6 +690,12 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
 
         fun updateState(context: Context, mascotState: MascotState) {
             context.startService(overlayIntent(context, ACTION_UPDATE, mascotState))
+        }
+
+        fun restoreVisibleAfterCapture(context: Context) {
+            context.startService(
+                Intent(context, MascotOverlayService::class.java).setAction(ACTION_RESTORE_AFTER_CAPTURE),
+            )
         }
 
         private fun overlayIntent(context: Context, action: String, mascotState: MascotState): Intent =
