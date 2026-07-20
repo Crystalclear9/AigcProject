@@ -20,7 +20,7 @@ class MofeiActionRingTest {
     val compose = createComposeRule()
 
     @Test
-    fun expandedRingExposesActionSemanticsBadgeAndCallback() {
+    fun expandedRingRevealsOneLabelBeforeInvokingAction() {
         var selected: MofeiAction? = null
         val items = MofeiAction.entries.map {
             MofeiActionItem(
@@ -53,6 +53,10 @@ class MofeiActionRingTest {
         compose.onNodeWithText("3").assertExists()
         compose.onAllNodes(hasText("需要通知读取权限")).assertCountEquals(0)
         compose.onAllNodes(hasText("相册导入")).assertCountEquals(0)
+        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("mofei-action-hint").assertExists()
+        compose.onNodeWithText("拍照识别").assertExists()
+        assertEquals(null, selected)
         compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
         assertEquals(MofeiAction.TAKE_PHOTO, selected)
     }

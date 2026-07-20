@@ -89,9 +89,11 @@ fun MofeiNotificationFireflies(
                         .align(Alignment.TopEnd)
                         .size(28.dp)
                         .background(Color(0xD97A42F4), CircleShape)
+                        // Keep the nested reject action as its own semantics boundary. If the
+                        // tag precedes clickable, the parent card can merge it with "open".
+                        .clickable { onReject(candidate.id) }
                         .testTag("mofei-firefly-reject-${candidate.id}")
                         .semantics { contentDescription = "忽略这条通知草稿" }
-                        .clickable { onReject(candidate.id) }
                         .padding(horizontal = 9.dp, vertical = 3.dp),
                 )
             }

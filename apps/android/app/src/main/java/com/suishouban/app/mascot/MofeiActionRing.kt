@@ -11,10 +11,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -51,6 +59,10 @@ fun MofeiActionRing(
     dockSide: OverlayDockSide = OverlayDockSide.RIGHT,
     modifier: Modifier = Modifier,
 ) {
+    var revealedAction by remember { mutableStateOf<MofeiAction?>(null) }
+    LaunchedEffect(expanded) {
+        if (!expanded) revealedAction = null
+    }
     val transition = if (reduceMotion) {
         fadeIn() to fadeOut()
     } else {
@@ -94,16 +106,65 @@ fun MofeiActionRing(
                 items.zip(centers).forEach { (item, center) ->
                     MofeiActionOrb(
                         item = item,
-                        onClick = { onAction(item.action) },
+                        onClick = {
+                            if (revealedAction == item.action) {
+                                revealedAction = null
+                                onAction(item.action)
+                            } else {
+                                // First tap explains the icon; a second tap confirms execution.
+                                revealedAction = item.action
+                            }
+                        },
                         modifier = Modifier.offset(
                             (center.x - MofeiSideArcGeometry.ACTION_SIZE_DP / 2f).dp,
                             (center.y - MofeiSideArcGeometry.ACTION_SIZE_DP / 2f).dp,
                         ),
                     )
                 }
+                revealedAction?.let { selected ->
+                    val index = items.indexOfFirst { it.action == selected }
+                    if (index >= 0 && index < centers.size) {
+                        MofeiActionHint(
+                            text = actionLabel(selected),
+                            center = centers[index],
+                            dockSide = dockSide,
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun MofeiActionHint(
+    text: String,
+    center: MofeiArcPoint,
+    dockSide: OverlayDockSide,
+) {
+    val width = 78f
+    val height = 24f
+    val x = if (dockSide == OverlayDockSide.LEFT) {
+        (center.x + 24f).coerceAtMost(MofeiSideArcGeometry.WIDTH_DP - width)
+    } else {
+        (center.x - width - 24f).coerceAtLeast(0f)
+    }
+    val y = (center.y - height / 2f).coerceIn(0f, MofeiSideArcGeometry.HEIGHT_DP - height)
+
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        modifier = Modifier
+            .offset(x.dp, y.dp)
+            .widthIn(min = width.dp, max = width.dp)
+            .background(Color(0xE61A315D), RoundedCornerShape(12.dp))
+            .padding(horizontal = 7.dp, vertical = 5.dp)
+            .testTag("mofei-action-hint"),
+    )
 }
 
 @Composable
@@ -149,7 +210,7 @@ private fun MofeiActionOrb(
             )
         }
         if (item.badgeCount > 0) {
-            androidx.compose.material3.Text(
+            Text(
                 text = item.badgeCount.coerceAtMost(99).toString(),
                 color = Color.White,
                 fontSize = 9.sp,
