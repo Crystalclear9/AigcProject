@@ -55,6 +55,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.suishouban.app.mascot.action.MofeiAction
+import com.suishouban.app.mascot.action.MofeiActionItem
+import com.suishouban.app.mascot.action.MofeiSurface
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -76,6 +79,8 @@ private val BUBBLE_GAP = 10.dp
  * @param onOpenSettings invoked from the long-press menu.
  * @param completionSignal increments to trigger a one-shot celebration burst (feed it a counter
  *   derived from [com.suishouban.app.AppViewModel.mascotInteractions]).
+ * @param actionItems actions exposed around the live sprite; an empty list preserves the legacy
+ *   speech-bubble tap behavior while the owning screen is still loading capability state.
  */
 @Composable
 fun FloatingMascot(
@@ -88,6 +93,8 @@ fun FloatingMascot(
     onOpenSettings: () -> Unit,
     onDismissForNow: () -> Unit,
     onPlacementChange: (OverlayDockSide, Float) -> Unit,
+    actionItems: List<MofeiActionItem> = emptyList(),
+    onAction: (MofeiAction) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val controller = remember { FloatingMascotController() }
@@ -97,6 +104,7 @@ fun FloatingMascot(
     var trackSize by remember { mutableStateOf(IntOffset.Zero) }
     var bubbleOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    var actionRingOpen by remember { mutableStateOf(false) }
 
     val petPx = with(density) { PET_SIZE.toPx() }
     val marginPx = with(density) { EDGE_MARGIN.toPx() }
@@ -125,6 +133,29 @@ fun FloatingMascot(
 
         val profile = MascotVisuals.profileFor(state, reduceMotion)
 
+        if (actionRingOpen && actionItems.isNotEmpty()) {
+            val ringPx = with(density) { 340.dp.toPx() }
+            val ringX = (offsetX.value + petPx / 2f - ringPx / 2f)
+                .coerceIn(0f, (trackSize.x - ringPx).coerceAtLeast(0f))
+            val ringY = (offsetY.value + petPx / 2f - ringPx / 2f)
+                .coerceIn(0f, (trackSize.y - ringPx).coerceAtLeast(0f))
+            MofeiActionRing(
+                surface = MofeiSurface.IN_APP,
+                items = actionItems,
+                expanded = true,
+                reduceMotion = reduceMotion,
+                onAction = {
+                    actionRingOpen = false
+                    onAction(it)
+                },
+                onDismiss = { actionRingOpen = false },
+                modifier = Modifier.graphicsLayer {
+                    translationX = ringX
+                    translationY = ringY
+                },
+            )
+        }
+
         // The pet cluster (sprite + halo + celebration) lives at the animated offset. The bubble is
         // sibling-positioned so it can grow toward screen center without being clipped by the pet box.
         MofeiPet(
@@ -143,10 +174,16 @@ fun FloatingMascot(
                     detectTapGestures(
                         onTap = {
                             menuOpen = false
-                            bubbleOpen = !bubbleOpen
+                            if (actionItems.isEmpty()) {
+                                bubbleOpen = !bubbleOpen
+                            } else {
+                                bubbleOpen = false
+                                actionRingOpen = !actionRingOpen
+                            }
                         },
                         onLongPress = {
                             bubbleOpen = false
+                            actionRingOpen = false
                             menuOpen = !menuOpen
                         },
                     )
@@ -173,6 +210,7 @@ fun FloatingMascot(
                                 offsetY.snapTo((offsetY.value + dragAmount.y).coerceIn(0f, maxY))
                             }
                             bubbleOpen = false
+                            actionRingOpen = false
                             menuOpen = false
                         },
                     )
