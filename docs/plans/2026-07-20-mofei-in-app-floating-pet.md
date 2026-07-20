@@ -71,3 +71,12 @@ placement / 气泡方向 / 快捷操作可见性等像 `MascotOverlayController`
 - **Settings**：新增 `mascotState` 参数；「墨斐悬浮助手」卡片顶部加 `MofeiMoodBanner` **实时预览**，随事项与「减少动态效果」开关变化。
 
 所有面板复用 `MascotVisuals.profileFor` 的颜色与文案、`MofeiPetSprite` 的 8 帧精灵，并遵守 reduce-motion。`assembleDebug` 与 `testDebugUnitTest` 通过。
+
+## 抠图与帧一致性（2026-07-20 追加）
+
+此前打包的精灵帧全部是**不透明** PNG（近白 / 浅蓝底），在着色面板上显示为一个突兀的白色方块；且同一情绪的 `f01–f03` 是旧的 256px 渲染、`f04–f08` 是后补的 1254px 渲染，8 帧循环在两种画风间跳变（用户看到的「旧三帧动画仍在」）。
+
+修复：新增 `tools/mofei/build_sprites.py`，用 `rembg`（`isnet-general-use` 抠图模型）对 `output/mofei/<mood>/` 的**同一套干净 f01–f08 源帧**统一去背景，裁切主体、居中补白，输出 512×512 透明 PNG，覆盖全部情绪帧与 `mofei_in_app_idle/focus/confirm`。这同时解决了透明度与「新旧混帧」两个问题。已删除不再引用的旧 `mofei_idle_f01..f03`。
+
+- 验证：抠图后每帧中心 alpha≈255（角色完整）、四角 alpha≈0（背景干净）、玻璃壳与轨道光点 100% 保留、无硬白边光晕；`assembleDebug` 通过。
+- 复现：`pip install rembg onnxruntime` 后运行 `python tools/mofei/build_sprites.py`（首次会下载模型）。
