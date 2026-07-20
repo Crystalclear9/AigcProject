@@ -4,6 +4,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.suishouban.app.mascot.action.MofeiAction
+import com.suishouban.app.mascot.action.MofeiActionCommand
 
 class MascotOverlayControllerTest {
     private val controller = MascotOverlayController()
@@ -39,14 +41,44 @@ class MascotOverlayControllerTest {
     }
 
     @Test
-    fun firstTapExpandsAndSecondTapRequestsActionNavigation() {
+    fun firstTapExpandsAndOutsideTapCollapsesTheActionRing() {
         assertEquals(
             OverlayCommand.Expand,
             controller.commandForTap(OverlayDisplayMode.COLLAPSED),
         )
         assertEquals(
-            OverlayCommand.OpenCurrentAction,
+            OverlayCommand.Collapse,
             controller.commandForTap(OverlayDisplayMode.EXPANDED),
+        )
+    }
+
+    @Test
+    fun compactRingUsesLargeSquareWindowAndMirrorsAtRightEdge() {
+        assertEquals(284, controller.expandedWidthPx(1f))
+        assertEquals(284, controller.expandedHeightPx(1f))
+        assertFalse(controller.shouldMirrorCompactRing(OverlayDockSide.LEFT))
+        assertTrue(controller.shouldMirrorCompactRing(OverlayDockSide.RIGHT))
+        assertEquals(
+            116,
+            controller.windowPosition(
+                OverlayPlacement(OverlayDockSide.RIGHT, 0.5f),
+                OverlayDisplayMode.EXPANDED,
+                400,
+                800,
+                1f,
+            ).x,
+        )
+    }
+
+    @Test
+    fun overlayActionUsesTheSharedCommandMapping() {
+        assertEquals(
+            MofeiActionCommand.RequestScreenCapture,
+            controller.commandForAction(MofeiAction.CAPTURE_CURRENT_SCREEN, null),
+        )
+        assertEquals(
+            MofeiActionCommand.OpenCard("card-9"),
+            controller.commandForAction(MofeiAction.OPEN_CURRENT_CARD, "card-9"),
         )
     }
 

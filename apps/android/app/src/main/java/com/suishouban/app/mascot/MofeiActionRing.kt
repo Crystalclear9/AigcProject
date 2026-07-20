@@ -62,6 +62,7 @@ fun MofeiActionRing(
     reduceMotion: Boolean,
     onAction: (MofeiAction) -> Unit,
     onDismiss: () -> Unit,
+    mirrorCompact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val ringSize = if (surface == MofeiSurface.IN_APP) FULL_RING_SIZE else COMPACT_RING_SIZE
@@ -98,11 +99,15 @@ fun MofeiActionRing(
                     ),
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = if (surface == MofeiSurface.OVERLAY && mirrorCompact) -1f else 1f
+                        },
                 )
 
                 items.forEachIndexed { index, item ->
-                    val position = actionPosition(surface, index, items.size, ringSize)
+                    val position = actionPosition(surface, index, items.size, ringSize, mirrorCompact)
                     MofeiActionOrb(
                         item = item,
                         onClick = { onAction(item.action) },
@@ -206,6 +211,7 @@ private fun actionPosition(
     index: Int,
     count: Int,
     ringSize: Dp,
+    mirrorCompact: Boolean,
 ): Pair<Dp, Dp> {
     val angles = if (surface == MofeiSurface.OVERLAY) {
         listOf(-90.0, -135.0, 180.0, 135.0, 90.0)
@@ -216,7 +222,13 @@ private fun actionPosition(
     val center = ringSize.value / 2f
     val radius = ringSize.value * if (surface == MofeiSurface.IN_APP) 0.405f else 0.39f
     val halfOrb = 36f
-    return (center + cos(angle).toFloat() * radius - halfOrb).dp to
+    val rawX = center + cos(angle).toFloat() * radius - halfOrb
+    val x = if (surface == MofeiSurface.OVERLAY && mirrorCompact) {
+        ringSize.value - rawX - halfOrb * 2f
+    } else {
+        rawX
+    }
+    return x.dp to
         (center + sin(angle).toFloat() * radius - halfOrb).dp
 }
 

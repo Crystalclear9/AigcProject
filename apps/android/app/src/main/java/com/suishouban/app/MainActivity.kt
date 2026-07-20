@@ -51,6 +51,7 @@ import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.mascot.OverlayDockSide
 import com.suishouban.app.mascot.action.MofeiPermissionState
+import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionCommand
 import com.suishouban.app.mascot.action.MofeiActionCoordinator
 import com.suishouban.app.mascot.action.MofeiCapabilityState
@@ -73,6 +74,7 @@ import kotlinx.coroutines.launch
 
 private data class OverlayNavigation(
     val actionCardId: String? = null,
+    val mofeiAction: MofeiAction? = null,
     val requestId: Long = 0L,
 )
 
@@ -236,7 +238,11 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(requestedOverlayNavigation.requestId) {
-                    requestedOverlayNavigation.actionCardId?.let { current = Screen.Cards.route }
+                    requestedOverlayNavigation.mofeiAction?.let { action ->
+                        executeMofeiCommand(
+                            MofeiActionCommand.forAction(action, requestedOverlayNavigation.actionCardId),
+                        )
+                    }
                 }
 
                 Scaffold(
@@ -493,9 +499,19 @@ class MainActivity : ComponentActivity() {
 
     /** Overlay navigation is intentionally constrained to the existing Cards route and a card ID. */
     private fun handleOverlayNavigationIntent(source: Intent?) {
-        if (source?.action != MascotOverlayService.ACTION_OPEN_CURRENT) return
+        if (source?.action != MascotOverlayService.ACTION_OPEN_CURRENT &&
+            source?.action != MascotOverlayService.ACTION_OPEN_MOFEI_ACTION
+        ) return
+        val action = if (source.action == MascotOverlayService.ACTION_OPEN_CURRENT) {
+            MofeiAction.OPEN_CURRENT_CARD
+        } else {
+            source.getStringExtra(MascotOverlayService.EXTRA_MOFEI_ACTION)
+                ?.let { runCatching { MofeiAction.valueOf(it) }.getOrNull() }
+                ?: return
+        }
         overlayNavigation.value = OverlayNavigation(
             actionCardId = source.getStringExtra(MascotOverlayService.EXTRA_ACTION_CARD_ID),
+            mofeiAction = action,
             requestId = System.currentTimeMillis(),
         )
     }
