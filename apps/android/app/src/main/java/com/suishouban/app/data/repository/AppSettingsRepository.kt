@@ -19,6 +19,8 @@ data class AppSettings(
     val mascotDockSide: String = DEFAULT_MASCOT_DOCK_SIDE,
     val mascotVerticalFraction: Float = DEFAULT_MASCOT_VERTICAL_FRACTION,
     val reduceMascotMotion: Boolean = false,
+    val mofeiNotificationDraftsEnabled: Boolean = false,
+    val mofeiNotificationPackageAllowlist: Set<String> = emptySet(),
 )
 
 class AppSettingsRepository(private val prefs: SharedPreferences) {
@@ -50,6 +52,13 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
                 prefs.getFloat("mascot_vertical_fraction", DEFAULT_MASCOT_VERTICAL_FRACTION),
             ),
             reduceMascotMotion = prefs.getBoolean("reduce_mascot_motion", false),
+            mofeiNotificationDraftsEnabled = prefs.getBoolean("mofei_notification_drafts_enabled", false),
+            // SharedPreferences may return a mutable, implementation-owned set. Copy it so callers
+            // cannot mutate persisted state without going through update().
+            mofeiNotificationPackageAllowlist = prefs
+                .getStringSet("mofei_notification_package_allowlist", emptySet())
+                .orEmpty()
+                .toSet(),
         )
     }
 
@@ -57,6 +66,7 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
         val normalizedSettings = settings.copy(
             mascotDockSide = normalizeMascotDockSide(settings.mascotDockSide),
             mascotVerticalFraction = normalizeMascotVerticalFraction(settings.mascotVerticalFraction),
+            mofeiNotificationPackageAllowlist = settings.mofeiNotificationPackageAllowlist.toSet(),
         )
         prefs.edit()
             .putString("api_base_url", normalizedSettings.apiBaseUrl)
@@ -71,6 +81,11 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
             .putString("mascot_dock_side", normalizedSettings.mascotDockSide)
             .putFloat("mascot_vertical_fraction", normalizedSettings.mascotVerticalFraction)
             .putBoolean("reduce_mascot_motion", normalizedSettings.reduceMascotMotion)
+            .putBoolean("mofei_notification_drafts_enabled", normalizedSettings.mofeiNotificationDraftsEnabled)
+            .putStringSet(
+                "mofei_notification_package_allowlist",
+                normalizedSettings.mofeiNotificationPackageAllowlist.toSet(),
+            )
             .apply()
         _settings.value = normalizedSettings
     }

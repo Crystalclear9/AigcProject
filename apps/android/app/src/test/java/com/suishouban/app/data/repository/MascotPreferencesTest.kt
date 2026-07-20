@@ -19,6 +19,8 @@ class MascotPreferencesTest {
         assertEquals("right", settings.mascotDockSide)
         assertEquals(0.5f, settings.mascotVerticalFraction)
         assertFalse(settings.reduceMascotMotion)
+        assertFalse(settings.mofeiNotificationDraftsEnabled)
+        assertTrue(settings.mofeiNotificationPackageAllowlist.isEmpty())
     }
 
     @Test
@@ -32,6 +34,8 @@ class MascotPreferencesTest {
             mascotDockSide = "left",
             mascotVerticalFraction = 0.72f,
             reduceMascotMotion = true,
+            mofeiNotificationDraftsEnabled = true,
+            mofeiNotificationPackageAllowlist = setOf("com.example.mail", "com.example.chat"),
         )
 
         repository.update(saved)
@@ -43,6 +47,29 @@ class MascotPreferencesTest {
         assertEquals("left", reloaded.mascotDockSide)
         assertEquals(0.72f, reloaded.mascotVerticalFraction)
         assertTrue(reloaded.reduceMascotMotion)
+        assertTrue(reloaded.mofeiNotificationDraftsEnabled)
+        assertEquals(
+            setOf("com.example.mail", "com.example.chat"),
+            reloaded.mofeiNotificationPackageAllowlist,
+        )
+    }
+
+    @Test
+    fun mutableAllowlistInputCannotChangeExposedRepositoryState() {
+        val repository = AppSettingsRepository(InMemorySharedPreferences())
+        val mutablePackages = mutableSetOf("com.example.mail")
+
+        repository.update(
+            repository.settings.value.copy(
+                mofeiNotificationPackageAllowlist = mutablePackages,
+            ),
+        )
+        mutablePackages += "com.example.injected"
+
+        assertEquals(
+            setOf("com.example.mail"),
+            repository.settings.value.mofeiNotificationPackageAllowlist,
+        )
     }
 
     @Test
