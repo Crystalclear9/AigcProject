@@ -36,3 +36,11 @@
 - 单元测试验证非待机状态不选择应用内待机序列。
 - 单元测试验证减少动态效果固定到首帧。
 - 构建 Debug APK，确认资源可编译、应用内组件可渲染，并确认系统悬浮层仍使用原有 `MofeiVisual` 路径。
+
+## 更新（2026-07-20，全情绪 8 帧 + 应用内悬浮宠物）
+
+本设计已被后续「墨斐电子宠物」升级覆盖，参见 [2026-07-20-mofei-in-app-floating-pet.md](2026-07-20-mofei-in-app-floating-pet.md)。变更要点：
+
+- 不再限于 `IDLE`。`output/mofei/` 中每个情绪（focus/confirm/reminder/due_soon/urgent/complete/rest）的 8 帧已全部打包进 `drawable-nodpi`，并接入 `MascotAssetCatalog`（系统悬浮层）与 `InAppMofeiAssetCatalog`（应用内 / 宠物）。原来退化为 3 帧循环的情绪现在全部按 8 帧播放。
+- `IDLE` / `UNAVAILABLE` 继续复用干净的 `mofei_in_app_idle_f01..f08`（idle 原图非干净帧，不取帧）。
+- 原「应用内待机路径独立于 `MascotAssetCatalog`」的边界已合并：新增统一的 `InAppMofeiAssetCatalog.framesFor(mood)`，`MascotCompanion` 与新的 `MofeiPetSprite` 共用。系统悬浮层仍走 `MofeiVisual` + `MascotAssetCatalog`，二者渲染入口保持独立。

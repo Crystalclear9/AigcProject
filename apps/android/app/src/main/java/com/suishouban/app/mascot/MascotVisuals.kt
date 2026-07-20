@@ -114,35 +114,65 @@ object MascotVisuals {
 }
 
 /**
- * The generated WebP action set is optional. This packaged vector is the deterministic fallback
- * for every mood, while [MofeiVisual] keeps the v6 Canvas treatment available on all devices.
+ * Compact eight-frame sequences used by the system overlay ([MofeiVisual]). Every mood now animates
+ * over the full sprite set instead of a three-frame loop, so the edge capsule reads as fluid motion.
+ * IDLE / UNAVAILABLE reuse the clean in-app idle frames because the packaged base idle art is only
+ * three frames.
  */
 object MascotAssetCatalog {
     private val frameNames = mapOf(
-        MascotMood.IDLE to listOf("mofei_idle_f01", "mofei_idle_f02", "mofei_idle_f03"),
-        MascotMood.FOCUS to listOf("mofei_focus_f01", "mofei_focus_f02", "mofei_focus_f03"),
-        MascotMood.CONFIRM to listOf("mofei_confirm_f01", "mofei_confirm_f02", "mofei_confirm_f03"),
-        MascotMood.REMINDER to listOf("mofei_reminder_f01", "mofei_reminder_f02", "mofei_reminder_f03"),
-        MascotMood.DUE_SOON to listOf("mofei_due_soon_f01", "mofei_due_soon_f02", "mofei_due_soon_f03"),
-        MascotMood.URGENT to listOf("mofei_urgent_f01", "mofei_urgent_f02", "mofei_urgent_f03"),
-        MascotMood.COMPLETE to listOf("mofei_complete_f01", "mofei_complete_f02", "mofei_complete_f03"),
-        MascotMood.REST to listOf("mofei_rest_f01", "mofei_rest_f02", "mofei_rest_f03"),
+        MascotMood.IDLE to frameNamesOf("mofei_in_app_idle"),
+        MascotMood.FOCUS to frameNamesOf("mofei_focus"),
+        MascotMood.CONFIRM to frameNamesOf("mofei_confirm"),
+        MascotMood.REMINDER to frameNamesOf("mofei_reminder"),
+        MascotMood.DUE_SOON to frameNamesOf("mofei_due_soon"),
+        MascotMood.URGENT to frameNamesOf("mofei_urgent"),
+        MascotMood.COMPLETE to frameNamesOf("mofei_complete"),
+        MascotMood.REST to frameNamesOf("mofei_rest"),
     )
 
     fun frameNamesFor(mood: MascotMood): List<String> = frameNames[mood] ?: frameNames.getValue(MascotMood.IDLE)
 
     @androidx.annotation.DrawableRes
     fun framesFor(mood: MascotMood): List<Int> = when (mood) {
-        MascotMood.IDLE, MascotMood.UNAVAILABLE -> listOf(R.drawable.mofei_idle_f01, R.drawable.mofei_idle_f02, R.drawable.mofei_idle_f03)
-        MascotMood.FOCUS -> listOf(R.drawable.mofei_focus_f01, R.drawable.mofei_focus_f02, R.drawable.mofei_focus_f03)
-        MascotMood.CONFIRM -> listOf(R.drawable.mofei_confirm_f01, R.drawable.mofei_confirm_f02, R.drawable.mofei_confirm_f03)
-        MascotMood.REMINDER -> listOf(R.drawable.mofei_reminder_f01, R.drawable.mofei_reminder_f02, R.drawable.mofei_reminder_f03)
-        MascotMood.DUE_SOON -> listOf(R.drawable.mofei_due_soon_f01, R.drawable.mofei_due_soon_f02, R.drawable.mofei_due_soon_f03)
-        MascotMood.URGENT -> listOf(R.drawable.mofei_urgent_f01, R.drawable.mofei_urgent_f02, R.drawable.mofei_urgent_f03)
-        MascotMood.COMPLETE -> listOf(R.drawable.mofei_complete_f01, R.drawable.mofei_complete_f02, R.drawable.mofei_complete_f03)
-        MascotMood.REST -> listOf(R.drawable.mofei_rest_f01, R.drawable.mofei_rest_f02, R.drawable.mofei_rest_f03)
+        MascotMood.IDLE, MascotMood.UNAVAILABLE -> IN_APP_IDLE_FRAMES
+        MascotMood.FOCUS -> listOf(R.drawable.mofei_focus_f01, R.drawable.mofei_focus_f02, R.drawable.mofei_focus_f03, R.drawable.mofei_focus_f04, R.drawable.mofei_focus_f05, R.drawable.mofei_focus_f06, R.drawable.mofei_focus_f07, R.drawable.mofei_focus_f08)
+        MascotMood.CONFIRM -> listOf(R.drawable.mofei_confirm_f01, R.drawable.mofei_confirm_f02, R.drawable.mofei_confirm_f03, R.drawable.mofei_confirm_f04, R.drawable.mofei_confirm_f05, R.drawable.mofei_confirm_f06, R.drawable.mofei_confirm_f07, R.drawable.mofei_confirm_f08)
+        MascotMood.REMINDER -> listOf(R.drawable.mofei_reminder_f01, R.drawable.mofei_reminder_f02, R.drawable.mofei_reminder_f03, R.drawable.mofei_reminder_f04, R.drawable.mofei_reminder_f05, R.drawable.mofei_reminder_f06, R.drawable.mofei_reminder_f07, R.drawable.mofei_reminder_f08)
+        MascotMood.DUE_SOON -> listOf(R.drawable.mofei_due_soon_f01, R.drawable.mofei_due_soon_f02, R.drawable.mofei_due_soon_f03, R.drawable.mofei_due_soon_f04, R.drawable.mofei_due_soon_f05, R.drawable.mofei_due_soon_f06, R.drawable.mofei_due_soon_f07, R.drawable.mofei_due_soon_f08)
+        MascotMood.URGENT -> listOf(R.drawable.mofei_urgent_f01, R.drawable.mofei_urgent_f02, R.drawable.mofei_urgent_f03, R.drawable.mofei_urgent_f04, R.drawable.mofei_urgent_f05, R.drawable.mofei_urgent_f06, R.drawable.mofei_urgent_f07, R.drawable.mofei_urgent_f08)
+        MascotMood.COMPLETE -> listOf(R.drawable.mofei_complete_f01, R.drawable.mofei_complete_f02, R.drawable.mofei_complete_f03, R.drawable.mofei_complete_f04, R.drawable.mofei_complete_f05, R.drawable.mofei_complete_f06, R.drawable.mofei_complete_f07, R.drawable.mofei_complete_f08)
+        MascotMood.REST -> listOf(R.drawable.mofei_rest_f01, R.drawable.mofei_rest_f02, R.drawable.mofei_rest_f03, R.drawable.mofei_rest_f04, R.drawable.mofei_rest_f05, R.drawable.mofei_rest_f06, R.drawable.mofei_rest_f07, R.drawable.mofei_rest_f08)
+    }
+
+    private fun frameNamesOf(prefix: String): List<String> = (1..8).map { "%s_f%02d".format(prefix, it) }
+}
+
+/**
+ * Full page animations for the in-app companion and the floating pet. Every mood now plays its own
+ * eight-frame sequence. The three-frame packaged art has been retired in favor of these richer sets.
+ */
+object InAppMofeiAssetCatalog {
+    @androidx.annotation.DrawableRes
+    fun framesFor(mood: MascotMood): List<Int> = when (mood) {
+        MascotMood.IDLE, MascotMood.UNAVAILABLE -> IN_APP_IDLE_FRAMES
+        MascotMood.FOCUS -> listOf(R.drawable.mofei_in_app_focus_f01, R.drawable.mofei_in_app_focus_f02, R.drawable.mofei_in_app_focus_f03, R.drawable.mofei_in_app_focus_f04, R.drawable.mofei_in_app_focus_f05, R.drawable.mofei_in_app_focus_f06, R.drawable.mofei_in_app_focus_f07, R.drawable.mofei_in_app_focus_f08)
+        MascotMood.CONFIRM -> listOf(R.drawable.mofei_in_app_confirm_f01, R.drawable.mofei_in_app_confirm_f02, R.drawable.mofei_in_app_confirm_f03, R.drawable.mofei_in_app_confirm_f04, R.drawable.mofei_in_app_confirm_f05, R.drawable.mofei_in_app_confirm_f06, R.drawable.mofei_in_app_confirm_f07, R.drawable.mofei_in_app_confirm_f08)
+        else -> MascotAssetCatalog.framesFor(mood)
     }
 }
+
+@androidx.annotation.DrawableRes
+private val IN_APP_IDLE_FRAMES = listOf(
+    R.drawable.mofei_in_app_idle_f01,
+    R.drawable.mofei_in_app_idle_f02,
+    R.drawable.mofei_in_app_idle_f03,
+    R.drawable.mofei_in_app_idle_f04,
+    R.drawable.mofei_in_app_idle_f05,
+    R.drawable.mofei_in_app_idle_f06,
+    R.drawable.mofei_in_app_idle_f07,
+    R.drawable.mofei_in_app_idle_f08,
+)
 
 private data class MofeiVisualDefinition(
     val primaryArgb: Long,
@@ -177,7 +207,7 @@ fun MascotCompanion(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        MofeiVisual(
+        InAppMofeiVisual(
             state = state,
             modifier = Modifier
                 .size(mascotSize)
@@ -195,6 +225,33 @@ fun MascotCompanion(
             )
         }
     }
+}
+
+/**
+ * Plays the mood's eight-frame in-app sequence. Every mood now animates over its full sprite set,
+ * so page-level companions and the floating pet share the same fluid motion.
+ */
+@Composable
+private fun InAppMofeiVisual(
+    state: MascotState,
+    modifier: Modifier = Modifier,
+    reduceMotion: Boolean = false,
+) {
+    val frames = InAppMofeiAssetCatalog.framesFor(state.mood)
+    var frameIndex by remember(state.mood, reduceMotion) { mutableIntStateOf(0) }
+    LaunchedEffect(state.mood, reduceMotion) {
+        if (reduceMotion) return@LaunchedEffect
+        while (isActive) {
+            delay(IN_APP_MOFEI_FRAME_DURATION_MILLIS)
+            frameIndex = (frameIndex + 1) % frames.size
+        }
+    }
+    Image(
+        painter = painterResource(frames[frameIndex.coerceIn(0, frames.size - 1)]),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = modifier.testTag("mofei-in-app-visual"),
+    )
 }
 
 /** Draw-only form for compact overlay or screen-specific placement. */
@@ -222,6 +279,34 @@ fun MofeiVisual(
 }
 
 private const val FRAME_DURATION_MILLIS = 250L
+private const val IN_APP_MOFEI_FRAME_DURATION_MILLIS = 320L
+
+/**
+ * The floating pet's sprite: plays the mood's full eight-frame in-app sequence with no message or
+ * layout chrome, so callers can wrap it with their own halo, shadow, and gesture handling.
+ */
+@Composable
+fun MofeiPetSprite(
+    state: MascotState,
+    modifier: Modifier = Modifier,
+    reduceMotion: Boolean = false,
+) {
+    val frames = InAppMofeiAssetCatalog.framesFor(state.mood)
+    var frameIndex by remember(state.mood, reduceMotion) { mutableIntStateOf(0) }
+    LaunchedEffect(state.mood, reduceMotion) {
+        if (reduceMotion) return@LaunchedEffect
+        while (isActive) {
+            delay(IN_APP_MOFEI_FRAME_DURATION_MILLIS)
+            frameIndex = (frameIndex + 1) % frames.size
+        }
+    }
+    Image(
+        painter = painterResource(frames[frameIndex.coerceIn(0, frames.size - 1)]),
+        contentDescription = null,
+        contentScale = ContentScale.Fit,
+        modifier = modifier.testTag("mofei-pet-sprite"),
+    )
+}
 
 @Composable
 private fun animatedMofeiProgress(motion: MofeiMotion): Float {

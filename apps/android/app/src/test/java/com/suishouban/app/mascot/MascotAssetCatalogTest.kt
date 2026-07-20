@@ -5,15 +5,23 @@ import org.junit.Test
 
 class MascotAssetCatalogTest {
     @Test
-    fun everySupportedMoodMapsToItsThreeImage2Frames() {
+    fun everySupportedMoodMapsToItsEightImage2Frames() {
         assertEquals(
-            listOf("mofei_urgent_f01", "mofei_urgent_f02", "mofei_urgent_f03"),
+            (1..8).map { "mofei_urgent_f%02d".format(it) },
             MascotAssetCatalog.frameNamesFor(MascotMood.URGENT),
         )
         assertEquals(
-            listOf("mofei_complete_f01", "mofei_complete_f02", "mofei_complete_f03"),
+            (1..8).map { "mofei_complete_f%02d".format(it) },
             MascotAssetCatalog.frameNamesFor(MascotMood.COMPLETE),
         )
+    }
+
+    @Test
+    fun everyMoodExposesEightFrames() {
+        MascotMood.entries.forEach { mood ->
+            assertEquals("$mood should animate over eight frames", 8, MascotAssetCatalog.framesFor(mood).size)
+            assertEquals("$mood in-app should animate over eight frames", 8, InAppMofeiAssetCatalog.framesFor(mood).size)
+        }
     }
 
     @Test
@@ -21,6 +29,10 @@ class MascotAssetCatalogTest {
         assertEquals(
             MascotAssetCatalog.frameNamesFor(MascotMood.IDLE),
             MascotAssetCatalog.frameNamesFor(MascotMood.UNAVAILABLE),
+        )
+        assertEquals(
+            MascotAssetCatalog.framesFor(MascotMood.IDLE),
+            MascotAssetCatalog.framesFor(MascotMood.UNAVAILABLE),
         )
     }
 }

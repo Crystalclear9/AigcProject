@@ -14,6 +14,7 @@ data class AppSettings(
     val keepOriginalScreenshot: Boolean = false,
     val preferCloudModel: Boolean = BuildConfig.DEFAULT_API_BASE_URL.trim().startsWith("https://"),
     val mascotOverlayEnabled: Boolean = false,
+    val mascotInAppEnabled: Boolean = true,
     val mascotHiddenUntilMillis: Long = 0L,
     val mascotDockSide: String = DEFAULT_MASCOT_DOCK_SIDE,
     val mascotVerticalFraction: Float = DEFAULT_MASCOT_VERTICAL_FRACTION,
@@ -39,6 +40,7 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
             keepOriginalScreenshot = prefs.getBoolean("keep_screenshot", false),
             preferCloudModel = prefs.getBoolean("prefer_cloud", apiBaseUrl.trim().startsWith("https://")),
             mascotOverlayEnabled = prefs.getBoolean("mascot_overlay_enabled", false),
+            mascotInAppEnabled = prefs.getBoolean("mascot_in_app_enabled", true),
             mascotHiddenUntilMillis = prefs.getLong("mascot_hidden_until_millis", 0L),
             mascotDockSide = normalizeMascotDockSide(
                 prefs.getString("mascot_dock_side", DEFAULT_MASCOT_DOCK_SIDE)
@@ -64,6 +66,7 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
             .putBoolean("keep_screenshot", normalizedSettings.keepOriginalScreenshot)
             .putBoolean("prefer_cloud", normalizedSettings.preferCloudModel)
             .putBoolean("mascot_overlay_enabled", normalizedSettings.mascotOverlayEnabled)
+            .putBoolean("mascot_in_app_enabled", normalizedSettings.mascotInAppEnabled)
             .putLong("mascot_hidden_until_millis", normalizedSettings.mascotHiddenUntilMillis)
             .putString("mascot_dock_side", normalizedSettings.mascotDockSide)
             .putFloat("mascot_vertical_fraction", normalizedSettings.mascotVerticalFraction)
