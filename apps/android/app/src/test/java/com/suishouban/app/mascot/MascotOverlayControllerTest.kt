@@ -53,13 +53,13 @@ class MascotOverlayControllerTest {
     }
 
     @Test
-    fun compactRingUsesLargeSquareWindowAndMirrorsAtRightEdge() {
-        assertEquals(284, controller.expandedWidthPx(1f))
-        assertEquals(284, controller.expandedHeightPx(1f))
+    fun compactArcUsesNarrowEdgeWindowAndMirrorsAtRightEdge() {
+        assertEquals(176, controller.expandedWidthPx(1f))
+        assertEquals(276, controller.expandedHeightPx(1f))
         assertFalse(controller.shouldMirrorCompactRing(OverlayDockSide.LEFT))
         assertTrue(controller.shouldMirrorCompactRing(OverlayDockSide.RIGHT))
         assertEquals(
-            116,
+            224,
             controller.windowPosition(
                 OverlayPlacement(OverlayDockSide.RIGHT, 0.5f),
                 OverlayDisplayMode.EXPANDED,
