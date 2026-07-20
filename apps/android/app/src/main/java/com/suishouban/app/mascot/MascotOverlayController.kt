@@ -93,8 +93,8 @@ class MascotOverlayController {
         const val COLLAPSED_WIDTH_DP = 44
         const val COLLAPSED_HEIGHT_DP = 88
         const val COLLAPSED_VISIBLE_WIDTH_DP = 24
-        const val EXPANDED_WIDTH_DP = 284
-        const val EXPANDED_HEIGHT_DP = 284
+        const val EXPANDED_WIDTH_DP = MofeiSideArcGeometry.WIDTH_DP.toInt()
+        const val EXPANDED_HEIGHT_DP = MofeiSideArcGeometry.HEIGHT_DP.toInt()
         const val MIN_VERTICAL_FRACTION = 0.1f
         const val MAX_VERTICAL_FRACTION = 0.9f
     }
