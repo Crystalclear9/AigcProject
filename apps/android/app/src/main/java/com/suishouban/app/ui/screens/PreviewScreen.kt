@@ -71,7 +71,7 @@ fun PreviewScreen(
 
         if (state.draftCards.isEmpty()) {
             item {
-                EmptyPreviewCard(onImport, onManualAdd)
+                EmptyPreviewCard(onImport = onImport, onManualAdd = onManualAdd)
             }
         } else {
             item {

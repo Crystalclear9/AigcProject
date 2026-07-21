@@ -14,15 +14,29 @@ import com.suishouban.app.data.model.NodeTrace
 import com.suishouban.app.domain.ocr.OcrCandidate
 import com.suishouban.app.domain.ocr.OcrRaceController
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
+import com.suishouban.app.mascot.MascotCompletionEvent
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MascotStateResolver
+import com.suishouban.app.notification.NotificationCandidateUiModel
+import com.suishouban.app.notification.NotificationDraftAssociation
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class AppUiState(
@@ -77,15 +91,52 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val ocr = app.textRecognitionService
     private val scheduler = app.reminderScheduler
     private val calendarSyncer = app.calendarSyncer
+    private val notificationCandidateRepository = app.notificationCandidateRepository
     private val ocrRaceController = OcrRaceController
     private val locallyEditedDraftIds = mutableSetOf<String>()
     private var ignoreActiveWorkflowRestore: Boolean = false
     private var restoreWorkflowJob: Job? = null
+    private val mascotResolver = MascotStateResolver()
+    private val _mascotCompletionEvent = MutableStateFlow<MascotCompletionEvent?>(null)
+    private val _mascotInteractions = MutableSharedFlow<MascotCompletionEvent>(extraBufferCapacity = 1)
+    private var notificationDraftAssociation: NotificationDraftAssociation? = null
 
     private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
     val uiState: StateFlow<AppUiState> = _uiState
+    val notificationCandidates: StateFlow<List<NotificationCandidateUiModel>> =
+        notificationCandidateRepository.observeActive()
+            .map { NotificationCandidateUiModel.from(it) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val pendingNotificationCandidateCount: StateFlow<Int> = notificationCandidates
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /**
+     * A single state stream feeds both the in-app companion and the system overlay. Completion is
+     * deliberately an event instead of a persisted card property, so it cannot mask urgent work.
+     */
+    val mascotState: StateFlow<MascotState> = combine(_uiState, _mascotCompletionEvent) { state, completion ->
+        mascotResolver.resolve(
+            cards = state.cards,
+            draftCards = state.draftCards,
+            workflowStatus = state.workflowStatus,
+            completionEvent = completion,
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = mascotResolver.resolve(emptyList(), null),
+    )
+
+    /** One-shot completion feedback for surfaces that need to trigger a single celebration. */
+    val mascotInteractions: SharedFlow<MascotCompletionEvent> = _mascotInteractions.asSharedFlow()
 
     init {
+        viewModelScope.launch { notificationCandidateRepository.deleteExpired() }
+        viewModelScope.launch {
+            // Keep the system overlay current even after the activity composition stops collecting.
+            mascotState.collect(app.mascotStateStore::update)
+        }
         viewModelScope.launch {
             repository.observeAll().collect { cards ->
                 _uiState.update { it.copy(cards = cards) }
@@ -115,6 +166,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun beginFreshScreenshotPrompt() {
+        clearNotificationDraftAssociation()
         ignoreActiveWorkflowRestore = true
         restoreWorkflowJob?.cancel()
         restoreWorkflowJob = null
@@ -170,6 +222,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         notifyWhenEmpty: Boolean = true,
         onDone: (Boolean) -> Unit = {},
     ) {
+        clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update {
@@ -247,6 +300,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun analyzeText(text: String, onDone: (Boolean) -> Unit = {}) {
+        clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             _uiState.update {
@@ -269,6 +323,73 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             analyzeTextInternal(text, onDone, notifyWhenEmpty = true)
         }
+    }
+
+    /** Notification text remains local and becomes ordinary drafts only after this explicit tap. */
+    fun analyzeNotificationCandidate(id: String, onDone: (Boolean) -> Unit = {}) {
+        // Stop any prior workflow stream before establishing the notification's local-only review.
+        beginFreshScreenshotPrompt()
+        viewModelScope.launch {
+            val candidate = notificationCandidateRepository.findById(id)
+            if (candidate == null) {
+                _uiState.update { it.copy(error = "这条通知草稿已过期") }
+                onDone(false)
+                return@launch
+            }
+            val text = listOf(candidate.title, candidate.body).filter { it.isNotBlank() }.joinToString("\n")
+            locallyEditedDraftIds.clear()
+            _uiState.update {
+                it.copy(
+                    loading = true,
+                    error = null,
+                    ocrText = text,
+                    draftCards = emptyList(),
+                    actionCandidates = emptyList(),
+                    selectedDraftIds = emptySet(),
+                    previewActions = emptyList(),
+                    screenshotWorkflowStage = null,
+                    reactSuggestions = emptyList(),
+                    aiRefinementStatus = null,
+                )
+            }
+            // Notification originals are a local-only privacy boundary and never enter Workflow APIs.
+            val result = runCatching {
+                repository.analyzeTextLocal(text, enginePrefix = "notification-local")
+            }.getOrElse { error ->
+                _uiState.update {
+                    it.copy(loading = false, error = "通知事项生成失败：${error.message ?: "未知错误"}")
+                }
+                onDone(false)
+                return@launch
+            }
+            val hasDrafts = applyAnalyzeResult(result, notifyWhenEmpty = true)
+            if (hasDrafts) {
+                notificationDraftAssociation = NotificationDraftAssociation(
+                    candidateId = id,
+                    draftIds = result.cards.map(ActionCard::id).toSet(),
+                )
+            }
+            onDone(hasDrafts)
+        }
+    }
+
+    fun rejectNotificationCandidate(id: String) {
+        viewModelScope.launch {
+            notificationCandidateRepository.delete(id)
+            if (notificationDraftAssociation?.candidateId == id) clearNotificationDraftAssociation()
+        }
+    }
+
+    fun pruneNotificationCandidates() {
+        viewModelScope.launch { notificationCandidateRepository.deleteExpired() }
+    }
+
+    fun clearOpenedNotificationCandidate() {
+        clearNotificationDraftAssociation()
+    }
+
+    private fun clearNotificationDraftAssociation() {
+        notificationDraftAssociation = null
     }
 
     fun prepareScreenshotPrompt(
@@ -875,6 +996,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+            // Consume only the candidate that produced at least one of the drafts actually saved.
+            notificationDraftAssociation?.candidateToConsume(cardsToSave.map(ActionCard::id).toSet())?.let { candidateId ->
+                notificationCandidateRepository.delete(candidateId)
+            }
+            clearNotificationDraftAssociation()
             _uiState.update {
                 it.copy(
                     draftCards = emptyList(),
@@ -928,6 +1054,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun completeCard(id: String) {
         viewModelScope.launch {
             repository.complete(id)
+            val event = MascotCompletionEvent(actionCardId = id, occurredAt = Instant.now())
+            _mascotCompletionEvent.value = event
+            _mascotInteractions.emit(event)
+            // The resolver gives urgent and due-soon work precedence immediately. This only
+            // clears stale celebration feedback after its visible animation window has elapsed.
+            delay(MASCOT_COMPLETION_WINDOW_MILLIS)
+            if (_mascotCompletionEvent.value == event) _mascotCompletionEvent.value = null
         }
     }
 
@@ -1004,6 +1137,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 "$prefix：工作流事件解析失败，请重试或查看诊断"
             else -> "$prefix：${message.ifBlank { "请稍后重试或查看诊断" }}"
         }
+    }
+
+    private companion object {
+        const val MASCOT_COMPLETION_WINDOW_MILLIS = 15_000L
     }
 }
 

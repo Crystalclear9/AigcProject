@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
+import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.theme.BrandBlue
@@ -49,6 +50,7 @@ fun ImportScreen(
     onPickImage: (Uri) -> Unit,
     onAnalyzeText: (String) -> Unit,
     onPreview: () -> Unit,
+    mascotState: MascotState,
 ) {
     var text by rememberSaveable { mutableStateOf("") }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -62,6 +64,16 @@ fun ImportScreen(
         item {
             Spacer(Modifier.height(12.dp))
             SectionHeader("截图导入", "先识别，再确认")
+        }
+
+        if (state.loading) {
+            item {
+                Text(
+                    mascotState.userMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
 
         item {

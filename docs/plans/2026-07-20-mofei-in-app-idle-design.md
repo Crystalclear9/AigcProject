@@ -1,0 +1,46 @@
+# 墨斐应用内初始平静状态设计
+
+## 目标
+
+使用 `output/mofei/idle` 中的 8 张帧图，为随手办的应用内墨斐提供新的初始平静（`IDLE`）动画。`mmexport1784484227669.gif` 用于确认帧顺序和循环意图，不作为 Android 运行时资源。
+
+## 范围
+
+- 仅更新应用内页面：首页、导入页、候选预览页和卡片页。
+- 仅当 `MascotMood.IDLE` 时启用新动画。
+- 后台系统悬浮层维持现有 `MofeiVisual` 和三帧待机资源，不引用本次新增资源。
+- 所有非待机情绪继续使用现有资源和播放逻辑。
+
+## 视觉与动画
+
+- 新动画按给定 8 帧的顺序循环，保留轨道光点绕行与闭眼帧，形成低频、安静的待机反馈。
+- 各帧以 Android 合法的资源名打包至 `drawable-nodpi`，不缩放、不重新压缩。
+- 默认使用固定帧时长播放；启用“减少动态效果”时固定显示第一帧，避免任何自动切换。
+- 页面内动画保持现有 `ContentScale.Fit` 和组件尺寸约束，避免在小尺寸容器中裁切或挤压。
+
+## 架构
+
+- 保留 `MofeiVisual` 作为全局及系统悬浮层的既有渲染入口。
+- 新增应用内专用渲染路径，由 `MascotCompanion` 使用。该路径只针对 `IDLE` 读取新的八帧资源；其余情绪直接委托既有 `MofeiVisual`。
+- 新资源目录映射独立于 `MascotAssetCatalog`，以明确表达“仅页面待机”边界，防止后续改动意外影响悬浮层。
+
+## 异常与降级
+
+- `IDLE` 以外的情绪永远回退现有资源路径。
+- 减少动态效果不影响状态文案、内容描述或页面点击行为。
+- 若新增资源无法编译，由 Android 构建直接失败，避免将不完整动画发布到应用。
+
+## 验收
+
+- 单元测试验证页面待机资源返回 8 帧，且其首帧稳定。
+- 单元测试验证非待机状态不选择应用内待机序列。
+- 单元测试验证减少动态效果固定到首帧。
+- 构建 Debug APK，确认资源可编译、应用内组件可渲染，并确认系统悬浮层仍使用原有 `MofeiVisual` 路径。
+
+## 更新（2026-07-20，全情绪 8 帧 + 应用内悬浮宠物）
+
+本设计已被后续「墨斐电子宠物」升级覆盖，参见 [2026-07-20-mofei-in-app-floating-pet.md](2026-07-20-mofei-in-app-floating-pet.md)。变更要点：
+
+- 不再限于 `IDLE`。`output/mofei/` 中每个情绪（focus/confirm/reminder/due_soon/urgent/complete/rest）的 8 帧已全部打包进 `drawable-nodpi`，并接入 `MascotAssetCatalog`（系统悬浮层）与 `InAppMofeiAssetCatalog`（应用内 / 宠物）。原来退化为 3 帧循环的情绪现在全部按 8 帧播放。
+- `IDLE` / `UNAVAILABLE` 继续复用干净的 `mofei_in_app_idle_f01..f08`（idle 原图非干净帧，不取帧）。
+- 原「应用内待机路径独立于 `MascotAssetCatalog`」的边界已合并：新增统一的 `InAppMofeiAssetCatalog.framesFor(mood)`，`MascotCompanion` 与新的 `MofeiPetSprite` 共用。系统悬浮层仍走 `MofeiVisual` + `MascotAssetCatalog`，二者渲染入口保持独立。

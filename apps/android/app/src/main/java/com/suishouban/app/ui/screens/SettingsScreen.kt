@@ -2,6 +2,7 @@ package com.suishouban.app.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.outlined.SettingsSuggest
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +46,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.repository.AppSettings
+import com.suishouban.app.mascot.MascotState
+import com.suishouban.app.mascot.MofeiMoodBanner
+import com.suishouban.app.notification.InstalledAppInfo
 import com.suishouban.app.data.repository.WorkflowUrlPolicy
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.theme.BrandBlue
@@ -54,6 +60,11 @@ fun SettingsScreen(
     onUpdate: (AppSettings) -> Unit,
     onSync: () -> Unit,
     onTestConnection: () -> Unit,
+    onMascotOverlayToggle: (Boolean) -> Unit,
+    notificationAccessGranted: Boolean,
+    notificationApps: List<InstalledAppInfo>,
+    onOpenNotificationAccessSettings: () -> Unit,
+    mascotState: MascotState,
 ) {
     var apiBaseUrl by remember(state.settings.apiBaseUrl) { mutableStateOf(state.settings.apiBaseUrl) }
     val trimmedApiBaseUrl = apiBaseUrl.trim()
@@ -171,6 +182,112 @@ fun SettingsScreen(
             }
         }
         item {
+            SettingsCard(title = "墨斐悬浮助手", icon = Icons.Outlined.Notifications) {
+                // A live preview reacts to the current mood and the reduce-motion toggle below it.
+                MofeiMoodBanner(
+                    state = mascotState,
+                    reduceMotion = state.settings.reduceMascotMotion,
+                    spriteSize = 56.dp,
+                    message = "这是墨斐当前的状态预览，会随你的事项与下方开关变化。",
+                )
+                SettingSwitch(
+                    title = "在应用内显示墨斐宠物",
+                    checked = state.settings.mascotInAppEnabled,
+                    onCheckedChange = { onUpdate(state.settings.copy(mascotInAppEnabled = it)) },
+                )
+                Text(
+                    "应用内常驻的悬浮墨斐：可拖拽吸边、轻点对话、长按菜单。无需任何权限。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingSwitch(
+                    title = "在其他应用上显示墨斐",
+                    checked = state.settings.mascotOverlayEnabled,
+                    // Permission navigation stays in MainActivity so this composable never opens
+                    // system settings as a side effect of recomposition.
+                    onCheckedChange = onMascotOverlayToggle,
+                )
+                Text(
+                    "系统级仅在离开应用后、于其他应用上层显示为轻量状态胶囊（与应用内宠物不同）。开启时会跳转系统“显示在其他应用上层”授权页。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SettingSwitch(
+                    title = "减少墨斐动态效果",
+                    checked = state.settings.reduceMascotMotion,
+                    onCheckedChange = { onUpdate(state.settings.copy(reduceMascotMotion = it)) },
+                )
+                SettingSwitch(
+                    title = "让墨斐读取指定 App 通知",
+                    checked = state.settings.mofeiNotificationDraftsEnabled,
+                    onCheckedChange = {
+                        onUpdate(state.settings.copy(mofeiNotificationDraftsEnabled = it))
+                    },
+                )
+                Text(
+                    if (notificationAccessGranted) {
+                        "通知访问已授权。墨斐只读取下方允许名单，并且只生成待确认草稿。"
+                    } else {
+                        "通知访问未授权。开启功能后仍需在系统页面明确授权。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(
+                    onClick = onOpenNotificationAccessSettings,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Text(if (notificationAccessGranted) "管理通知访问权限" else "前往授权通知访问")
+                }
+                if (state.settings.mofeiNotificationDraftsEnabled) {
+                    Text(
+                        "允许读取的 App（已选 ${state.settings.mofeiNotificationPackageAllowlist.size} 个）",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    if (notificationApps.isEmpty()) {
+                        Text(
+                            "未找到可选择的应用",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            notificationApps.forEach { app ->
+                                val selected = app.packageName in
+                                    state.settings.mofeiNotificationPackageAllowlist
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = {
+                                        val updated = state.settings
+                                            .mofeiNotificationPackageAllowlist
+                                            .toMutableSet()
+                                            .apply {
+                                                if (selected) remove(app.packageName)
+                                                else add(app.packageName)
+                                            }
+                                            .toSet()
+                                        onUpdate(
+                                            state.settings.copy(
+                                                mofeiNotificationPackageAllowlist = updated,
+                                            ),
+                                        )
+                                    },
+                                    label = { Text(app.label) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
             SettingsCard(title = "提醒策略", icon = Icons.Outlined.Notifications) {
                 Text(
                     "有截止时间：按距离自动安排 1 天、3 小时、30 分钟或尽快提醒。",
@@ -187,7 +304,7 @@ fun SettingsScreen(
         item {
             SettingsCard(title = "截图来源", icon = Icons.Outlined.PhotoLibrary) {
                 Text(
-                    "当前版本支持截图监听通知、相册、系统分享和文字粘贴。",
+                    "当前版本支持截图监听、相册、拍照和文字粘贴；不接收系统分享内容。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

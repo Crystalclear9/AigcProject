@@ -1,0 +1,241 @@
+{
+  "version": 5,
+  "source_atlas": "mofei-image2-sprite-atlas-v4.png",
+  "source_sha256": "2be7974308ef83262d3526ac744571e2633d69e86957b3bb01cea982e51f2471",
+  "states": {
+    "idle": {
+      "base": "mofei_idle_base.png",
+      "motion_frames": [
+        "mofei_idle_f01.png",
+        "mofei_idle_f02.png",
+        "mofei_idle_f03.png"
+      ],
+      "preview": "mofei_idle_preview.gif"
+    },
+    "focus": {
+      "base": "mofei_focus_base.png",
+      "motion_frames": [
+        "mofei_focus_f01.png",
+        "mofei_focus_f02.png",
+        "mofei_focus_f03.png"
+      ],
+      "preview": "mofei_focus_preview.gif"
+    },
+    "confirm": {
+      "base": "mofei_confirm_base.png",
+      "motion_frames": [
+        "mofei_confirm_f01.png",
+        "mofei_confirm_f02.png",
+        "mofei_confirm_f03.png"
+      ],
+      "preview": "mofei_confirm_preview.gif"
+    },
+    "reminder": {
+      "base": "mofei_reminder_base.png",
+      "motion_frames": [
+        "mofei_reminder_f01.png",
+        "mofei_reminder_f02.png",
+        "mofei_reminder_f03.png"
+      ],
+      "preview": "mofei_reminder_preview.gif"
+    },
+    "due_soon": {
+      "base": "mofei_due_soon_base.png",
+      "motion_frames": [
+        "mofei_due_soon_f01.png",
+        "mofei_due_soon_f02.png",
+        "mofei_due_soon_f03.png"
+      ],
+      "preview": "mofei_due_soon_preview.gif"
+    },
+    "urgent": {
+      "base": "mofei_urgent_base.png",
+      "motion_frames": [
+        "mofei_urgent_f01.png",
+        "mofei_urgent_f02.png",
+        "mofei_urgent_f03.png"
+      ],
+      "preview": "mofei_urgent_preview.gif"
+    },
+    "complete": {
+      "base": "mofei_complete_base.png",
+      "motion_frames": [
+        "mofei_complete_f01.png",
+        "mofei_complete_f02.png",
+        "mofei_complete_f03.png"
+      ],
+      "preview": "mofei_complete_preview.gif"
+    },
+    "rest": {
+      "base": "mofei_rest_base.png",
+      "motion_frames": [
+        "mofei_rest_f01.png",
+        "mofei_rest_f02.png",
+        "mofei_rest_f03.png"
+      ],
+      "preview": "mofei_rest_preview.gif"
+    }
+  },
+  "assets": [
+    {
+      "file": "mofei_complete_base.png",
+      "sha256": "04c130c846144973100e4de3e11f8eafdb76f4c3a02ffee1a9e9311e9e2cdfe1",
+      "size_bytes": 72005
+    },
+    {
+      "file": "mofei_confirm_base.png",
+      "sha256": "03e0194647ab52351adb11ad6f81d066e6059b379469e3b72bc22c621b47773e",
+      "size_bytes": 75031
+    },
+    {
+      "file": "mofei_due_soon_base.png",
+      "sha256": "38c3ff3a71e5053448bc32ce68e150da62fdf329f7286ea33a3760132217effa",
+      "size_bytes": 74245
+    },
+    {
+      "file": "mofei_focus_base.png",
+      "sha256": "b08a57ff2f81d7f7e0e98e262e6270cb713ee2509dce00e5e26e9d0d7c6720eb",
+      "size_bytes": 71491
+    },
+    {
+      "file": "mofei_idle_base.png",
+      "sha256": "9041a60d290dbea19cb059ab9523b6ec89e9eb3433ae64d1cb6761d1aa866d31",
+      "size_bytes": 71297
+    },
+    {
+      "file": "mofei_reminder_base.png",
+      "sha256": "b16623a2c5255ae4a2f8251578db0ed7385cc32d4c8ab55eb534889a652dc549",
+      "size_bytes": 77807
+    },
+    {
+      "file": "mofei_rest_base.png",
+      "sha256": "ec35ca3421722359793bb1a7bd0531a4e9b9c509f57b7a29ed22fda29e8d32a8",
+      "size_bytes": 73330
+    },
+    {
+      "file": "mofei_urgent_base.png",
+      "sha256": "7dc49db352ff4c85d51f33840bdd80aa83d265740b9d496c31459c6e254d4170",
+      "size_bytes": 76650
+    },
+    {
+      "file": "mofei_complete_f01.png",
+      "sha256": "04c130c846144973100e4de3e11f8eafdb76f4c3a02ffee1a9e9311e9e2cdfe1",
+      "size_bytes": 72005
+    },
+    {
+      "file": "mofei_complete_f02.png",
+      "sha256": "5634c235fc0c1373c38e39a5620cb92aa6396b16f3de7571484ed0f3b2e8c1b5",
+      "size_bytes": 75610
+    },
+    {
+      "file": "mofei_complete_f03.png",
+      "sha256": "39a6227be43cccbb1134a227908804d26374ff3ecad04d1b5eff227667f8fa7d",
+      "size_bytes": 72870
+    },
+    {
+      "file": "mofei_confirm_f01.png",
+      "sha256": "03e0194647ab52351adb11ad6f81d066e6059b379469e3b72bc22c621b47773e",
+      "size_bytes": 75031
+    },
+    {
+      "file": "mofei_confirm_f02.png",
+      "sha256": "301a2454ca4a00bedc0fd5424b8ec6bc28ab81ceab8e688c7b744a98ccf9fac9",
+      "size_bytes": 75061
+    },
+    {
+      "file": "mofei_confirm_f03.png",
+      "sha256": "c0db6a9af4eb77c651f3d10f8c951980f5050b08d9e1ee79ab2859b4a0244b0a",
+      "size_bytes": 75591
+    },
+    {
+      "file": "mofei_due_soon_f01.png",
+      "sha256": "38c3ff3a71e5053448bc32ce68e150da62fdf329f7286ea33a3760132217effa",
+      "size_bytes": 74245
+    },
+    {
+      "file": "mofei_due_soon_f02.png",
+      "sha256": "bcbebeb5a5d30d13cb80f29e6e28f3fabd98d3783bf73246d4379fec384fc698",
+      "size_bytes": 74494
+    },
+    {
+      "file": "mofei_due_soon_f03.png",
+      "sha256": "7efb6a307d167aa222100e2055db8615397f06ce66618133181b5ebe3dd028f3",
+      "size_bytes": 74606
+    },
+    {
+      "file": "mofei_focus_f01.png",
+      "sha256": "b08a57ff2f81d7f7e0e98e262e6270cb713ee2509dce00e5e26e9d0d7c6720eb",
+      "size_bytes": 71491
+    },
+    {
+      "file": "mofei_focus_f02.png",
+      "sha256": "07a87b5095bf20fb70d266918d014f7c9af81401018a50e3eac75e87093c6237",
+      "size_bytes": 73347
+    },
+    {
+      "file": "mofei_focus_f03.png",
+      "sha256": "969414f7ab0453d1b2bc52aa994f5b061d4f395fc3104bb7456e9cee5156f50a",
+      "size_bytes": 71143
+    },
+    {
+      "file": "mofei_idle_f01.png",
+      "sha256": "9041a60d290dbea19cb059ab9523b6ec89e9eb3433ae64d1cb6761d1aa866d31",
+      "size_bytes": 71297
+    },
+    {
+      "file": "mofei_idle_f02.png",
+      "sha256": "ee6c7f84fa311640bf543a6f76876601fea07d6d240fd89bd2863f9893bd7def",
+      "size_bytes": 71733
+    },
+    {
+      "file": "mofei_idle_f03.png",
+      "sha256": "c37d2b1578b145e1ed6d0fd4bb35e31bc191504c4fea79732fa24e418ebe0154",
+      "size_bytes": 71073
+    },
+    {
+      "file": "mofei_reminder_f01.png",
+      "sha256": "b16623a2c5255ae4a2f8251578db0ed7385cc32d4c8ab55eb534889a652dc549",
+      "size_bytes": 77807
+    },
+    {
+      "file": "mofei_reminder_f02.png",
+      "sha256": "8346b33bc7e044c9b3c225d33b7b2f19facb5f5c95777b7177ba27ebafb9da0e",
+      "size_bytes": 80310
+    },
+    {
+      "file": "mofei_reminder_f03.png",
+      "sha256": "f07b38490fcf023ccd35466e76f33f5574ec27ea3a5e812a64df9b3c381d472c",
+      "size_bytes": 76702
+    },
+    {
+      "file": "mofei_rest_f01.png",
+      "sha256": "ec35ca3421722359793bb1a7bd0531a4e9b9c509f57b7a29ed22fda29e8d32a8",
+      "size_bytes": 73330
+    },
+    {
+      "file": "mofei_rest_f02.png",
+      "sha256": "83aad299d5150d0e87eb91c6a0d39ec23518fc7b2946244bb75ba943fc149910",
+      "size_bytes": 73614
+    },
+    {
+      "file": "mofei_rest_f03.png",
+      "sha256": "164e576189da2e347783b00baf2a970cef61a9474b532b9179481792bcacc8e7",
+      "size_bytes": 73264
+    },
+    {
+      "file": "mofei_urgent_f01.png",
+      "sha256": "7dc49db352ff4c85d51f33840bdd80aa83d265740b9d496c31459c6e254d4170",
+      "size_bytes": 76650
+    },
+    {
+      "file": "mofei_urgent_f02.png",
+      "sha256": "2ed270f0403532ca6a0359322260371b50fb0a33d96615ea7e36d7f034c1fb7c",
+      "size_bytes": 79489
+    },
+    {
+      "file": "mofei_urgent_f03.png",
+      "sha256": "b2ca271d5e0fa9030f40bd4a146b68e2447415f4d8e4fd2bdd506e1f908612cf",
+      "size_bytes": 76092
+    }
+  ]
+}
