@@ -44,6 +44,7 @@ fun CardsScreen(
     onComplete: (String) -> Unit,
     onArchive: (String) -> Unit,
     onImport: () -> Unit,
+    highlightCardId: String? = null,
 ) {
     var type by rememberSaveable { mutableStateOf("all") }
     var status by rememberSaveable { mutableStateOf("active") }
@@ -59,7 +60,7 @@ fun CardsScreen(
                 else -> true
             } &&
             (keyword.isBlank() || card.title.contains(keyword, ignoreCase = true) || card.summary.contains(keyword, ignoreCase = true) || card.sourceText.contains(keyword, ignoreCase = true))
-    }
+    }.sortedBy { card -> if (card.id == highlightCardId) 0 else 1 }
 
     LazyColumn(
         modifier = Modifier.padding(horizontal = 18.dp),
