@@ -43,6 +43,7 @@ import com.suishouban.app.MainActivity
 import com.suishouban.app.R
 import com.suishouban.app.SuiShouBanApp
 import com.suishouban.app.capture.MofeiScreenCaptureActivity
+import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionCommand
@@ -57,7 +58,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -84,6 +87,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     private var hiddenRestore: Runnable? = null
     private var pendingNotificationDrafts: Int = 0
     private var revealedOverlayAction: MofeiAction? = null
+    private var backgroundCards: List<ActionCard> = emptyList()
 
     override val viewModelStore: ViewModelStore
         get() = overlayViewModelStore
@@ -161,10 +165,19 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         }
         serviceScope.launch {
             app.cardRepository.observeAll().collect { cards ->
-                val cardState = resolver.resolve(cards = cards, workflowStatus = null)
-                // Persisted deadlines are authoritative while the app is backgrounded. Preserve
-                // ephemeral focus/confirmation/completion state when there is no timed card.
-                if (cardState.mood in CARD_BACKED_MOODS) updateMascotState(cardState)
+                backgroundCards = cards
+                refreshBackgroundCardState()
+            }
+        }
+        serviceScope.launch {
+            while (isActive) {
+                delay(
+                    MascotRefreshPolicy.nextDelayMillis(
+                        deadlines = backgroundCards.map { it.deadline },
+                        now = java.time.Instant.now(),
+                    ),
+                )
+                refreshBackgroundCardState()
             }
         }
         serviceScope.launch {
@@ -214,6 +227,15 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         revealedOverlayAction = null
         displayMode = OverlayDisplayMode.COLLAPSED
         updateOverlayView()
+    }
+
+    private fun refreshBackgroundCardState() {
+        val cardState = resolver.resolve(cards = backgroundCards, workflowStatus = null)
+        // New cards may take ownership, and an expired owner must release its stale alert state.
+        // Otherwise preserve transient focus/confirmation/completion feedback from the app.
+        if (MascotBackgroundStatePolicy.shouldApply(currentMascotState.mood, cardState.mood)) {
+            updateMascotState(cardState)
+        }
     }
 
     private fun showExpandedPreview() {
@@ -731,8 +753,6 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         private const val ONE_HOUR_MILLIS = 60 * 60 * 1_000L
         private const val LONG_PRESS_TIMEOUT_MILLIS = 550L
         private const val TOUCH_SLOP_PX = 12f
-        private val CARD_BACKED_MOODS = setOf(MascotMood.REMINDER, MascotMood.DUE_SOON, MascotMood.URGENT)
-
         /**
          * Task 5 calls this only from a foreground user gesture after the Settings permission
          * screen returns. The service performs the permission and opt-in checks again defensively.
