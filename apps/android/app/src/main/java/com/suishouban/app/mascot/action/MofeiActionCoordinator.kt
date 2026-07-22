@@ -50,10 +50,8 @@ class MofeiActionCoordinator {
         )
         val OVERLAY_ACTIONS = listOf(
             MofeiAction.CAPTURE_CURRENT_SCREEN,
-            MofeiAction.ANALYZE_LATEST_SCREENSHOT,
             MofeiAction.REVIEW_NOTIFICATION_DRAFTS,
             MofeiAction.OPEN_CURRENT_CARD,
-            MofeiAction.OPEN_SETTINGS,
         )
     }
 }

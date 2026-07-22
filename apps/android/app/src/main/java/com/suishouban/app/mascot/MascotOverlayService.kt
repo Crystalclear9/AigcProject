@@ -414,7 +414,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     private fun actionFallbackLabel(action: MofeiAction): String = when (action) {
-        MofeiAction.CAPTURE_CURRENT_SCREEN -> "当前屏幕识别"
+        MofeiAction.CAPTURE_CURRENT_SCREEN -> "截屏"
         MofeiAction.ANALYZE_LATEST_SCREENSHOT -> "最近截图"
         MofeiAction.REVIEW_NOTIFICATION_DRAFTS -> "通知草稿"
         MofeiAction.OPEN_CURRENT_CARD -> "当前事项"

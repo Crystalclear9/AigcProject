@@ -140,6 +140,7 @@ fun MofeiActionRing(
                         }
                         MofeiActionOrb(
                             item = item,
+                            surface = surface,
                             selected = selected,
                             dockSide = dockSide,
                             onClick = {
@@ -167,6 +168,7 @@ fun MofeiActionRing(
 @Composable
 private fun MofeiActionOrb(
     item: MofeiActionItem,
+    surface: MofeiSurface,
     selected: Boolean,
     dockSide: OverlayDockSide,
     onClick: () -> Unit,
@@ -174,7 +176,7 @@ private fun MofeiActionOrb(
 ) {
     val enabled = item.availability != MofeiActionAvailability.UNSUPPORTED &&
         item.availability != MofeiActionAvailability.BUSY
-    val label = actionLabel(item.action)
+    val label = actionLabel(surface, item.action)
     val stateHint = when (item.availability) {
         MofeiActionAvailability.READY -> ""
         MofeiActionAvailability.NEEDS_PERMISSION -> "，需要权限"
@@ -253,8 +255,8 @@ private fun MofeiActionOrb(
     }
 }
 
-private fun actionLabel(action: MofeiAction): String = when (action) {
-    MofeiAction.CAPTURE_CURRENT_SCREEN -> "识别当前屏"
+private fun actionLabel(surface: MofeiSurface, action: MofeiAction): String = when (action) {
+    MofeiAction.CAPTURE_CURRENT_SCREEN -> if (surface == MofeiSurface.OVERLAY) "截屏" else "识别当前屏"
     MofeiAction.ANALYZE_LATEST_SCREENSHOT -> "最近截图"
     MofeiAction.PICK_IMAGE -> "相册导入"
     MofeiAction.TAKE_PHOTO -> "拍照识别"

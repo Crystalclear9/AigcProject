@@ -29,7 +29,7 @@ class MofeiScreenCaptureActivity : ComponentActivity() {
                 Toast.LENGTH_SHORT,
             ).show()
             restoreOverlayIfNeeded()
-            finish()
+            finishAndRemoveTask()
             return@registerForActivityResult
         }
         runCatching {
@@ -45,7 +45,7 @@ class MofeiScreenCaptureActivity : ComponentActivity() {
         }.onFailure {
             show("系统未能启动屏幕读取服务")
             restoreOverlayIfNeeded()
-            finish()
+            finishAndRemoveTask()
         }
     }
 
@@ -74,7 +74,12 @@ class MofeiScreenCaptureActivity : ComponentActivity() {
                 else -> show(resultData?.getString(ScreenCaptureResult.KEY_MESSAGE) ?: "当前屏幕读取失败")
             }
             if (resultCode != ScreenCaptureResult.SUCCESS) restoreOverlayIfNeeded()
-            finish()
+            if (resultCode == ScreenCaptureResult.SUCCESS) {
+                // The preview now owns this isolated task and the eventual overlay restore.
+                finish()
+            } else {
+                finishAndRemoveTask()
+            }
         }
     }
 
@@ -85,7 +90,7 @@ class MofeiScreenCaptureActivity : ComponentActivity() {
             // Consent/result receivers cannot be safely reconstructed after process recreation.
             show("屏幕读取会话已中断，请重试")
             restoreOverlayIfNeeded()
-            finish()
+            finishAndRemoveTask()
             return
         }
         val manager = getSystemService(MediaProjectionManager::class.java)
@@ -113,5 +118,12 @@ class MofeiScreenCaptureActivity : ComponentActivity() {
         fun intent(context: Context, restoreOverlayAfter: Boolean = false): Intent =
             Intent(context, MofeiScreenCaptureActivity::class.java)
                 .putExtra(EXTRA_RESTORE_OVERLAY, restoreOverlayAfter)
+                // A separate transparent task preserves the external app beneath the consent UI.
+                // Do not use NO_HISTORY: this Activity must survive to receive the consent result.
+                .addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS,
+                )
     }
 }
