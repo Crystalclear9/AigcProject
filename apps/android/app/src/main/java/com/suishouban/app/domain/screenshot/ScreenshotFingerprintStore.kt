@@ -3,7 +3,7 @@ package com.suishouban.app.domain.screenshot
 import android.content.Context
 import java.security.MessageDigest
 
-enum class ScreenshotCaptureSource { MEDIA_STORE, MEDIA_PROJECTION }
+enum class ScreenshotCaptureSource { MEDIA_STORE, MEDIA_PROJECTION, ACCESSIBILITY }
 
 data class ScreenshotFingerprintState(
     val lastHash: String? = null,
