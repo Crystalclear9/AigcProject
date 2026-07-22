@@ -47,6 +47,12 @@
             android:exported="false"
             android:taskAffinity=""
             android:theme="@style/Theme.SuiShouBan.Transparent" />
+        <activity
+            android:name=".capture.MofeiAccessibilitySetupActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.SuiShouBan.Transparent" />
         <service
             android:name=".reminder.ScreenshotMonitorService"
             android:exported="false"

@@ -24,6 +24,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -41,8 +42,11 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.suishouban.app.MainActivity
 import com.suishouban.app.R
+import com.suishouban.app.ScreenshotPreviewActivity
 import com.suishouban.app.SuiShouBanApp
-import com.suishouban.app.capture.MofeiScreenCaptureActivity
+import com.suishouban.app.capture.AccessibilityCaptureResult
+import com.suishouban.app.capture.MofeiAccessibilitySetupActivity
+import com.suishouban.app.capture.MofeiScreenshotAccessibilityService
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.mascot.action.MofeiAction
@@ -397,17 +401,16 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
 
     private fun executeOverlayAction(action: MofeiAction) {
         val command = controller.commandForAction(action, currentMascotState.actionCardId)
-        val intent = when (command) {
-            MofeiActionCommand.RequestScreenCapture -> MofeiScreenCaptureActivity.intent(
-                this,
-                restoreOverlayAfter = true,
-            )
-            else -> Intent(this, MainActivity::class.java).apply {
-                this.action = ACTION_OPEN_MOFEI_ACTION
-                putExtra(EXTRA_MOFEI_ACTION, action.name)
-                putExtra(EXTRA_ACTION_CARD_ID, currentMascotState.actionCardId)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
+        if (command == MofeiActionCommand.RequestScreenCapture) {
+            executeAccessibilityScreenshot()
+            return
+        }
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            this.action = ACTION_OPEN_MOFEI_ACTION
+            putExtra(EXTRA_MOFEI_ACTION, action.name)
+            putExtra(EXTRA_ACTION_CARD_ID, currentMascotState.actionCardId)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         val pending = PendingIntent.getActivity(
             this,
@@ -415,17 +418,90 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        if (command == MofeiActionCommand.RequestScreenCapture) {
-            // Keep Mofei out of captured pixels. Consent/preview restores it on every exit path.
+        runCatching { pending.send() }
+            .onFailure { showActionFallback("无法打开" + actionFallbackLabel(action) + "，请进入随手办重试") }
+        showCollapsedOverlay()
+    }
+
+    private fun executeAccessibilityScreenshot() {
+        val plan = MofeiOverlayCapturePlan.begin(
+            apiLevel = Build.VERSION.SDK_INT,
+            accessibilityConnected = MofeiScreenshotAccessibilityService.isConnected(),
+        )
+        if (plan.removeOverlay) {
+            // Both controls and Mofei must be detached before Android samples the display.
             removeControls()
             removeOverlay()
         }
-        runCatching { pending.send() }
-            .onFailure { showActionFallback("无法打开" + actionFallbackLabel(action) + "，请进入随手办重试") }
-            .onFailure {
-                if (command == MofeiActionCommand.RequestScreenCapture && canShowOverlay()) showCollapsedOverlay()
+
+        when (plan.start) {
+            MofeiOverlayCaptureStart.CAPTURE_ACCESSIBILITY -> {
+                // WindowManager removal is asynchronous; one short frame delay keeps Mofei out.
+                mainHandler.postDelayed(::requestAccessibilityScreenshot, SCREENSHOT_SETTLE_MILLIS)
             }
-        if (command != MofeiActionCommand.RequestScreenCapture) showCollapsedOverlay()
+            MofeiOverlayCaptureStart.OPEN_ACCESSIBILITY_SETUP -> openAccessibilitySetup()
+            MofeiOverlayCaptureStart.SHOW_UNSUPPORTED -> {
+                showCaptureFailure("当前 Android 版本不支持墨斐直接截屏")
+            }
+        }
+    }
+
+    private fun requestAccessibilityScreenshot() {
+        val started = MofeiScreenshotAccessibilityService.requestScreenshot { result ->
+            // Accessibility callbacks run on the capture executor; WindowManager and Activities
+            // must be touched from the service main thread.
+            mainHandler.post {
+                when (MofeiOverlayCapturePlan.finish(result is AccessibilityCaptureResult.Success)) {
+                    MofeiOverlayCaptureFinish.OPEN_PREVIEW ->
+                        openScreenshotPreview((result as AccessibilityCaptureResult.Success).uri)
+                    MofeiOverlayCaptureFinish.RESTORE_AND_REPORT_ERROR ->
+                        showCaptureFailure((result as AccessibilityCaptureResult.Failure).message)
+                }
+            }
+        }
+        if (!started) openAccessibilitySetup()
+    }
+
+    private fun openScreenshotPreview(uri: Uri) {
+        val intent = ScreenshotPreviewActivity.captureIntent(
+            context = this,
+            uri = uri,
+            restoreOverlayAfterCapture = true,
+        ).addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS,
+        )
+        runCatching {
+            PendingIntent.getActivity(
+                this,
+                SCREENSHOT_PREVIEW_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ).send()
+        }.onFailure {
+            runCatching { contentResolver.delete(uri, null, null) }
+            showCaptureFailure("无法打开截屏识别预览，请重试")
+        }
+    }
+
+    private fun openAccessibilitySetup() {
+        runCatching {
+            PendingIntent.getActivity(
+                this,
+                ACCESSIBILITY_SETUP_REQUEST_CODE,
+                MofeiAccessibilitySetupActivity.intent(this),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ).send()
+        }.onFailure {
+            showCaptureFailure("无法打开一键截屏设置，请进入系统无障碍设置")
+        }
+    }
+
+    private fun showCaptureFailure(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        showActionFallback(message)
+        if (canShowOverlay()) showCollapsedOverlay()
     }
 
     /** Rebuilds the WindowManager-hosted composition so OEM lifecycle quirks cannot hide feedback. */
@@ -764,6 +840,9 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         private const val ONE_HOUR_MILLIS = 60 * 60 * 1_000L
         private const val LONG_PRESS_TIMEOUT_MILLIS = 550L
         private const val TOUCH_SLOP_PX = 12f
+        private const val SCREENSHOT_SETTLE_MILLIS = 180L
+        private const val SCREENSHOT_PREVIEW_REQUEST_CODE = 4090
+        private const val ACCESSIBILITY_SETUP_REQUEST_CODE = 4091
         /**
          * Task 5 calls this only from a foreground user gesture after the Settings permission
          * screen returns. The service performs the permission and opt-in checks again defensively.
