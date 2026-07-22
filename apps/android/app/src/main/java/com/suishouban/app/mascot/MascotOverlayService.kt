@@ -106,6 +106,8 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // LifecycleService dispatches service lifecycle events from the superclass implementation.
+        super.onStartCommand(intent, flags, startId)
         // Both start and update intents may carry the latest state snapshot from AppViewModel.
         intent?.toMascotState()?.let { currentMascotState = it }
         when (intent?.action) {
@@ -302,13 +304,20 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         }
     }
 
-    private fun createMascotContent(): View = ComposeView(this).apply {
-        setContent {
-            val mascot = currentMascotState
-            MaterialTheme {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (displayMode == OverlayDisplayMode.EXPANDED) {
-                        val settings = settingsRepository.settings.value
+    private fun createMascotContent(): View {
+        // This WindowManager view is rebuilt whenever service state changes. Capture one coherent
+        // snapshot here instead of reading non-Compose StateFlow values during composition.
+        val mascot = currentMascotState
+        val mode = displayMode
+        val dockSide = placement.dockSide
+        val settings = settingsRepository.settings.value
+        val notificationDraftCount = pendingNotificationDrafts
+        val actionPreview = revealedOverlayAction
+        return ComposeView(this).apply {
+            setContent {
+                MaterialTheme {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (mode == OverlayDisplayMode.EXPANDED) {
                         val items = MofeiActionCoordinator().actionsFor(
                             MofeiSurface.OVERLAY,
                             MofeiCapabilityState(
@@ -316,7 +325,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                                 notificationAccessGranted = MofeiPermissionState.notificationAccessGranted(this@MascotOverlayService),
                                 notificationDraftsEnabled = settings.mofeiNotificationDraftsEnabled,
                                 latestScreenshotAvailable = true,
-                                pendingNotificationDrafts = pendingNotificationDrafts,
+                                pendingNotificationDrafts = notificationDraftCount,
                             ),
                         )
                         MofeiActionRing(
@@ -326,9 +335,9 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                             reduceMotion = settings.reduceMascotMotion,
                             onAction = ::executeOverlayAction,
                             onDismiss = ::showCollapsedOverlay,
-                            revealedActionOverride = revealedOverlayAction,
+                            revealedActionOverride = actionPreview,
                             onActionPreview = ::previewOverlayAction,
-                            dockSide = placement.dockSide,
+                            dockSide = dockSide,
                             modifier = Modifier.size(
                                 MofeiSideArcGeometry.WIDTH_DP.dp,
                                 MofeiSideArcGeometry.HEIGHT_DP.dp,
@@ -337,12 +346,12 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                     }
                     MofeiVisual(
                         state = mascot,
-                        modifier = if (displayMode == OverlayDisplayMode.COLLAPSED) {
+                        modifier = if (mode == OverlayDisplayMode.COLLAPSED) {
                             Modifier.size(MofeiSideArcGeometry.MASCOT_SIZE_DP.dp)
                         } else {
                             Modifier
                                 .align(
-                                    if (placement.dockSide == OverlayDockSide.LEFT) {
+                                    if (dockSide == OverlayDockSide.LEFT) {
                                         Alignment.CenterStart
                                     } else {
                                         Alignment.CenterEnd
@@ -350,8 +359,9 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                                 )
                                 .size(MofeiSideArcGeometry.MASCOT_SIZE_DP.dp)
                         },
-                        reduceMotion = settingsRepository.settings.value.reduceMascotMotion,
+                        reduceMotion = settings.reduceMascotMotion,
                     )
+                    }
                 }
             }
         }
