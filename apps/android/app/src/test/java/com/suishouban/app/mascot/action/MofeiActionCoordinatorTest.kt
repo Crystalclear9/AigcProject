@@ -34,7 +34,7 @@ class MofeiActionCoordinatorTest {
     }
 
     @Test
-    fun overlayOmitsMediaPickerAndCameraActions() {
+    fun overlayOnlyShowsCaptureNotificationDraftsAndCurrentCard() {
         val actions = coordinator.actionsFor(
             surface = MofeiSurface.OVERLAY,
             state = MofeiCapabilityState(
@@ -49,10 +49,8 @@ class MofeiActionCoordinatorTest {
         assertEquals(
             listOf(
                 MofeiAction.CAPTURE_CURRENT_SCREEN,
-                MofeiAction.ANALYZE_LATEST_SCREENSHOT,
                 MofeiAction.REVIEW_NOTIFICATION_DRAFTS,
                 MofeiAction.OPEN_CURRENT_CARD,
-                MofeiAction.OPEN_SETTINGS,
             ),
             actions.map { it.action },
         )

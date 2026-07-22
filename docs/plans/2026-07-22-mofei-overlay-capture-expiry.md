@@ -4,7 +4,7 @@
 
 **Goal:** Keep one reliable external screenshot action, prevent the app task and duplicate Mofei from appearing during capture, and let the next eligible task drive Mofei after a deadline expires.
 
-**Architecture:** Keep the existing MediaProjection and screenshot-preview pipeline, but launch its transparent consent Activity in an isolated no-history task and keep overlay restoration owned by the capture/preview lifecycle. Restrict the overlay catalog at the pure coordinator boundary. Filter expired timed cards before existing urgency and priority selection.
+**Architecture:** Keep the existing MediaProjection and screenshot-preview pipeline, but launch its transparent consent Activity in an isolated task excluded from recents and keep overlay restoration owned by the capture/preview lifecycle. Restrict the overlay catalog at the pure coordinator boundary. Filter expired timed cards before existing urgency and priority selection.
 
 **Tech Stack:** Kotlin, Android Activity/Service/MediaProjection, Jetpack Compose, JUnit 4, Gradle Android plugin.
 
@@ -99,15 +99,14 @@ Run the command from Step 2. Expected: all resolver tests pass.
 
 **Step 1: Add isolated-task launch properties**
 
-Declare the capture Activity with an empty task affinity, no history, exclusion from recents, and a translucent theme:
+Declare the capture Activity with an empty task affinity, exclusion from recents, and a translucent theme. Do not use `noHistory`, because the Activity must survive the system consent screen and receive its result:
 
 ```xml
 android:excludeFromRecents="true"
-android:noHistory="true"
 android:taskAffinity=""
 ```
 
-Add `FLAG_ACTIVITY_NEW_TASK`, `FLAG_ACTIVITY_NO_HISTORY`, and `FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS` in the capture intent factory. Comment why these flags preserve the external app below the transparent consent flow.
+Add `FLAG_ACTIVITY_NEW_TASK`, `FLAG_ACTIVITY_MULTIPLE_TASK`, and `FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS` in the capture intent factory. Comment why these flags preserve the external app below the transparent consent flow. Explicitly remove the temporary task on cancellation or failure; on success, retain it only for the preview Activity.
 
 **Step 2: Harden overlay restoration ownership**
 

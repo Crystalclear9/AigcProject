@@ -45,6 +45,7 @@
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:excludeFromRecents="true"
             android:exported="false"
+            android:taskAffinity=""
             android:theme="@style/Theme.SuiShouBan.Transparent" />
         <service
             android:name=".reminder.ScreenshotMonitorService"
