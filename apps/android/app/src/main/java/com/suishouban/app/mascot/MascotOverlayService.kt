@@ -326,6 +326,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                                 notificationDraftsEnabled = settings.mofeiNotificationDraftsEnabled,
                                 latestScreenshotAvailable = true,
                                 pendingNotificationDrafts = notificationDraftCount,
+                                currentActionCardAvailable = !mascot.actionCardId.isNullOrBlank(),
                             ),
                         )
                         MofeiActionRing(
