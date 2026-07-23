@@ -13,7 +13,12 @@ from app.core.config import settings
 from app.db.connection import init_db
 from app.services.provider_runtime import runtime
 from app.repositories.workflows import WorkflowRepository
-from app.services.workflow_service import close_workflow_runtime, initialize_workflow_runtime, recover_workflows
+from app.services.workflow_service import (
+    cleanup_stale_workflow_inputs,
+    close_workflow_runtime,
+    initialize_workflow_runtime,
+    recover_workflows,
+)
 
 logger = logging.getLogger(__name__)
 EXPECTED_LANGGRAPH_VERSION = "1.2.1"
@@ -53,6 +58,9 @@ async def lifespan(_: FastAPI):
     if not ready:
         logger.warning("workflow runtime degraded: %s", checks)
     await initialize_workflow_runtime()
+    cleaned_inputs = cleanup_stale_workflow_inputs()
+    if cleaned_inputs:
+        logger.info("cleaned %s workflow input file(s)", cleaned_inputs)
     recovered = await recover_workflows()
     if recovered:
         logger.info("recovered %s workflow(s)", recovered)

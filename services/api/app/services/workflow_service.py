@@ -35,6 +35,8 @@ _task_lock = asyncio.Lock()
 _workflow_semaphore = asyncio.Semaphore(settings.workflow_max_concurrency)
 _runtime_loop: asyncio.AbstractEventLoop | None = None
 _worker_id = f"api-{uuid.uuid4().hex[:10]}"
+TERMINAL_WORKFLOW_STATUSES = {"completed", "failed", "cancelled"}
+DEFAULT_ORPHAN_INPUT_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 def _ensure_loop_runtime() -> None:
@@ -102,6 +104,76 @@ async def close_workflow_runtime() -> None:
     _durable_graph = None
     _checkpointer_context = None
     _graph_loop = None
+
+
+def _managed_input_path(raw_path: str) -> Path | None:
+    input_root = Path(settings.workflow_input_directory).resolve()
+    candidate = Path(raw_path).resolve()
+    try:
+        candidate.relative_to(input_root)
+    except ValueError:
+        logger.warning("refusing to delete workflow input outside managed directory: %s", candidate)
+        return None
+    if candidate == input_root:
+        logger.warning("refusing to delete workflow input directory itself: %s", candidate)
+        return None
+    return candidate
+
+
+def cleanup_workflow_input(run_id: str) -> bool:
+    """Delete a terminal run's managed input and clear its persisted path."""
+    if repository.get_status(run_id) not in TERMINAL_WORKFLOW_STATUSES:
+        return False
+    raw_path = repository.input_path_for_run(run_id)
+    if raw_path is None:
+        return False
+    image_path = _managed_input_path(raw_path)
+    if image_path is None:
+        return False
+    try:
+        image_path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("failed to delete workflow input", extra={"run_id": run_id})
+        return False
+    return repository.clear_input_path(run_id, raw_path)
+
+
+def cleanup_stale_workflow_inputs(
+    *,
+    max_orphan_age_seconds: int = DEFAULT_ORPHAN_INPUT_MAX_AGE_SECONDS,
+) -> int:
+    """Clean terminal references and old unreferenced managed input files."""
+    if max_orphan_age_seconds < 0:
+        raise ValueError("max_orphan_age_seconds must not be negative")
+
+    cleaned = 0
+    protected_paths: set[Path] = set()
+    for run_id, status, raw_path in repository.input_path_records():
+        if status in TERMINAL_WORKFLOW_STATUSES:
+            cleaned += int(cleanup_workflow_input(run_id))
+            continue
+        managed_path = _managed_input_path(raw_path)
+        if managed_path is not None:
+            protected_paths.add(managed_path)
+
+    input_root = Path(settings.workflow_input_directory).resolve()
+    if not input_root.exists():
+        return cleaned
+    cutoff = time.time() - max_orphan_age_seconds
+    for candidate in input_root.glob("*.bin"):
+        managed_path = _managed_input_path(str(candidate))
+        if managed_path is None or managed_path in protected_paths:
+            continue
+        try:
+            if managed_path.stat().st_mtime > cutoff:
+                continue
+            managed_path.unlink(missing_ok=True)
+            cleaned += 1
+        except FileNotFoundError:
+            continue
+        except OSError:
+            logger.exception("failed to delete stale workflow input: %s", managed_path)
+    return cleaned
 
 
 def _config(run_id: str) -> dict[str, Any]:
@@ -195,6 +267,8 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
             status = None
         if status in {"queued", "running"}:
             repository.release_job(run_id, _worker_id)
+        if status in TERMINAL_WORKFLOW_STATUSES:
+            cleanup_workflow_input(run_id)
         async with _task_lock:
             _tasks.pop(run_id, None)
 
@@ -1143,6 +1217,7 @@ def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRu
             "snapshot": _event_snapshot(run_id, state),
         },
     )
+    cleanup_workflow_input(run_id)
     return repository.response(run_id)
 
 
@@ -1159,6 +1234,7 @@ async def cancel_workflow(run_id: str) -> WorkflowRunResponse:
             task.cancel()
     if task is not None and task is not asyncio.current_task():
         await asyncio.gather(task, return_exceptions=True)
+    cleanup_workflow_input(run_id)
     return repository.response(run_id)
 
 
