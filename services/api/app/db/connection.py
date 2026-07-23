@@ -40,6 +40,24 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    existing_columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(cards)").fetchall()
+    }
+    # Existing installations predate workflow action metadata. Add only
+    # missing columns so startup remains idempotent and preserves all rows.
+    migrations = {
+        "action_id": "ALTER TABLE cards ADD COLUMN action_id TEXT",
+        "dependencies": (
+            "ALTER TABLE cards ADD COLUMN dependencies TEXT NOT NULL DEFAULT '[]'"
+        ),
+        "evidence_summary": (
+            "ALTER TABLE cards ADD COLUMN evidence_summary TEXT NOT NULL DEFAULT '[]'"
+        ),
+    }
+    for column, statement in migrations.items():
+        if column not in existing_columns:
+            conn.execute(statement)
 
 
 def init_db() -> None:
