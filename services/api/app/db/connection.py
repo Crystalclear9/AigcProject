@@ -17,6 +17,18 @@ def connect() -> sqlite3.Connection:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
+    # Serialize inspection and ALTER statements across multiple server workers.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        _ensure_schema_locked(conn)
+    except Exception:
+        conn.rollback()
+        raise
+    else:
+        conn.commit()
+
+
+def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS cards (

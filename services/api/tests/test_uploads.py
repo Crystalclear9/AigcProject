@@ -5,6 +5,10 @@ from io import BytesIO
 
 import pytest
 from fastapi import HTTPException, UploadFile
+from fastapi.testclient import TestClient
+
+from app.core.config import settings
+from app.main import create_app
 
 
 def _read(upload: UploadFile, limit: int) -> bytes:
@@ -51,3 +55,68 @@ def test_empty_upload_is_rejected() -> None:
         _read(upload, 10)
 
     assert raised.value.status_code == 400
+
+
+def test_request_body_limit_rejects_before_multipart_parsing() -> None:
+    original_limit = settings.max_upload_image_bytes
+    object.__setattr__(settings, "max_upload_image_bytes", 32)
+    try:
+        client = TestClient(create_app())
+        response = client.post(
+            "/api/workflows/screenshot-image",
+            content=b"x" * (128 * 1024),
+            headers={"Content-Type": "application/octet-stream"},
+        )
+    finally:
+        object.__setattr__(settings, "max_upload_image_bytes", original_limit)
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "请求体超过上传大小限制"
+
+
+def test_request_body_limit_stops_chunked_body_without_content_length() -> None:
+    from app.api.body_limit import RequestBodyLimitMiddleware
+
+    async def exercise() -> tuple[list[dict[str, object]], bool]:
+        messages = iter(
+            [
+                {"type": "http.request", "body": b"123456", "more_body": True},
+                {"type": "http.request", "body": b"789012", "more_body": False},
+            ]
+        )
+        sent: list[dict[str, object]] = []
+        completed = False
+
+        async def receive() -> dict[str, object]:
+            return next(messages)
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        async def downstream(scope, receive, send) -> None:
+            nonlocal completed
+            while True:
+                message = await receive()
+                if not message.get("more_body", False):
+                    completed = True
+                    return
+
+        middleware = RequestBodyLimitMiddleware(
+            downstream,
+            max_bytes=10,
+            limited_paths={"/api/workflows/screenshot-image"},
+        )
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/workflows/screenshot-image",
+            "headers": [],
+        }
+        await middleware(scope, receive, send)
+        return sent, completed
+
+    sent, completed = asyncio.run(exercise())
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == 413
+    assert not completed

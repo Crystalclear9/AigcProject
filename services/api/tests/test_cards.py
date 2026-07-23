@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from app.core.config import settings
-from app.db.connection import connect
+from app.db.connection import connect, ensure_schema
 from app.repositories.cards import CardRepository
 from app.schemas.card import ActionCardCreate, ActionCardUpdate
 
@@ -109,3 +109,19 @@ def test_connect_migrates_legacy_card_table(card_database: Path) -> None:
         "dependencies": "[]",
         "evidence_summary": "[]",
     }
+
+
+def test_schema_migration_acquires_write_lock_before_inspection(tmp_path: Path) -> None:
+    database = sqlite3.connect(tmp_path / "locked-migration.db")
+    database.row_factory = sqlite3.Row
+    statements: list[str] = []
+    database.set_trace_callback(statements.append)
+    try:
+        ensure_schema(database)
+    finally:
+        database.close()
+
+    assert any(
+        statement.strip().upper() == "BEGIN IMMEDIATE"
+        for statement in statements
+    )
