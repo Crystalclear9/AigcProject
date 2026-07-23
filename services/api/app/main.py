@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.body_limit import RequestBodyLimitMiddleware
 from app.api.router import api_router
 from app.core.config import settings
 from app.db.connection import init_db
@@ -22,6 +23,7 @@ from app.services.workflow_service import (
 
 logger = logging.getLogger(__name__)
 EXPECTED_LANGGRAPH_VERSION = "1.2.1"
+MULTIPART_OVERHEAD_ALLOWANCE_BYTES = 64 * 1024
 
 
 def runtime_health() -> tuple[bool, dict[str, object]]:
@@ -74,6 +76,18 @@ async def lifespan(_: FastAPI):
 def create_app() -> FastAPI:
     init_db()
     app = FastAPI(title=settings.app_name, version="1.1.0", lifespan=lifespan)
+    api_prefix = settings.api_prefix.rstrip("/")
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_bytes=(
+            settings.max_upload_image_bytes
+            + MULTIPART_OVERHEAD_ALLOWANCE_BYTES
+        ),
+        limited_paths={
+            f"{api_prefix}/analyze/screenshot-image",
+            f"{api_prefix}/workflows/screenshot-image",
+        },
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
