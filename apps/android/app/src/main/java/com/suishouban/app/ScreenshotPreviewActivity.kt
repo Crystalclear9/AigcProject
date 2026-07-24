@@ -2,6 +2,9 @@ package com.suishouban.app
 
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.Gravity
@@ -61,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import com.suishouban.app.reminder.ScreenshotMonitorService
+import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.ui.components.DraftEditor
 import com.suishouban.app.ui.components.PreviewActionsCard
 import com.suishouban.app.ui.theme.BrandBlue
@@ -70,6 +74,8 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 
 class ScreenshotPreviewActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
+    private var privateCaptureUri: Uri? = null
+    private var restoreOverlayAfterCapture = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,7 +84,12 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         viewModel.beginFreshScreenshotPrompt()
 
         val incomingIntent = intent
+        val fromPrivateCapture = isTrustedPrivateCapture(incomingIntent)
+        if (fromPrivateCapture) privateCaptureUri = incomingIntent.data
+        restoreOverlayAfterCapture = fromPrivateCapture &&
+            incomingIntent.getBooleanExtra(EXTRA_RESTORE_OVERLAY_AFTER_CAPTURE, false)
         val sourceIntent = when {
+            fromPrivateCapture -> incomingIntent
             ScreenshotMonitorService.isTrustedPendingPreview(this, incomingIntent) -> incomingIntent
             incomingIntent.action == ScreenshotMonitorService.ACTION_PROCESS_SCREENSHOT ->
                 ScreenshotMonitorService.consumePendingPreviewIntent(this)
@@ -98,7 +109,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         val confidenceBand = sourceIntent.getStringExtra(EXTRA_CONFIDENCE_BAND)
         val scenarioType = sourceIntent.getStringExtra(EXTRA_SCENARIO_TYPE)
         val primaryEvidence = sourceIntent.getStringArrayListExtra(EXTRA_PRIMARY_EVIDENCE).orEmpty()
-        ScreenshotMonitorService.clearPendingPreview(this)
+        if (!fromPrivateCapture) ScreenshotMonitorService.clearPendingPreview(this)
 
         setContent {
             SuiShouBanTheme {
@@ -177,6 +188,8 @@ class ScreenshotPreviewActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val ACTION_CAPTURE_PREVIEW = "com.suishouban.app.action.PREVIEW_MOFEI_CAPTURE"
+        private const val EXTRA_RESTORE_OVERLAY_AFTER_CAPTURE = "restore_overlay_after_capture"
         const val EXTRA_OCR_TEXT = "com.suishouban.app.extra.OCR_TEXT"
         const val EXTRA_GATE_REASON = "com.suishouban.app.extra.GATE_REASON"
         const val EXTRA_DEADLINE_HINT = "com.suishouban.app.extra.DEADLINE_HINT"
@@ -187,6 +200,36 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
         const val EXTRA_OCR_TOKEN = "com.suishouban.app.extra.OCR_TOKEN"
+
+        /** Explicit and non-exported; only private FileProvider capture URIs are accepted. */
+        fun captureIntent(context: Context, uri: Uri, restoreOverlayAfterCapture: Boolean = false): Intent =
+            Intent(context, ScreenshotPreviewActivity::class.java).apply {
+                action = ACTION_CAPTURE_PREVIEW
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                putExtra(EXTRA_RESTORE_OVERLAY_AFTER_CAPTURE, restoreOverlayAfterCapture)
+            }
+
+        private fun Context.isTrustedPrivateCapture(source: Intent?): Boolean {
+            val uri = source?.data ?: return false
+            return source.action == ACTION_CAPTURE_PREVIEW &&
+                uri.scheme == "content" &&
+                uri.authority == "$packageName.fileprovider" &&
+                uri.path.orEmpty().contains("mofei_capture")
+        }
+    }
+
+    override fun onDestroy() {
+        if (!isChangingConfigurations) {
+            // FileProvider owns this app-private cache URI; system MediaStore screenshots are untouched.
+            privateCaptureUri?.let { uri -> runCatching { contentResolver.delete(uri, null, null) } }
+            privateCaptureUri = null
+            if (restoreOverlayAfterCapture) {
+                restoreOverlayAfterCapture = false
+                MascotOverlayService.restoreVisibleAfterCapture(this)
+            }
+        }
+        super.onDestroy()
     }
 }
 
