@@ -55,6 +55,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import com.suishouban.app.mascot.action.MofeiAction
+import com.suishouban.app.mascot.action.MofeiActionItem
+import com.suishouban.app.mascot.action.MofeiSurface
+import com.suishouban.app.notification.NotificationCandidateUiModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -76,6 +81,8 @@ private val BUBBLE_GAP = 10.dp
  * @param onOpenSettings invoked from the long-press menu.
  * @param completionSignal increments to trigger a one-shot celebration burst (feed it a counter
  *   derived from [com.suishouban.app.AppViewModel.mascotInteractions]).
+ * @param actionItems actions exposed around the live sprite; an empty list preserves the legacy
+ *   speech-bubble tap behavior while the owning screen is still loading capability state.
  */
 @Composable
 fun FloatingMascot(
@@ -88,6 +95,12 @@ fun FloatingMascot(
     onOpenSettings: () -> Unit,
     onDismissForNow: () -> Unit,
     onPlacementChange: (OverlayDockSide, Float) -> Unit,
+    actionItems: List<MofeiActionItem> = emptyList(),
+    onAction: (MofeiAction) -> Unit = {},
+    onActionCenterOpen: () -> Unit = {},
+    notificationCandidates: List<NotificationCandidateUiModel> = emptyList(),
+    onOpenNotificationCandidate: (String) -> Unit = {},
+    onRejectNotificationCandidate: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val controller = remember { FloatingMascotController() }
@@ -97,6 +110,7 @@ fun FloatingMascot(
     var trackSize by remember { mutableStateOf(IntOffset.Zero) }
     var bubbleOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    var actionRingOpen by remember { mutableStateOf(false) }
 
     val petPx = with(density) { PET_SIZE.toPx() }
     val marginPx = with(density) { EDGE_MARGIN.toPx() }
@@ -125,6 +139,35 @@ fun FloatingMascot(
 
         val profile = MascotVisuals.profileFor(state, reduceMotion)
 
+        if (actionRingOpen && actionItems.isNotEmpty()) {
+            val ringWidthPx = with(density) { MofeiSideArcGeometry.WIDTH_DP.dp.toPx() }
+            val ringHeightPx = with(density) { MofeiSideArcGeometry.HEIGHT_DP.dp.toPx() }
+            val mascotCenter = MofeiSideArcGeometry.mascotCenter(dockSide)
+            val ringX = (offsetX.value + petPx / 2f - with(density) { mascotCenter.x.dp.toPx() })
+                .coerceIn(0f, (trackSize.x - ringWidthPx).coerceAtLeast(0f))
+            val ringY = (offsetY.value + petPx / 2f - with(density) { mascotCenter.y.dp.toPx() })
+                .coerceIn(0f, (trackSize.y - ringHeightPx).coerceAtLeast(0f))
+            MofeiActionRing(
+                surface = MofeiSurface.IN_APP,
+                items = actionItems,
+                expanded = true,
+                reduceMotion = reduceMotion,
+                onAction = {
+                    actionRingOpen = false
+                    onAction(it)
+                },
+                onDismiss = { actionRingOpen = false },
+                dockSide = dockSide,
+                modifier = Modifier
+                    .size(MofeiSideArcGeometry.WIDTH_DP.dp, MofeiSideArcGeometry.HEIGHT_DP.dp)
+                    .zIndex(2f)
+                    .graphicsLayer {
+                        translationX = ringX
+                        translationY = ringY
+                    },
+            )
+        }
+
         // The pet cluster (sprite + halo + celebration) lives at the animated offset. The bubble is
         // sibling-positioned so it can grow toward screen center without being clipped by the pet box.
         MofeiPet(
@@ -143,10 +186,17 @@ fun FloatingMascot(
                     detectTapGestures(
                         onTap = {
                             menuOpen = false
-                            bubbleOpen = !bubbleOpen
+                            if (actionItems.isEmpty()) {
+                                bubbleOpen = !bubbleOpen
+                            } else {
+                                bubbleOpen = false
+                                if (!actionRingOpen) onActionCenterOpen()
+                                actionRingOpen = !actionRingOpen
+                            }
                         },
                         onLongPress = {
                             bubbleOpen = false
+                            actionRingOpen = false
                             menuOpen = !menuOpen
                         },
                     )
@@ -173,11 +223,33 @@ fun FloatingMascot(
                                 offsetY.snapTo((offsetY.value + dragAmount.y).coerceIn(0f, maxY))
                             }
                             bubbleOpen = false
+                            actionRingOpen = false
                             menuOpen = false
                         },
                     )
                 },
         )
+
+        if (!actionRingOpen && notificationCandidates.isNotEmpty()) {
+            val firefliesWidth = with(density) { 270.dp.toPx() }
+            val firefliesHeight = with(density) { 150.dp.toPx() }
+            val fireflyX = if (dockSide == OverlayDockSide.LEFT) {
+                offsetX.value + petPx * 0.72f
+            } else {
+                offsetX.value - firefliesWidth + petPx * 0.28f
+            }.coerceIn(0f, (trackSize.x - firefliesWidth).coerceAtLeast(0f))
+            val fireflyY = (offsetY.value - firefliesHeight * 0.72f)
+                .coerceIn(0f, (trackSize.y - firefliesHeight).coerceAtLeast(0f))
+            MofeiNotificationFireflies(
+                candidates = notificationCandidates,
+                onOpen = onOpenNotificationCandidate,
+                onReject = onRejectNotificationCandidate,
+                modifier = Modifier.graphicsLayer {
+                    translationX = fireflyX
+                    translationY = fireflyY
+                },
+            )
+        }
 
         val bubbleWidthPx = with(density) { 200.dp.toPx() }
         val bubbleX = controller.bubbleXPx(
