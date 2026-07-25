@@ -16,7 +16,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EventAvailable
+import androidx.compose.material.icons.outlined.FactCheck
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -30,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -39,8 +42,12 @@ import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.WorkflowStrip
+import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.SoftCard
 import com.suishouban.app.ui.theme.visualForCardType
 
 @Composable
@@ -57,12 +64,12 @@ fun PreviewScreen(
         it.title.isNotBlank() && (it.cardType != "promise" || it.deadline != null || it.startTime != null)
     }
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("发现可能行动事项", if (state.engine.isBlank()) null else state.engine)
+            SectionHeader("发现可能行动事项", if (state.engine.isBlank()) null else state.engine, icon = Icons.Outlined.FactCheck)
         }
 
         item {
@@ -75,13 +82,13 @@ fun PreviewScreen(
             }
         } else {
             item {
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = BorderStroke(1.dp, Line),
-                ) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("确认前检查", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                SoftCard {
+                    Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AccentIconChip(icon = Icons.Outlined.FactCheck, accent = BrandBlue, size = 30.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("确认前检查", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (state.workflowStatus.isNotBlank()) {
                                 NeutralPill(
@@ -215,8 +222,9 @@ fun PreviewScreen(
                 Button(
                     onClick = onConfirm,
                     enabled = localDraftValid && !state.loading && state.workflowStatus !in setOf("queued", "running"),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(DS.RadiusButton),
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                 ) {
                     Icon(Icons.Outlined.CheckCircle, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
@@ -225,7 +233,8 @@ fun PreviewScreen(
                             state.loading || state.workflowStatus in setOf("queued", "running") -> "等待分析完成"
                             !localDraftValid -> "补全关键信息后继续"
                             else -> "确认并创建行动卡"
-                        }
+                        },
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }

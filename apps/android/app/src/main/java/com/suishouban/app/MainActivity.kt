@@ -267,11 +267,13 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar(
                             modifier = Modifier.shadow(
-                                elevation = 10.dp,
-                                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                                elevation = 18.dp,
+                                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
                                 clip = false,
+                                ambientColor = BrandBlue.copy(alpha = 0.18f),
+                                spotColor = BrandBlue.copy(alpha = 0.18f),
                             ),
-                            containerColor = Color.White.copy(alpha = 0.98f),
+                            containerColor = Color.White,
                             tonalElevation = 0.dp,
                         ) {
                             bottomScreens.forEach { screen ->

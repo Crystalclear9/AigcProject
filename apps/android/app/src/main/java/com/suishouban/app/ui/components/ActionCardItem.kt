@@ -6,12 +6,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -36,9 +37,11 @@ import androidx.compose.ui.unit.dp
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.ui.theme.DS
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.Warning
 import com.suishouban.app.ui.theme.labelForPriority
+import com.suishouban.app.ui.theme.softCardShadow
 import com.suishouban.app.ui.theme.visualForCardType
 
 @Composable
@@ -51,13 +54,30 @@ fun ActionCardItem(
 ) {
     val visual = visualForCardType(card.cardType)
     Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .softCardShadow(DS.RadiusCard),
+        shape = RoundedCornerShape(DS.RadiusCard),
         border = BorderStroke(1.dp, Line.copy(alpha = 0.65f)),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.94f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Type-coded accent spine painted directly on the card's left edge. Using drawBehind
+        // (not an IntrinsicSize Row) keeps the inner LazyRow of chips measurable — intrinsic
+        // measurement of a lazy list throws at runtime.
+        val spineColor = visual.color
+        val spineColorFade = visual.color.copy(alpha = 0.55f)
+        Column(
+            Modifier
+                .drawBehind {
+                    drawRect(
+                        brush = Brush.verticalGradient(listOf(spineColor, spineColorFade)),
+                        size = androidx.compose.ui.geometry.Size(5.dp.toPx(), size.height),
+                    )
+                }
+                .padding(start = 15.dp, top = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Pill(text = visual.label, color = visual.color, soft = visual.soft)
                 Spacer(Modifier.width(8.dp))
