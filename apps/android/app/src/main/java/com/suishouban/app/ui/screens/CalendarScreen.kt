@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.EventBusy
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -51,9 +54,15 @@ import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.formatDay
+import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.MistBlue
+import com.suishouban.app.ui.theme.Muted
+import com.suishouban.app.ui.theme.SoftCard
+import com.suishouban.app.ui.theme.softCardShadow
 import com.suishouban.app.ui.theme.Warning
 import com.suishouban.app.ui.theme.visualForCardType
 import java.time.LocalDate
@@ -76,12 +85,12 @@ fun CalendarScreen(
     val undatedCards = active.filter { it.primaryLocalDate() == null }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("日历视图", "${active.size} 项")
+            SectionHeader("日历视图", "${active.size} 项", icon = Icons.Outlined.CalendarMonth)
         }
         item {
             MonthCalendarCard(
@@ -109,7 +118,7 @@ fun CalendarScreen(
         }
         if (undatedCards.isNotEmpty()) {
             item {
-                Text("未定日期", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("未定日期", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
             }
             items(undatedCards, key = { it.id }) { card ->
                 ActionCardItem(
@@ -139,14 +148,16 @@ private fun MonthCalendarCard(
     val days = remember(month) { month.visibleCalendarDays() }
 
     Card(
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().softCardShadow(),
+        shape = RoundedCornerShape(DS.RadiusCard),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Line),
+        border = BorderStroke(1.dp, Line.copy(alpha = 0.7f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPreviousMonth) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "上个月")
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "上个月", tint = BrandBlue)
                 }
                 Text(
                     text = month.format(monthFormatter),
@@ -154,9 +165,10 @@ private fun MonthCalendarCard(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
+                    color = Ink,
                 )
                 IconButton(onClick = onNextMonth) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "下个月")
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "下个月", tint = BrandBlue)
                 }
             }
 
@@ -215,14 +227,25 @@ private fun CalendarDayCell(
         isToday -> BrandBlue.copy(alpha = 0.55f)
         else -> Line
     }
-    val background = if (selected) MistBlue else Color.White
+    // Selected day fills with the brand accent (white text) for a strong, unmistakable state;
+    // today gets a soft tint; others stay white.
+    val background = when {
+        selected -> BrandBlue
+        isToday -> MistBlue
+        else -> Color.White
+    }
+    val dayColor = when {
+        selected -> Color.White
+        !inCurrentMonth -> Muted.copy(alpha = 0.5f)
+        else -> Ink
+    }
 
     Card(
         modifier = Modifier
             .aspectRatio(0.9f)
             .defaultMinSize(minHeight = 48.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(DS.RadiusButton),
         border = BorderStroke(if (selected) 1.5.dp else 1.dp, borderColor),
         colors = CardDefaults.cardColors(containerColor = background),
     ) {
@@ -235,7 +258,7 @@ private fun CalendarDayCell(
                     text = date.dayOfMonth.toString(),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (selected || isToday) FontWeight.Bold else FontWeight.Medium,
-                    color = if (inCurrentMonth) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    color = dayColor,
                 )
                 Spacer(Modifier.weight(1f))
                 if (cards.isNotEmpty()) {
@@ -243,7 +266,7 @@ private fun CalendarDayCell(
                         text = cards.size.toString(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = BrandBlue,
+                        color = if (selected) Color.White else BrandBlue,
                     )
                 }
             }
@@ -254,7 +277,10 @@ private fun CalendarDayCell(
                         Box(
                             Modifier
                                 .size(7.dp)
-                                .background(visualForCardType(card.cardType).color, CircleShape)
+                                .background(
+                                    if (selected) Color.White else visualForCardType(card.cardType).color,
+                                    CircleShape,
+                                )
                         )
                     }
                 }
@@ -279,28 +305,30 @@ private fun SelectedDaySection(
                 selectedDateLabel,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                color = Ink,
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 "${cards.size} 项",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+                color = Muted,
+                fontWeight = FontWeight.SemiBold,
             )
         }
         if (cards.isEmpty()) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, Line),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-            ) {
-                Text(
-                    "当天暂无日程",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            SoftCard {
+                Row(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AccentIconChip(icon = Icons.Outlined.EventBusy, accent = BrandBlue, size = 40.dp)
+                    Text(
+                        "当天暂无日程",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Muted,
+                    )
+                }
             }
         } else {
             cards.forEach { card ->
@@ -323,12 +351,12 @@ private fun TimelineCalendarMode(
     val conflicts = active.groupBy { it.primaryTime() }.filter { (time, cards) -> time != null && cards.size > 1 }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("日历视图", "${active.size} 项")
+            SectionHeader("日历视图", "${active.size} 项", icon = Icons.Outlined.CalendarMonth)
         }
         item {
             Card(

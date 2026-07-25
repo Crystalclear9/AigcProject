@@ -51,8 +51,12 @@ import com.suishouban.app.mascot.MofeiMoodBanner
 import com.suishouban.app.notification.InstalledAppInfo
 import com.suishouban.app.data.repository.WorkflowUrlPolicy
 import com.suishouban.app.ui.components.SectionHeader
+import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.SoftCard
 
 @Composable
 fun SettingsScreen(
@@ -76,12 +80,12 @@ fun SettingsScreen(
     }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("设置", if (state.settings.apiBaseUrl.isBlank()) "手机独立运行" else "AI 增强已配置")
+            SectionHeader("设置", if (state.settings.apiBaseUrl.isBlank()) "手机独立运行" else "AI 增强已配置", icon = Icons.Outlined.SettingsSuggest)
         }
         item {
             SettingsCard(title = "AI 增强服务（可选）", icon = Icons.Outlined.CloudSync) {
@@ -373,15 +377,11 @@ private fun SettingsCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Line),
-    ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    SoftCard {
+        Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                AccentIconChip(icon = icon, accent = BrandBlue, size = 30.dp)
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
             }
             content()
         }

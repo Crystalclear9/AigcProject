@@ -2,6 +2,7 @@ package com.suishouban.app.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,20 +15,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
@@ -36,6 +43,13 @@ import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
+import com.suishouban.app.ui.theme.AccentIconChip
+import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
+import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.Muted
+import com.suishouban.app.ui.theme.SoftCard
 
 @Composable
 fun CardsScreen(
@@ -63,49 +77,56 @@ fun CardsScreen(
     }.sortedBy { card -> if (card.id == highlightCardId) 0 else 1 }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("卡片中心", "${filtered.size} 张")
+            SectionHeader("卡片中心", "${filtered.size} 张", icon = Icons.Outlined.Style)
         }
+        // Search + filters grouped into one toolbar card so the controls read as a unit.
         item {
-            OutlinedTextField(
-                value = keyword,
-                onValueChange = { keyword = it },
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                placeholder = { Text("搜索标题、摘要、原始截图文字") },
-                shape = RoundedCornerShape(18.dp),
-            )
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    listOf(
-                        "all" to "全部",
-                        CardTypes.TASK to "任务",
-                        CardTypes.EVENT to "事件",
-                        CardTypes.PROMISE to "承诺",
-                    ).forEach { (value, label) ->
-                        NeutralPill(text = label, selected = type == value, onClick = { type = value })
+            SoftCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = keyword,
+                        onValueChange = { keyword = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = BrandBlue) },
+                        placeholder = { Text("搜索标题、摘要、原始截图文字") },
+                        shape = RoundedCornerShape(DS.RadiusTile),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DS.TileNeutral,
+                            unfocusedContainerColor = DS.TileNeutral,
+                            focusedIndicatorColor = BrandBlue,
+                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        ),
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(
+                            "all" to "全部",
+                            CardTypes.TASK to "任务",
+                            CardTypes.EVENT to "事件",
+                            CardTypes.PROMISE to "承诺",
+                        ).forEach { (value, label) ->
+                            NeutralPill(text = label, selected = type == value, onClick = { type = value })
+                        }
                     }
-                }
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    listOf(
-                        "active" to "进行中",
-                        "done" to "已完成",
-                        "archived" to "归档",
-                        "all" to "全部状态",
-                    ).forEach { (value, label) ->
-                        NeutralPill(text = label, selected = status == value, onClick = { status = value })
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(
+                            "active" to "进行中",
+                            "done" to "已完成",
+                            "archived" to "归档",
+                            "all" to "全部状态",
+                        ).forEach { (value, label) ->
+                            NeutralPill(text = label, selected = status == value, onClick = { status = value })
+                        }
                     }
                 }
             }
@@ -113,11 +134,26 @@ fun CardsScreen(
 
         if (filtered.isEmpty()) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("暂无匹配卡片", style = MaterialTheme.typography.titleLarge)
-                    Text("换个筛选条件，或从截图重新生成候选卡。", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
-                        Text("导入截图生成卡片")
+                SoftCard {
+                    Column(
+                        Modifier.fillMaxWidth().padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AccentIconChip(icon = Icons.Outlined.TravelExplore, accent = BrandBlue, size = 52.dp)
+                        Text("暂无匹配卡片", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(
+                            "换个筛选条件，或从截图重新生成候选卡。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Muted,
+                        )
+                        Button(
+                            onClick = onImport,
+                            shape = RoundedCornerShape(DS.RadiusButton),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        ) {
+                            Text("导入截图生成卡片", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
@@ -130,12 +166,13 @@ fun CardsScreen(
                         onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
                     )
                     if (card.status != CardStatus.ARCHIVED) {
-                        Button(
+                        // Archive is a low-emphasis action, so it's a quiet text button, not a
+                        // full solid bar competing with the card's own primary action.
+                        TextButton(
                             onClick = { onArchive(card.id) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.align(Alignment.End),
                         ) {
-                            Text("归档")
+                            Text("归档", color = Muted, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
