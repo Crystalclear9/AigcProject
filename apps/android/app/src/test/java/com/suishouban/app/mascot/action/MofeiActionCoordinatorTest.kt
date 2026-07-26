@@ -34,7 +34,7 @@ class MofeiActionCoordinatorTest {
     }
 
     @Test
-    fun overlayOmitsMediaPickerAndCameraActions() {
+    fun overlayAlwaysShowsScreenshotCameraAndGalleryInStableOrder() {
         val actions = coordinator.actionsFor(
             surface = MofeiSurface.OVERLAY,
             state = MofeiCapabilityState(
@@ -42,19 +42,72 @@ class MofeiActionCoordinatorTest {
                 notificationAccessGranted = true,
                 notificationDraftsEnabled = true,
                 screenCaptureSupported = true,
-                pendingNotificationDrafts = 2,
             ),
         )
 
         assertEquals(
             listOf(
                 MofeiAction.CAPTURE_CURRENT_SCREEN,
-                MofeiAction.ANALYZE_LATEST_SCREENSHOT,
-                MofeiAction.REVIEW_NOTIFICATION_DRAFTS,
-                MofeiAction.OPEN_CURRENT_CARD,
-                MofeiAction.OPEN_SETTINGS,
+                MofeiAction.TAKE_PHOTO,
+                MofeiAction.PICK_IMAGE,
             ),
             actions.map { it.action },
+        )
+    }
+
+    @Test
+    fun overlayAddsNotificationDraftsOnlyWhenPending() {
+        val withDrafts = coordinator.actionsFor(
+            MofeiSurface.OVERLAY,
+            MofeiCapabilityState(pendingNotificationDrafts = 2),
+        )
+        val withoutDrafts = coordinator.actionsFor(
+            MofeiSurface.OVERLAY,
+            MofeiCapabilityState(pendingNotificationDrafts = 0),
+        )
+
+        assertEquals(
+            listOf(
+                MofeiAction.CAPTURE_CURRENT_SCREEN,
+                MofeiAction.TAKE_PHOTO,
+                MofeiAction.PICK_IMAGE,
+                MofeiAction.REVIEW_NOTIFICATION_DRAFTS,
+            ),
+            withDrafts.map { it.action },
+        )
+        assertEquals(
+            listOf(
+                MofeiAction.CAPTURE_CURRENT_SCREEN,
+                MofeiAction.TAKE_PHOTO,
+                MofeiAction.PICK_IMAGE,
+            ),
+            withoutDrafts.map { it.action },
+        )
+    }
+
+    @Test
+    fun overlayAddsCurrentCardOnlyWhenAValidCardExists() {
+        val withCurrentCard = coordinator.actionsFor(
+            MofeiSurface.OVERLAY,
+            MofeiCapabilityState(currentActionCardAvailable = true),
+        )
+        val withoutCurrentCard = coordinator.actionsFor(
+            MofeiSurface.OVERLAY,
+            MofeiCapabilityState(currentActionCardAvailable = false),
+        )
+
+        assertEquals(
+            listOf(
+                MofeiAction.CAPTURE_CURRENT_SCREEN,
+                MofeiAction.TAKE_PHOTO,
+                MofeiAction.PICK_IMAGE,
+                MofeiAction.OPEN_CURRENT_CARD,
+            ),
+            withCurrentCard.map { it.action },
+        )
+        assertEquals(
+            false,
+            withoutCurrentCard.any { it.action == MofeiAction.OPEN_CURRENT_CARD },
         )
     }
 
@@ -97,12 +150,15 @@ class MofeiActionCoordinatorTest {
             MofeiSurface.OVERLAY,
             MofeiCapabilityState(pendingNotificationDrafts = 4),
         ).single { it.action == MofeiAction.REVIEW_NOTIFICATION_DRAFTS }
-        val negative = coordinator.actionsFor(
+        val negativeActions = coordinator.actionsFor(
             MofeiSurface.OVERLAY,
             MofeiCapabilityState(pendingNotificationDrafts = -1),
-        ).single { it.action == MofeiAction.REVIEW_NOTIFICATION_DRAFTS }
+        )
 
         assertEquals(4, positive.badgeCount)
-        assertEquals(0, negative.badgeCount)
+        assertEquals(
+            false,
+            negativeActions.any { it.action == MofeiAction.REVIEW_NOTIFICATION_DRAFTS },
+        )
     }
 }

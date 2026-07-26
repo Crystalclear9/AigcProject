@@ -24,6 +24,7 @@ data class MofeiCapabilityState(
     val screenCaptureSupported: Boolean = true,
     val latestScreenshotAvailable: Boolean = false,
     val pendingNotificationDrafts: Int = 0,
+    val currentActionCardAvailable: Boolean = false,
     val busyAction: MofeiAction? = null,
 )
 

@@ -58,16 +58,26 @@ object ScreenCaptureImageWriter {
 
         val bitmap = Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
         bitmap.setPixels(pixels, 0, image.width, 0, 0, image.width, image.height)
-        val directory = File(context.cacheDir, CAPTURE_DIRECTORY).apply { mkdirs() }
-        val output = File(directory, fileName(timestampMs))
-        try {
-            FileOutputStream(output).use { stream ->
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) {
-                    "Unable to encode captured frame"
-                }
-            }
+        return try {
+            write(context, bitmap, timestampMs)
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    /** Persists a software bitmap produced by non-MediaProjection capture APIs. */
+    fun write(context: Context, bitmap: Bitmap, timestampMs: Long = System.currentTimeMillis()): Uri {
+        require(bitmap.width > 0 && bitmap.height > 0)
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        if (isBlankOrProtected(pixels)) throw ProtectedContentException()
+
+        val directory = File(context.cacheDir, CAPTURE_DIRECTORY).apply { mkdirs() }
+        val output = File(directory, fileName(timestampMs))
+        FileOutputStream(output).use { stream ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) {
+                "Unable to encode captured frame"
+            }
         }
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", output)
     }

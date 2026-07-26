@@ -6,6 +6,7 @@ import json
 from fastapi import APIRouter, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 
+from app.api.uploads import read_limited_upload
 from app.core.config import settings
 from app.schemas.workflow import (
     WorkflowResumeRequest,
@@ -47,11 +48,10 @@ async def start_image(
     content_type = (image.content_type or "").lower()
     if content_type and content_type not in {"image/jpeg", "image/jpg", "image/png", "image/bmp"}:
         raise HTTPException(status_code=415, detail="只支持 jpg、png、bmp 图片")
-    image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="图片为空")
-    if len(image_bytes) > settings.max_upload_image_bytes:
-        raise HTTPException(status_code=413, detail="图片超过上传大小限制")
+    image_bytes = await read_limited_upload(
+        image,
+        max_bytes=settings.max_upload_image_bytes,
+    )
     result = await start_image_workflow(image_bytes, screenshot_time)
     response.headers["Location"] = f"/api/workflows/{result.run_id}"
     return result

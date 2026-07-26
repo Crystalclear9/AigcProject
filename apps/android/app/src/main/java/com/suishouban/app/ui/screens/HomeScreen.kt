@@ -1,24 +1,40 @@
 package com.suishouban.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.ImageSearch
 import androidx.compose.material.icons.outlined.Insights
+import androidx.compose.material.icons.outlined.PendingActions
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,7 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
@@ -45,14 +64,18 @@ import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.Priority
 import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
-import com.suishouban.app.ui.components.Pill
+import com.suishouban.app.ui.components.HomeMofei
+import com.suishouban.app.ui.components.HomeMofeiVariant
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.brandGradient
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.EventBlue
+import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.MistBlue
+import com.suishouban.app.ui.theme.MofeiFocusCyan
+import com.suishouban.app.ui.theme.Muted
 import com.suishouban.app.ui.theme.PromiseOrange
-import com.suishouban.app.ui.theme.TaskRed
 
 @Composable
 fun HomeScreen(
@@ -68,50 +91,22 @@ fun HomeScreen(
     val needConfirm = activeCards.count { it.needConfirm.isNotEmpty() }
     val reminders = activeCards.sumOf { it.reminders.size }
     val timedCards = activeCards.count { it.primaryTime() != null }
+    val reduceMotion = state.settings.reduceMascotMotion
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(brandGradient())
-                    .padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Text("随手办", style = MaterialTheme.typography.headlineLarge, color = Color.White)
-                Text(
-                    "先建议，后确认，再提醒",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White.copy(alpha = 0.9f),
-                )
-                Text(
-                    "截图只会生成候选事项；你确认后才保存卡片、安排提醒或同步日历。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.82f),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    HeroStepPill("识别")
-                    HeroStepPill("候选")
-                    HeroStepPill("确认")
-                    HeroStepPill("提醒")
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
-                        onClick = { showImportOptions = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Icon(Icons.Outlined.PhotoCamera, contentDescription = null, tint = BrandBlue)
-                        Spacer(Modifier.width(8.dp))
-                        Text("导入截图", color = BrandBlue, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
+            HomeHeroCard(
+                reduceMotion = reduceMotion,
+                onImport = { showImportOptions = true },
+            )
+        }
+
+        item {
+            WorkflowStripCard()
         }
 
         item {
@@ -131,7 +126,10 @@ fun HomeScreen(
 
         if (activeCards.isEmpty()) {
             item {
-                EmptyHomeCard(onImport = { showImportOptions = true })
+                EmptyHomeCard(
+                    reduceMotion = reduceMotion,
+                    onImport = { showImportOptions = true },
+                )
             }
         } else {
             items(urgentCards.ifEmpty { activeCards.take(3) }) { card ->
@@ -144,13 +142,13 @@ fun HomeScreen(
             item {
                 Button(
                     onClick = onCards,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                 ) {
                     Icon(Icons.Outlined.Checklist, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("查看全部行动卡")
+                    Text("查看全部行动卡", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -176,13 +174,212 @@ fun HomeScreen(
 }
 
 @Composable
-private fun HeroStepPill(text: String) {
-    Box(
+private fun HomeHeroCard(
+    reduceMotion: Boolean,
+    onImport: () -> Unit,
+) {
+    BoxWithConstraints(
         modifier = Modifier
-            .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+            .fillMaxWidth()
+            .shadow(18.dp, RoundedCornerShape(28.dp), ambientColor = BrandBlue.copy(alpha = 0.38f), spotColor = BrandBlue.copy(alpha = 0.34f))
+            .clip(RoundedCornerShape(28.dp))
+            .background(brandGradient()),
     ) {
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        val compact = maxWidth < 350.dp
+        val mascotSize = if (compact) 172.dp else 208.dp
+        // The mascot is anchored to the bottom-right and allowed to bleed off the edge, so it
+        // reads as a character standing ON the card rather than a cutout dropped onto it.
+        val mascotBottomInset = if (compact) (-6).dp else (-10).dp
+        val contentWidthFraction = if (compact) 0.66f else 0.60f
+
+        // Overhead spotlight cone: a soft white bloom high on the right that fades downward,
+        // simulating a light source the mascot's glossy highlights already agree with.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 40.dp, y = (-70).dp)
+                .size(260.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.22f), Color.Transparent),
+                    ),
+                    CircleShape,
+                ),
+        )
+
+        // Elliptical floor shadow under the mascot's feet — the single most important cue that
+        // grounds the sprite in the scene instead of floating.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = (-26).dp, y = (-14).dp)
+                .width(mascotSize * 0.62f)
+                .height(20.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color(0xFF0A2A6B).copy(alpha = 0.38f), Color.Transparent),
+                    ),
+                    CircleShape,
+                ),
+        )
+
+        // Backlight halo hugging the mascot so its edges melt into light.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = 2.dp, y = mascotBottomInset)
+                .size(mascotSize + 40.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            MofeiFocusCyan.copy(alpha = 0.34f),
+                            MofeiFocusCyan.copy(alpha = 0.12f),
+                            Color.Transparent,
+                        ),
+                    ),
+                    CircleShape,
+                ),
+        )
+
+        HomeMofei(
+            variant = HomeMofeiVariant.HERO,
+            reduceMotion = reduceMotion,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = 12.dp, y = mascotBottomInset)
+                .size(mascotSize),
+        )
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(contentWidthFraction)
+                .padding(horizontal = if (compact) 20.dp else 24.dp, vertical = 26.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // Eyebrow pill: small branded chip that gives the headline a premium anchor.
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(Color.White.copy(alpha = 0.16f))
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(percent = 50))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Outlined.AutoAwesome,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "截图变待办",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Text(
+                "随手办",
+                style = MaterialTheme.typography.headlineLarge,
+                color = Color.White,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                "先建议，后确认，再提醒。",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.92f),
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            Spacer(Modifier.height(2.dp))
+            Button(
+                onClick = onImport,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.heightIn(min = 50.dp),
+            ) {
+                Icon(Icons.Outlined.PhotoCamera, contentDescription = null, tint = BrandBlue)
+                Spacer(Modifier.width(8.dp))
+                Text("导入截图", color = BrandBlue, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkflowStripCard() {
+    val steps = listOf("识别", "候选", "确认", "提醒")
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = BrandBlue.copy(alpha = 0.08f)),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Line.copy(alpha = 0.7f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            steps.forEachIndexed { index, label ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 56.dp),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    // Connector hairlines live at node-center height so the row reads as one
+                    // continuous pipeline rather than four detached chips.
+                    if (index > 0) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(y = 15.dp)
+                                .fillMaxWidth(0.5f)
+                                .height(2.dp)
+                                .background(BrandBlue.copy(alpha = 0.18f)),
+                        )
+                    }
+                    if (index < steps.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(y = 15.dp)
+                                .fillMaxWidth(0.5f)
+                                .height(2.dp)
+                                .background(BrandBlue.copy(alpha = 0.18f)),
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .background(brandGradient(), CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = (index + 1).toString(),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            label,
+                            color = Ink,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -240,36 +437,91 @@ private fun ImpactDashboard(
     engine: String,
     workflowStatus: String,
 ) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "impact-chevron",
+    )
     Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.95f)),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = Color(0xFF4265A8).copy(alpha = 0.10f)),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Line.copy(alpha = 0.7f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Insights, contentDescription = null, tint = BrandBlue)
-                Spacer(Modifier.width(8.dp))
-                Text("行动状态", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FlatMetric("进行中", activeCards.toString(), BrandBlue, Modifier.weight(1f))
-                FlatMetric("待确认", needConfirm.toString(), PromiseOrange, Modifier.weight(1f))
-                FlatMetric("有时间", timedCards.toString(), EventBlue, Modifier.weight(1f))
-            }
-            if (workflowStatus.isNotBlank()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Whole header row toggles the card. A rotating chevron signals collapsed vs expanded,
+            // and a compact summary chip stays visible when collapsed so the card still informs.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MistBlue),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.Insights, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(10.dp))
                 Text(
-                    "最近处理：${workflowStatusLabel(workflowStatus)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "行动状态",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    if (expanded) "共 $activeCards 项" else "进行中 $activeCards · 待确认 $needConfirm",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Muted,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    Icons.Outlined.ExpandMore,
+                    contentDescription = if (expanded) "收起行动状态" else "展开行动状态",
+                    tint = Muted,
+                    modifier = Modifier
+                        .size(22.dp)
+                        .graphicsLayer { rotationZ = chevronRotation },
                 )
             }
-            Text(
-                "识别方式：$engine · 已配置提醒 $reminders",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            AnimatedVisibility(visible = expanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        StatusMetric("进行中", activeCards.toString(), BrandBlue, Icons.Outlined.Bolt, active = false, modifier = Modifier.weight(1f))
+                        StatusMetric("待确认", needConfirm.toString(), PromiseOrange, Icons.Outlined.PendingActions, active = needConfirm > 0, modifier = Modifier.weight(1f))
+                        StatusMetric("有时间", timedCards.toString(), EventBlue, Icons.Outlined.Schedule, active = false, modifier = Modifier.weight(1f))
+                    }
+                    // Meta line: grouped by a hairline instead of two stacked gray sentences.
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Line.copy(alpha = 0.7f)))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MetaLabel("识别方式", engine)
+                        MetaLabel("已配置提醒", "$reminders")
+                        MetaLabel("最近处理", if (workflowStatus.isNotBlank()) workflowStatusLabel(workflowStatus) else "暂无")
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun MetaLabel(caption: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(caption, style = MaterialTheme.typography.labelSmall, color = Muted)
+        Text(value, style = MaterialTheme.typography.labelLarge, color = Ink, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -286,43 +538,172 @@ private fun workflowStatusLabel(status: String): String = when (status) {
 private fun displayEngineLabel(engine: String, preferCloud: Boolean): String {
     val normalized = engine.lowercase()
     return when {
-        normalized.contains("lanxin") || normalized.contains("model") || normalized.contains("expert") || preferCloud -> "AI 增强"
-        normalized.contains("ocr") || normalized.contains("rules") || normalized.contains("mlkit") -> "手机端识别"
+        normalized.contains("lanxin") || normalized.contains("model") ||
+            normalized.contains("expert") || preferCloud -> "AI 增强"
+        normalized.contains("ocr") || normalized.contains("rules") ||
+            normalized.contains("mlkit") -> "手机端识别"
         engine.isNotBlank() -> "智能识别"
         else -> "手机端识别"
     }
 }
 
 @Composable
-private fun FlatMetric(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+private fun StatusMetric(
+    label: String,
+    value: String,
+    accent: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    // One neutral surface for all three tiles (shape + fill locked); the accent only appears on
+    // the icon chip and — when the metric actually needs attention — a hairline top accent.
     Box(
         modifier = modifier
-            .background(color.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-            .padding(12.dp),
+            .heightIn(min = 104.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFFF4F7FD))
+            .then(
+                if (active) Modifier.border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                else Modifier,
+            )
+            .padding(14.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(value, style = MaterialTheme.typography.titleLarge, color = color, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(accent.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(17.dp))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Ink,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Muted,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun EmptyHomeCard(onImport: () -> Unit) {
+private fun EmptyHomeCard(
+    reduceMotion: Boolean,
+    onImport: () -> Unit,
+) {
     Card(
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = BrandBlue.copy(alpha = 0.08f)),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+        border = BorderStroke(1.dp, Line.copy(alpha = 0.7f)),
     ) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("从第一张截图开始", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "导入截图或粘贴通知文字，先生成候选卡，确认后才会保存、提醒或同步日历。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
-                Text("导入截图")
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val compact = maxWidth < 350.dp
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, top = 20.dp, end = 12.dp, bottom = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        "从第一张截图开始",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "导入截图或粘贴通知文字，先生成候选卡，确认后才会保存、提醒或同步日历。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = onImport,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                    ) {
+                        Icon(Icons.Outlined.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("导入截图", fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .width(if (compact) 112.dp else 136.dp)
+                        .height(160.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    // Soft bloom anchors the mascot + placeholder cards on a shared pool of light
+                    // so the group reads as one lit vignette instead of stacked cutouts.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(y = 6.dp)
+                            .size(150.dp)
+                            .background(
+                                Brush.radialGradient(
+                                    colors = listOf(
+                                        MistBlue,
+                                        MistBlue.copy(alpha = 0.4f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                                CircleShape,
+                            ),
+                    )
+                    // Native Compose cards stay sharp and can move independently from the raster mascot.
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(x = 16.dp, y = (-8).dp)
+                            .size(width = 78.dp, height = 104.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFFEAF2FF)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(x = 28.dp, y = 2.dp)
+                            .size(width = 72.dp, height = 96.dp)
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(Color(0xFFD9E7FF).copy(alpha = 0.7f)),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .offset(y = 10.dp)
+                            .size(width = 94.dp, height = 26.dp)
+                            .background(
+                                color = Color(0xFF6FA7FF).copy(alpha = 0.14f),
+                                shape = CircleShape,
+                            ),
+                    )
+                    HomeMofei(
+                        variant = HomeMofeiVariant.EMPTY,
+                        reduceMotion = reduceMotion,
+                        decorative = true,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(x = (-8).dp, y = 4.dp)
+                            .size(if (compact) 124.dp else 148.dp),
+                    )
+                }
             }
         }
     }

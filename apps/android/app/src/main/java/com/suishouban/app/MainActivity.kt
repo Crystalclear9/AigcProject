@@ -18,6 +18,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
@@ -28,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -40,6 +42,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -66,6 +72,8 @@ import com.suishouban.app.ui.screens.HomeScreen
 import com.suishouban.app.ui.screens.ImportScreen
 import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
+import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.MistBlue
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -257,13 +265,36 @@ class MainActivity : ComponentActivity() {
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
-                        NavigationBar {
+                        NavigationBar(
+                            modifier = Modifier.shadow(
+                                elevation = 18.dp,
+                                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                                clip = false,
+                                ambientColor = BrandBlue.copy(alpha = 0.18f),
+                                spotColor = BrandBlue.copy(alpha = 0.18f),
+                            ),
+                            containerColor = Color.White,
+                            tonalElevation = 0.dp,
+                        ) {
                             bottomScreens.forEach { screen ->
+                                val selected = current == screen.route
                                 NavigationBarItem(
-                                    selected = current == screen.route,
+                                    selected = selected,
                                     onClick = { current = screen.route },
                                     icon = { Icon(screen.icon, contentDescription = screen.label) },
-                                    label = { Text(screen.label) },
+                                    label = {
+                                        Text(
+                                            screen.label,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = BrandBlue,
+                                        selectedTextColor = BrandBlue,
+                                        indicatorColor = MistBlue,
+                                        unselectedIconColor = Color(0xFF77839B),
+                                        unselectedTextColor = Color(0xFF77839B),
+                                    ),
                                 )
                             }
                         }

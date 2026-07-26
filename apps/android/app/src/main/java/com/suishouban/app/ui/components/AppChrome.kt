@@ -41,6 +41,15 @@ fun GradientScreen(
     }
 }
 
+// Diagonal, multi-stop wash: a brighter azure top-left "light source" deepening to indigo
+// bottom-right. This gives the raster mascot a direction to agree with so it reads as lit by
+// the card instead of pasted onto a flat fill.
 fun brandGradient(): Brush = Brush.linearGradient(
-    colors = listOf(BrandBlue, androidx.compose.ui.graphics.Color(0xFF6A9BFF))
+    colors = listOf(
+        androidx.compose.ui.graphics.Color(0xFF5B93FF),
+        BrandBlue,
+        androidx.compose.ui.graphics.Color(0xFF1E50CC),
+    ),
+    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+    end = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
 )

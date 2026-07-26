@@ -20,7 +20,11 @@ class MascotStateResolver(
         val now = clock.instant()
         val openCards = cards.filter { it.status !in setOf(CardStatus.DONE, CardStatus.ARCHIVED) }
         val datedCards = openCards.mapNotNull { card ->
-            parseDeadline(card.deadline)?.let { deadline -> TimedCard(card, deadline) }
+            // Expired cards stay in storage, but no longer hold the mascot in an alert state.
+            // A deadline exactly at `now` remains eligible until the next state refresh.
+            parseDeadline(card.deadline)
+                ?.takeUnless { deadline -> deadline.isBefore(now) }
+                ?.let { deadline -> TimedCard(card, deadline) }
         }
         val urgentDeadline = selectDeadline(
             datedCards.filter { !it.deadline.isAfter(now.plus(URGENT_WINDOW)) },

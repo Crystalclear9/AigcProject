@@ -9,7 +9,14 @@ from typing import Any
 from app.db.connection import connect
 from app.schemas.card import ActionCard, ActionCardCreate, ActionCardUpdate
 
-ARRAY_FIELDS = {"materials", "tags", "reminders", "need_confirm"}
+ARRAY_FIELDS = {
+    "dependencies",
+    "evidence_summary",
+    "materials",
+    "tags",
+    "reminders",
+    "need_confirm",
+}
 
 
 def utc_now() -> datetime:
@@ -50,6 +57,9 @@ class CardRepository:
 
         fields = [
             "id",
+            "action_id",
+            "dependencies",
+            "evidence_summary",
             "card_type",
             "title",
             "summary",
