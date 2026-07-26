@@ -24,6 +24,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -41,8 +42,12 @@ import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.suishouban.app.MainActivity
 import com.suishouban.app.R
+import com.suishouban.app.ScreenshotPreviewActivity
 import com.suishouban.app.SuiShouBanApp
-import com.suishouban.app.capture.MofeiScreenCaptureActivity
+import com.suishouban.app.capture.AccessibilityCaptureResult
+import com.suishouban.app.capture.MofeiAccessibilitySetupActivity
+import com.suishouban.app.capture.MofeiScreenshotAccessibilityService
+import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionCommand
@@ -57,7 +62,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -84,6 +91,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     private var hiddenRestore: Runnable? = null
     private var pendingNotificationDrafts: Int = 0
     private var revealedOverlayAction: MofeiAction? = null
+    private var backgroundCards: List<ActionCard> = emptyList()
 
     override val viewModelStore: ViewModelStore
         get() = overlayViewModelStore
@@ -102,6 +110,8 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // LifecycleService dispatches service lifecycle events from the superclass implementation.
+        super.onStartCommand(intent, flags, startId)
         // Both start and update intents may carry the latest state snapshot from AppViewModel.
         intent?.toMascotState()?.let { currentMascotState = it }
         when (intent?.action) {
@@ -161,10 +171,19 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         }
         serviceScope.launch {
             app.cardRepository.observeAll().collect { cards ->
-                val cardState = resolver.resolve(cards = cards, workflowStatus = null)
-                // Persisted deadlines are authoritative while the app is backgrounded. Preserve
-                // ephemeral focus/confirmation/completion state when there is no timed card.
-                if (cardState.mood in CARD_BACKED_MOODS) updateMascotState(cardState)
+                backgroundCards = cards
+                refreshBackgroundCardState()
+            }
+        }
+        serviceScope.launch {
+            while (isActive) {
+                delay(
+                    MascotRefreshPolicy.nextDelayMillis(
+                        deadlines = backgroundCards.map { it.deadline },
+                        now = java.time.Instant.now(),
+                    ),
+                )
+                refreshBackgroundCardState()
             }
         }
         serviceScope.launch {
@@ -214,6 +233,15 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         revealedOverlayAction = null
         displayMode = OverlayDisplayMode.COLLAPSED
         updateOverlayView()
+    }
+
+    private fun refreshBackgroundCardState() {
+        val cardState = resolver.resolve(cards = backgroundCards, workflowStatus = null)
+        // New cards may take ownership, and an expired owner must release its stale alert state.
+        // Otherwise preserve transient focus/confirmation/completion feedback from the app.
+        if (MascotBackgroundStatePolicy.shouldApply(currentMascotState.mood, cardState.mood)) {
+            updateMascotState(cardState)
+        }
     }
 
     private fun showExpandedPreview() {
@@ -280,13 +308,20 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         }
     }
 
-    private fun createMascotContent(): View = ComposeView(this).apply {
-        setContent {
-            val mascot = currentMascotState
-            MaterialTheme {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    if (displayMode == OverlayDisplayMode.EXPANDED) {
-                        val settings = settingsRepository.settings.value
+    private fun createMascotContent(): View {
+        // This WindowManager view is rebuilt whenever service state changes. Capture one coherent
+        // snapshot here instead of reading non-Compose StateFlow values during composition.
+        val mascot = currentMascotState
+        val mode = displayMode
+        val dockSide = placement.dockSide
+        val settings = settingsRepository.settings.value
+        val notificationDraftCount = pendingNotificationDrafts
+        val actionPreview = revealedOverlayAction
+        return ComposeView(this).apply {
+            setContent {
+                MaterialTheme {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (mode == OverlayDisplayMode.EXPANDED) {
                         val items = MofeiActionCoordinator().actionsFor(
                             MofeiSurface.OVERLAY,
                             MofeiCapabilityState(
@@ -294,7 +329,8 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                                 notificationAccessGranted = MofeiPermissionState.notificationAccessGranted(this@MascotOverlayService),
                                 notificationDraftsEnabled = settings.mofeiNotificationDraftsEnabled,
                                 latestScreenshotAvailable = true,
-                                pendingNotificationDrafts = pendingNotificationDrafts,
+                                pendingNotificationDrafts = notificationDraftCount,
+                                currentActionCardAvailable = !mascot.actionCardId.isNullOrBlank(),
                             ),
                         )
                         MofeiActionRing(
@@ -304,9 +340,9 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                             reduceMotion = settings.reduceMascotMotion,
                             onAction = ::executeOverlayAction,
                             onDismiss = ::showCollapsedOverlay,
-                            revealedActionOverride = revealedOverlayAction,
+                            revealedActionOverride = actionPreview,
                             onActionPreview = ::previewOverlayAction,
-                            dockSide = placement.dockSide,
+                            dockSide = dockSide,
                             modifier = Modifier.size(
                                 MofeiSideArcGeometry.WIDTH_DP.dp,
                                 MofeiSideArcGeometry.HEIGHT_DP.dp,
@@ -315,12 +351,12 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                     }
                     MofeiVisual(
                         state = mascot,
-                        modifier = if (displayMode == OverlayDisplayMode.COLLAPSED) {
+                        modifier = if (mode == OverlayDisplayMode.COLLAPSED) {
                             Modifier.size(MofeiSideArcGeometry.MASCOT_SIZE_DP.dp)
                         } else {
                             Modifier
                                 .align(
-                                    if (placement.dockSide == OverlayDockSide.LEFT) {
+                                    if (dockSide == OverlayDockSide.LEFT) {
                                         Alignment.CenterStart
                                     } else {
                                         Alignment.CenterEnd
@@ -328,8 +364,9 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                                 )
                                 .size(MofeiSideArcGeometry.MASCOT_SIZE_DP.dp)
                         },
-                        reduceMotion = settingsRepository.settings.value.reduceMascotMotion,
+                        reduceMotion = settings.reduceMascotMotion,
                     )
+                    }
                 }
             }
         }
@@ -364,17 +401,16 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
 
     private fun executeOverlayAction(action: MofeiAction) {
         val command = controller.commandForAction(action, currentMascotState.actionCardId)
-        val intent = when (command) {
-            MofeiActionCommand.RequestScreenCapture -> MofeiScreenCaptureActivity.intent(
-                this,
-                restoreOverlayAfter = true,
-            )
-            else -> Intent(this, MainActivity::class.java).apply {
-                this.action = ACTION_OPEN_MOFEI_ACTION
-                putExtra(EXTRA_MOFEI_ACTION, action.name)
-                putExtra(EXTRA_ACTION_CARD_ID, currentMascotState.actionCardId)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
+        if (command == MofeiActionCommand.RequestScreenCapture) {
+            executeAccessibilityScreenshot()
+            return
+        }
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            this.action = ACTION_OPEN_MOFEI_ACTION
+            putExtra(EXTRA_MOFEI_ACTION, action.name)
+            putExtra(EXTRA_ACTION_CARD_ID, currentMascotState.actionCardId)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         val pending = PendingIntent.getActivity(
             this,
@@ -382,17 +418,90 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        if (command == MofeiActionCommand.RequestScreenCapture) {
-            // Keep Mofei out of captured pixels. Consent/preview restores it on every exit path.
+        runCatching { pending.send() }
+            .onFailure { showActionFallback("无法打开" + actionFallbackLabel(action) + "，请进入随手办重试") }
+        showCollapsedOverlay()
+    }
+
+    private fun executeAccessibilityScreenshot() {
+        val plan = MofeiOverlayCapturePlan.begin(
+            apiLevel = Build.VERSION.SDK_INT,
+            accessibilityConnected = MofeiScreenshotAccessibilityService.isConnected(),
+        )
+        if (plan.removeOverlay) {
+            // Both controls and Mofei must be detached before Android samples the display.
             removeControls()
             removeOverlay()
         }
-        runCatching { pending.send() }
-            .onFailure { showActionFallback("无法打开" + actionFallbackLabel(action) + "，请进入随手办重试") }
-            .onFailure {
-                if (command == MofeiActionCommand.RequestScreenCapture && canShowOverlay()) showCollapsedOverlay()
+
+        when (plan.start) {
+            MofeiOverlayCaptureStart.CAPTURE_ACCESSIBILITY -> {
+                // WindowManager removal is asynchronous; one short frame delay keeps Mofei out.
+                mainHandler.postDelayed(::requestAccessibilityScreenshot, SCREENSHOT_SETTLE_MILLIS)
             }
-        if (command != MofeiActionCommand.RequestScreenCapture) showCollapsedOverlay()
+            MofeiOverlayCaptureStart.OPEN_ACCESSIBILITY_SETUP -> openAccessibilitySetup()
+            MofeiOverlayCaptureStart.SHOW_UNSUPPORTED -> {
+                showCaptureFailure("当前 Android 版本不支持墨斐直接截屏")
+            }
+        }
+    }
+
+    private fun requestAccessibilityScreenshot() {
+        val started = MofeiScreenshotAccessibilityService.requestScreenshot { result ->
+            // Accessibility callbacks run on the capture executor; WindowManager and Activities
+            // must be touched from the service main thread.
+            mainHandler.post {
+                when (MofeiOverlayCapturePlan.finish(result is AccessibilityCaptureResult.Success)) {
+                    MofeiOverlayCaptureFinish.OPEN_PREVIEW ->
+                        openScreenshotPreview((result as AccessibilityCaptureResult.Success).uri)
+                    MofeiOverlayCaptureFinish.RESTORE_AND_REPORT_ERROR ->
+                        showCaptureFailure((result as AccessibilityCaptureResult.Failure).message)
+                }
+            }
+        }
+        if (!started) openAccessibilitySetup()
+    }
+
+    private fun openScreenshotPreview(uri: Uri) {
+        val intent = ScreenshotPreviewActivity.captureIntent(
+            context = this,
+            uri = uri,
+            restoreOverlayAfterCapture = true,
+        ).addFlags(
+            Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS,
+        )
+        runCatching {
+            PendingIntent.getActivity(
+                this,
+                SCREENSHOT_PREVIEW_REQUEST_CODE,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ).send()
+        }.onFailure {
+            runCatching { contentResolver.delete(uri, null, null) }
+            showCaptureFailure("无法打开截屏识别预览，请重试")
+        }
+    }
+
+    private fun openAccessibilitySetup() {
+        runCatching {
+            PendingIntent.getActivity(
+                this,
+                ACCESSIBILITY_SETUP_REQUEST_CODE,
+                MofeiAccessibilitySetupActivity.intent(this),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ).send()
+        }.onFailure {
+            showCaptureFailure("无法打开一键截屏设置，请进入系统无障碍设置")
+        }
+    }
+
+    private fun showCaptureFailure(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        showActionFallback(message)
+        if (canShowOverlay()) showCollapsedOverlay()
     }
 
     /** Rebuilds the WindowManager-hosted composition so OEM lifecycle quirks cannot hide feedback. */
@@ -414,7 +523,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     private fun actionFallbackLabel(action: MofeiAction): String = when (action) {
-        MofeiAction.CAPTURE_CURRENT_SCREEN -> "当前屏幕识别"
+        MofeiAction.CAPTURE_CURRENT_SCREEN -> "截屏"
         MofeiAction.ANALYZE_LATEST_SCREENSHOT -> "最近截图"
         MofeiAction.REVIEW_NOTIFICATION_DRAFTS -> "通知草稿"
         MofeiAction.OPEN_CURRENT_CARD -> "当前事项"
@@ -731,8 +840,9 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         private const val ONE_HOUR_MILLIS = 60 * 60 * 1_000L
         private const val LONG_PRESS_TIMEOUT_MILLIS = 550L
         private const val TOUCH_SLOP_PX = 12f
-        private val CARD_BACKED_MOODS = setOf(MascotMood.REMINDER, MascotMood.DUE_SOON, MascotMood.URGENT)
-
+        private const val SCREENSHOT_SETTLE_MILLIS = 180L
+        private const val SCREENSHOT_PREVIEW_REQUEST_CODE = 4090
+        private const val ACCESSIBILITY_SETUP_REQUEST_CODE = 4091
         /**
          * Task 5 calls this only from a foreground user gesture after the Settings permission
          * screen returns. The service performs the permission and opt-in checks again defensively.

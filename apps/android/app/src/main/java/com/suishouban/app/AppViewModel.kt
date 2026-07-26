@@ -15,6 +15,7 @@ import com.suishouban.app.domain.ocr.OcrCandidate
 import com.suishouban.app.domain.ocr.OcrRaceController
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import com.suishouban.app.mascot.MascotCompletionEvent
+import com.suishouban.app.mascot.MascotRefreshPolicy
 import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.mascot.MascotStateResolver
 import com.suishouban.app.notification.NotificationCandidateUiModel
@@ -24,6 +25,7 @@ import java.time.ZoneOffset
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
@@ -98,6 +101,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var restoreWorkflowJob: Job? = null
     private val mascotResolver = MascotStateResolver()
     private val _mascotCompletionEvent = MutableStateFlow<MascotCompletionEvent?>(null)
+    private val _mascotRefreshTick = MutableStateFlow(0L)
     private val _mascotInteractions = MutableSharedFlow<MascotCompletionEvent>(extraBufferCapacity = 1)
     private var notificationDraftAssociation: NotificationDraftAssociation? = null
 
@@ -115,7 +119,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * A single state stream feeds both the in-app companion and the system overlay. Completion is
      * deliberately an event instead of a persisted card property, so it cannot mask urgent work.
      */
-    val mascotState: StateFlow<MascotState> = combine(_uiState, _mascotCompletionEvent) { state, completion ->
+    val mascotState: StateFlow<MascotState> = combine(
+        _uiState,
+        _mascotCompletionEvent,
+        _mascotRefreshTick,
+    ) { state, completion, _ ->
         mascotResolver.resolve(
             cards = state.cards,
             draftCards = state.draftCards,
@@ -133,6 +141,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch { notificationCandidateRepository.deleteExpired() }
+        viewModelScope.launch {
+            while (isActive) {
+                val delayMillis = MascotRefreshPolicy.nextDelayMillis(
+                    deadlines = _uiState.value.cards.map { it.deadline },
+                    now = Instant.now(),
+                )
+                delay(delayMillis)
+                // Time alone can cross a DDL; emit even when Room and workflow data are unchanged.
+                _mascotRefreshTick.update { it + 1L }
+            }
+        }
         viewModelScope.launch {
             // Keep the system overlay current even after the activity composition stops collecting.
             mascotState.collect(app.mascotStateStore::update)

@@ -5,6 +5,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.schemas.card import AnalyzeScreenshotTextRequest, AnalyzeScreenshotTextResponse
 from app.services.analyzer import analyze_screenshot_image, analyze_screenshot_text
 from app.core.config import settings
+from app.api.uploads import read_limited_upload
 
 router = APIRouter()
 
@@ -31,11 +32,10 @@ async def analyze_image(
     if content_type and content_type not in {"image/jpeg", "image/jpg", "image/png", "image/bmp"}:
         raise HTTPException(status_code=415, detail="只支持 jpg、png、bmp 图片")
 
-    image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="图片为空")
-    if len(image_bytes) > settings.max_upload_image_bytes:
-        raise HTTPException(status_code=413, detail="图片超过上传大小限制")
+    image_bytes = await read_limited_upload(
+        image,
+        max_bytes=settings.max_upload_image_bytes,
+    )
 
     response = await analyze_screenshot_image(image_bytes, screenshot_time)
     if response.pending_action == "provide_ocr_text":
