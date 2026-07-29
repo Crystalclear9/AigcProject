@@ -61,28 +61,36 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.suishouban.app.data.local.AppDatabase
+import com.suishouban.app.data.local.IntakeSessionEntity
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.ui.components.DraftEditor
 import com.suishouban.app.ui.components.PreviewActionsCard
+import com.suishouban.app.ui.components.formatSmartTime
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.visualForPriority
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import androidx.compose.ui.graphics.Color as ComposeColor
+import java.time.OffsetDateTime
+import java.util.UUID
+import kotlinx.coroutines.launch
 
 class ScreenshotPreviewActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private var privateCaptureUri: Uri? = null
     private var restoreOverlayAfterCapture = false
+    private var intakeSessionId: String? = null
+    private var sessionFinished = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         configureFloatingWindow()
-        viewModel.beginFreshScreenshotPrompt()
-
         val incomingIntent = intent
         val fromPrivateCapture = isTrustedPrivateCapture(incomingIntent)
         if (fromPrivateCapture) privateCaptureUri = incomingIntent.data
@@ -100,6 +108,25 @@ class ScreenshotPreviewActivity : ComponentActivity() {
             return
         }
         val screenshotUri = sourceIntent.data
+        val intakeSessionId = sourceIntent.getStringExtra(EXTRA_INTAKE_SESSION_ID)
+            ?: UUID.randomUUID().toString()
+        this.intakeSessionId = intakeSessionId
+        viewModel.beginFreshScreenshotPrompt(intakeSessionId)
+        lifecycleScope.launch {
+            val now = OffsetDateTime.now().toString()
+            AppDatabase.get(this@ScreenshotPreviewActivity).workflowDao().upsertIntake(
+                IntakeSessionEntity(
+                    id = intakeSessionId,
+                    sourceKind = if (fromPrivateCapture) "external_mofei_screenshot" else "screenshot",
+                    sourceUri = screenshotUri?.toString(),
+                    workspaceType = "personal",
+                    status = "reviewing",
+                    workflowRunId = null,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
         val ocrText = sourceIntent.getStringExtra(EXTRA_OCR_TEXT)
             ?: ScreenshotMonitorService.consumePendingOcrText(sourceIntent.getStringExtra(EXTRA_OCR_TOKEN))
             ?: sourceIntent.getStringExtra(EXTRA_OCR_TEXT_BASE64)?.let(::decodeUtf8Base64)
@@ -159,8 +186,19 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                     onSelectAll = viewModel::selectAllDrafts,
                     onRefineWithAi = viewModel::refineDraftWithAi,
                     onManualAdd = viewModel::addManualDraftFromCurrentText,
-                    onConfirm = { viewModel.confirmDrafts { finish() } },
-                    onIgnore = { viewModel.ignoreScreenshotWorkflow { finish() } },
+                    onConfirm = {
+                        viewModel.confirmDrafts {
+                            sessionFinished = true
+                            finish()
+                        }
+                    },
+                    onIgnore = {
+                        viewModel.ignoreScreenshotWorkflow {
+                            sessionFinished = true
+                            markSessionTerminal("ignored")
+                            finish()
+                        }
+                    },
                 )
             }
         }
@@ -200,14 +238,21 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
         const val EXTRA_OCR_TOKEN = "com.suishouban.app.extra.OCR_TOKEN"
+        const val EXTRA_INTAKE_SESSION_ID = "com.suishouban.app.extra.INTAKE_SESSION_ID"
 
         /** Explicit and non-exported; only private FileProvider capture URIs are accepted. */
-        fun captureIntent(context: Context, uri: Uri, restoreOverlayAfterCapture: Boolean = false): Intent =
+        fun captureIntent(
+            context: Context,
+            uri: Uri,
+            restoreOverlayAfterCapture: Boolean = false,
+            intakeSessionId: String = UUID.randomUUID().toString(),
+        ): Intent =
             Intent(context, ScreenshotPreviewActivity::class.java).apply {
                 action = ACTION_CAPTURE_PREVIEW
                 data = uri
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 putExtra(EXTRA_RESTORE_OVERLAY_AFTER_CAPTURE, restoreOverlayAfterCapture)
+                putExtra(EXTRA_INTAKE_SESSION_ID, intakeSessionId)
             }
 
         private fun Context.isTrustedPrivateCapture(source: Intent?): Boolean {
@@ -221,6 +266,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (!isChangingConfigurations) {
+            if (!sessionFinished) markSessionTerminal("cancelled")
             // FileProvider owns this app-private cache URI; system MediaStore screenshots are untouched.
             privateCaptureUri?.let { uri -> runCatching { contentResolver.delete(uri, null, null) } }
             privateCaptureUri = null
@@ -230,6 +276,18 @@ class ScreenshotPreviewActivity : ComponentActivity() {
             }
         }
         super.onDestroy()
+    }
+
+    private fun markSessionTerminal(status: String) {
+        val id = intakeSessionId ?: return
+        (application as SuiShouBanApp).applicationScope.launch {
+            AppDatabase.get(this@ScreenshotPreviewActivity).workflowDao().updateIntakeStatus(
+                id = id,
+                status = status,
+                workflowRunId = null,
+                updatedAt = OffsetDateTime.now().toString(),
+            )
+        }
     }
 }
 
@@ -427,11 +485,15 @@ private fun DraftPane(
             items(state.draftCards, key = { it.id }) { card ->
                 val selected = card.id in state.selectedDraftIds
                 val candidateInfo = state.actionCandidates.firstOrNull { it.card.id == card.id }
+                val priorityVisual = visualForPriority(card.priority)
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = ComposeColor.White,
+                    color = priorityVisual.container,
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, if (selected) BrandBlue.copy(alpha = 0.42f) else Line),
+                    border = BorderStroke(
+                        if (selected) 2.dp else 1.dp,
+                        if (selected) priorityVisual.accent else priorityVisual.accent.copy(alpha = 0.34f),
+                    ),
                     shadowElevation = if (selected) 6.dp else 1.dp,
                 ) {
                     Column(
@@ -443,7 +505,11 @@ private fun DraftPane(
                             Column(Modifier.weight(1f)) {
                                 Text(card.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    text = listOfNotNull(card.deadline ?: card.startTime, card.location, card.submitMethod)
+                                    text = listOfNotNull(
+                                        formatSmartTime(card.deadline ?: card.startTime),
+                                        card.location,
+                                        card.submitMethod,
+                                    )
                                         .joinToString(" · ")
                                         .ifBlank { "需要确认字段后创建" },
                                     style = MaterialTheme.typography.bodySmall,
@@ -454,6 +520,17 @@ private fun DraftPane(
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                color = priorityVisual.accent.copy(alpha = 0.13f),
+                                shape = RoundedCornerShape(999.dp),
+                            ) {
+                                Text(
+                                    text = priorityVisual.label,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = priorityVisual.content,
+                                )
+                            }
                             Surface(
                                 color = BrandBlue.copy(alpha = 0.10f),
                                 shape = RoundedCornerShape(999.dp),
@@ -684,6 +761,26 @@ private fun AiRefinementCard(
 
 @Composable
 private fun EvidenceSummary(state: AppUiState) {
+    val scene = state.screenshotScenarioType?.let { scenarioLabel(it) }
+    val confidence = state.screenshotConfidenceBand?.let { confidenceLabel(it) }
+    val enhancementBadges = buildList {
+        when (state.modelEnhancementStatus) {
+            "succeeded" -> add("\u4e91\u7aef\u6a21\u578b\u5df2\u53c2\u4e0e")
+            "degraded" -> add("\u4e91\u7aef\u589e\u5f3a\u5df2\u964d\u7ea7")
+            "attempted" -> add("\u7b49\u5f85\u4e91\u7aef\u589e\u5f3a")
+        }
+        when (state.ocrEnhancementStatus) {
+            "succeeded" -> add("vivo OCR \u5df2\u53c2\u4e0e")
+            "degraded" -> add("vivo OCR \u5df2\u964d\u7ea7")
+        }
+    }
+    val evidenceItems = state.screenshotPrimaryEvidence
+        .filter(String::isNotBlank)
+        .take(3)
+    if (scene == null && confidence == null && enhancementBadges.isEmpty() && evidenceItems.isEmpty()) {
+        return
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = BrandBlue.copy(alpha = 0.08f),
@@ -694,19 +791,6 @@ private fun EvidenceSummary(state: AppUiState) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val scene = state.screenshotScenarioType?.let { scenarioLabel(it) }
-            val confidence = state.screenshotConfidenceBand?.let { confidenceLabel(it) }
-            val enhancementBadges = buildList {
-                when (state.modelEnhancementStatus) {
-                    "succeeded" -> add("\u4e91\u7aef\u6a21\u578b\u5df2\u53c2\u4e0e")
-                    "degraded" -> add("\u4e91\u7aef\u589e\u5f3a\u5df2\u964d\u7ea7")
-                    "attempted" -> add("\u7b49\u5f85\u4e91\u7aef\u589e\u5f3a")
-                }
-                when (state.ocrEnhancementStatus) {
-                    "succeeded" -> add("vivo OCR \u5df2\u53c2\u4e0e")
-                    "degraded" -> add("vivo OCR \u5df2\u964d\u7ea7")
-                }
-            }
             if (enhancementBadges.isNotEmpty()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -743,20 +827,13 @@ private fun EvidenceSummary(state: AppUiState) {
                     )
                 }
             }
-            state.screenshotPrimaryEvidence.take(3).forEach { evidence ->
+            evidenceItems.forEach { evidence ->
                 Text(
                     text = "• $evidence",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                )
-            }
-            state.ocrArbitrationReason?.let {
-                Text(
-                    text = "OCR: $it",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

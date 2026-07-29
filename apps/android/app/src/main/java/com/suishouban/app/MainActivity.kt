@@ -52,7 +52,8 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.data.repository.LatestScreenshotRepository
-import com.suishouban.app.capture.MofeiScreenCaptureActivity
+import com.suishouban.app.capture.InAppScreenshotCapture
+import com.suishouban.app.capture.InAppScreenshotResult
 import com.suishouban.app.capture.ScreenCaptureImageWriter
 import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
@@ -70,6 +71,7 @@ import com.suishouban.app.ui.screens.CalendarScreen
 import com.suishouban.app.ui.screens.CardsScreen
 import com.suishouban.app.ui.screens.HomeScreen
 import com.suishouban.app.ui.screens.ImportScreen
+import com.suishouban.app.ui.screens.OnboardingScreen
 import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
 import com.suishouban.app.ui.theme.BrandBlue
@@ -77,6 +79,7 @@ import com.suishouban.app.ui.theme.MistBlue
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -84,6 +87,7 @@ import kotlinx.coroutines.launch
 private data class OverlayNavigation(
     val actionCardId: String? = null,
     val mofeiAction: MofeiAction? = null,
+    val destinationRoute: String? = null,
     val requestId: Long = 0L,
 )
 
@@ -102,6 +106,14 @@ class MainActivity : ComponentActivity() {
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                val systemReduceMotion = remember {
+                    Settings.Global.getFloat(
+                        contentResolver,
+                        Settings.Global.ANIMATOR_DURATION_SCALE,
+                        1f,
+                    ) == 0f
+                }
+                val reduceMotion = state.settings.reduceMascotMotion || systemReduceMotion
                 val mascotState by viewModel.mascotState.collectAsStateWithLifecycle()
                 val notificationCandidates by viewModel.notificationCandidates.collectAsStateWithLifecycle()
                 val pendingNotificationCandidates by viewModel.pendingNotificationCandidateCount.collectAsStateWithLifecycle()
@@ -177,9 +189,23 @@ class MainActivity : ComponentActivity() {
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                         MofeiActionCommand.LaunchCamera -> launchCameraCapture()
-                        MofeiActionCommand.RequestScreenCapture -> startActivity(
-                            MofeiScreenCaptureActivity.intent(this@MainActivity),
-                        )
+                        MofeiActionCommand.RequestScreenCapture -> actionScope.launch {
+                            // Let the action ring collapse before taking one app-window screenshot.
+                            delay(IN_APP_SCREENSHOT_SETTLE_MILLIS)
+                            when (val result = InAppScreenshotCapture.capture(this@MainActivity)) {
+                                is InAppScreenshotResult.Success -> startActivity(
+                                    ScreenshotPreviewActivity.captureIntent(
+                                        context = this@MainActivity,
+                                        uri = result.uri,
+                                    ),
+                                )
+                                is InAppScreenshotResult.Failure -> Toast.makeText(
+                                    this@MainActivity,
+                                    result.message,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
                         MofeiActionCommand.OpenLatestScreenshot -> actionScope.launch {
                             val uri = latestScreenshotRepository.findLatest()
                             latestScreenshotUri = uri
@@ -253,6 +279,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(requestedOverlayNavigation.requestId) {
+                    requestedOverlayNavigation.destinationRoute?.let { current = it }
                     requestedOverlayNavigation.mofeiAction?.let { action ->
                         executeMofeiCommand(
                             MofeiActionCommand.forAction(action, requestedOverlayNavigation.actionCardId),
@@ -260,6 +287,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                Box(Modifier.fillMaxSize()) {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -310,6 +338,11 @@ class MainActivity : ComponentActivity() {
                                         if (hasCards) current = Screen.Preview.route
                                     }
                                 },
+                                onPickFiles = { uris ->
+                                    viewModel.analyzeFiles(uris) { hasCards ->
+                                        if (hasCards) current = Screen.Preview.route
+                                    }
+                                },
                                 onAnalyzeText = { text ->
                                     viewModel.analyzeText(text) { hasCards ->
                                         if (hasCards) current = Screen.Preview.route
@@ -322,6 +355,8 @@ class MainActivity : ComponentActivity() {
                                 state = state,
                                 onUpdateDraft = viewModel::updateDraft,
                                 onRemoveDraft = viewModel::removeDraft,
+                                onToggleDraftSelection = viewModel::toggleDraftSelection,
+                                onSelectAllDrafts = viewModel::selectAllDrafts,
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
@@ -346,6 +381,8 @@ class MainActivity : ComponentActivity() {
                                 mascotState = mascotState,
                                 notificationAccessGranted = notificationAccessGranted,
                                 notificationApps = notificationApps,
+                                onClearInferredProfile = viewModel::clearInferredProfile,
+                                onResetUserProfile = viewModel::resetUserProfile,
                                 onOpenNotificationAccessSettings = {
                                     runCatching {
                                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -390,7 +427,14 @@ class MainActivity : ComponentActivity() {
                         }
                         // Resident in-app pet: always visible (no permission), above content and below
                         // the navigation bar. Distinct from the simpler system-edge capsule overlay.
-                        if (state.settings.mascotInAppEnabled) {
+                        // Home already has a full-size, animated Mofei in its hero. Rendering the
+                        // draggable companion there as well obscures the workflow strip on common
+                        // phone sizes. Keep the companion available on every working screen.
+                        if (
+                            state.settings.onboardingSeen &&
+                            state.settings.mascotInAppEnabled &&
+                            current != Screen.Home.route
+                        ) {
                             FloatingMascot(
                                 state = mascotState,
                                 dockSide = if (state.settings.mascotDockSide == "left") {
@@ -399,7 +443,7 @@ class MainActivity : ComponentActivity() {
                                     OverlayDockSide.RIGHT
                                 },
                                 verticalFraction = state.settings.mascotVerticalFraction,
-                                reduceMotion = state.settings.reduceMascotMotion,
+                                reduceMotion = reduceMotion,
                                 completionSignal = celebrationSignal,
                                 onOpenCurrentAction = { cardId ->
                                     overlayNavigation.value = OverlayNavigation(
@@ -438,6 +482,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
+                if (!state.settings.onboardingSeen) {
+                    OnboardingScreen(
+                        settings = state.settings,
+                        reduceMotion = reduceMotion,
+                        onSkip = viewModel::skipOnboarding,
+                        onComplete = viewModel::completeOnboardingQuestionnaire,
+                    )
+                }
                 }
             }
         }
@@ -538,6 +591,15 @@ class MainActivity : ComponentActivity() {
 
     /** Overlay navigation is intentionally constrained to the existing Cards route and a card ID. */
     private fun handleOverlayNavigationIntent(source: Intent?) {
+        if (source?.action == MascotOverlayService.ACTION_OPEN_HOME) {
+            overlayNavigation.value = OverlayNavigation(
+                actionCardId = null,
+                mofeiAction = null,
+                requestId = System.currentTimeMillis(),
+                destinationRoute = Screen.Home.route,
+            )
+            return
+        }
         if (source?.action != MascotOverlayService.ACTION_OPEN_CURRENT &&
             source?.action != MascotOverlayService.ACTION_OPEN_MOFEI_ACTION
         ) return
@@ -558,6 +620,7 @@ class MainActivity : ComponentActivity() {
 
 private const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
 private const val CAPTURE_CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
+private const val IN_APP_SCREENSHOT_SETTLE_MILLIS = 180L
 
 private sealed class Screen(
     val route: String,

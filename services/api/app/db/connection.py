@@ -66,10 +66,52 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
         "evidence_summary": (
             "ALTER TABLE cards ADD COLUMN evidence_summary TEXT NOT NULL DEFAULT '[]'"
         ),
+        "priority_mode": (
+            "ALTER TABLE cards ADD COLUMN priority_mode TEXT NOT NULL DEFAULT 'adaptive'"
+        ),
+        "priority_score": (
+            "ALTER TABLE cards ADD COLUMN priority_score REAL NOT NULL DEFAULT 50"
+        ),
+        "priority_reason": (
+            "ALTER TABLE cards ADD COLUMN priority_reason TEXT NOT NULL DEFAULT ''"
+        ),
+        "priority_updated_at": "ALTER TABLE cards ADD COLUMN priority_updated_at TEXT",
+        "priority_locked": (
+            "ALTER TABLE cards ADD COLUMN priority_locked INTEGER NOT NULL DEFAULT 0"
+        ),
+        "workspace_type": (
+            "ALTER TABLE cards ADD COLUMN workspace_type TEXT NOT NULL DEFAULT 'personal'"
+        ),
+        "workspace_id": (
+            "ALTER TABLE cards ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'personal'"
+        ),
+        "assignee_id": "ALTER TABLE cards ADD COLUMN assignee_id TEXT",
+        "participant_ids": (
+            "ALTER TABLE cards ADD COLUMN participant_ids TEXT NOT NULL DEFAULT '[]'"
+        ),
+        "deliverables": (
+            "ALTER TABLE cards ADD COLUMN deliverables TEXT NOT NULL DEFAULT '[]'"
+        ),
+        "source_session_id": "ALTER TABLE cards ADD COLUMN source_session_id TEXT",
     }
     for column, statement in migrations.items():
         if column not in existing_columns:
             conn.execute(statement)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS intake_sessions (
+            id TEXT PRIMARY KEY,
+            workflow_run_id TEXT,
+            source_kind TEXT NOT NULL,
+            workspace_type TEXT NOT NULL,
+            classification TEXT NOT NULL,
+            should_create_cards INTEGER NOT NULL,
+            state_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
 
 
 def init_db() -> None:

@@ -78,7 +78,25 @@ class Settings:
         "true",
         "yes",
     }
+    enable_workflow_harness: bool = os.getenv(
+        "ENABLE_WORKFLOW_HARNESS",
+        "false",
+    ).lower() in {"1", "true", "yes"}
+    otel_exporter_otlp_endpoint: str = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "",
+    )
+    otel_service_name: str = os.getenv(
+        "OTEL_SERVICE_NAME",
+        "suishouban-workflow",
+    )
     max_upload_image_bytes: int = int(os.getenv("MAX_UPLOAD_IMAGE_BYTES", str(5 * 1024 * 1024)))
+    max_refinement_file_bytes: int = int(
+        os.getenv("MAX_REFINEMENT_FILE_BYTES", str(15 * 1024 * 1024))
+    )
+    max_refinement_total_bytes: int = int(
+        os.getenv("MAX_REFINEMENT_TOTAL_BYTES", str(40 * 1024 * 1024))
+    )
 
     @property
     def has_llm_config(self) -> bool:

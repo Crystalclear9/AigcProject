@@ -4,6 +4,45 @@ import com.google.gson.annotations.SerializedName
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.data.model.ProviderUsage
+import com.suishouban.app.data.model.ActionPlan
+import com.suishouban.app.data.model.CardAttachment
+import com.suishouban.app.data.model.PlanItem
+import com.suishouban.app.data.model.UserProfileContext
+
+data class OnboardingTurnRequestDto(
+    @SerializedName("session_id") val sessionId: String,
+    val phase: String,
+    @SerializedName("current_step") val currentStep: String,
+    val answers: Map<String, String>,
+    @SerializedName("answered_followups") val answeredFollowups: List<String>,
+    val locale: String = "zh-CN",
+    val timezone: String,
+    @SerializedName("max_followups") val maxFollowups: Int = 3,
+)
+
+data class OnboardingOptionDto(
+    val id: String,
+    val label: String,
+)
+
+data class OnboardingQuestionDto(
+    val id: String,
+    val topic: String,
+    val prompt: String,
+    val options: List<OnboardingOptionDto>,
+)
+
+data class OnboardingTurnResponseDto(
+    @SerializedName("request_id") val requestId: String,
+    @SerializedName("assistant_message") val assistantMessage: String,
+    @SerializedName("next_question") val nextQuestion: OnboardingQuestionDto? = null,
+    val mood: String = "focus",
+    @SerializedName("animation_hint") val animationHint: String = "scan",
+    val complete: Boolean = false,
+    @SerializedName("profile_patch") val profilePatch: Map<String, String> = emptyMap(),
+    @SerializedName("provider_usage") val providerUsage: Map<String, ProviderUsageDto> = emptyMap(),
+    @SerializedName("enhancement_status") val enhancementStatus: String = "not_configured",
+)
 
 data class AnalyzeScreenshotTextRequest(
     val text: String,
@@ -38,8 +77,56 @@ data class AnalyzeScreenshotTextResponse(
     @SerializedName("provider_usage") val providerUsage: Map<String, ProviderUsageDto> = emptyMap(),
     @SerializedName("model_enhancement_status") val modelEnhancementStatus: String = "not_configured",
     @SerializedName("ocr_enhancement_status") val ocrEnhancementStatus: String = "not_configured",
+    @SerializedName("ocr_quality_report") val ocrQualityReport: OcrQualityReportDto? = null,
+    @SerializedName("ocr_review_reasons") val ocrReviewReasons: List<String> = emptyList(),
     @SerializedName("image_generation_status") val imageGenerationStatus: String = "not_configured",
     @SerializedName("react_suggestions") val reactSuggestions: List<String> = emptyList(),
+)
+
+data class OcrQualityReportDto(
+    @SerializedName("quality_score") val qualityScore: Double = 0.0,
+    @SerializedName("garbled_ratio") val garbledRatio: Double = 0.0,
+    @SerializedName("completeness_score") val completenessScore: Double = 0.0,
+    @SerializedName("layout_score") val layoutScore: Double = 0.0,
+    @SerializedName("evidence_score") val evidenceScore: Double = 0.0,
+    @SerializedName("agreement_score") val agreementScore: Double = 0.0,
+    @SerializedName("duplicate_ratio") val duplicateRatio: Double = 0.0,
+    @SerializedName("noise_ratio") val noiseRatio: Double = 0.0,
+    val reasons: List<String> = emptyList(),
+) {
+    fun toDomain() = com.suishouban.app.data.model.OcrQualityReport(
+        qualityScore = qualityScore,
+        garbledRatio = garbledRatio,
+        completenessScore = completenessScore,
+        layoutScore = layoutScore,
+        evidenceScore = evidenceScore,
+        agreementScore = agreementScore,
+        duplicateRatio = duplicateRatio,
+        noiseRatio = noiseRatio,
+        reasons = reasons,
+    )
+}
+
+data class PromptEnvelopeDto(
+    val version: String = "",
+    @SerializedName("role_template") val roleTemplate: String = "action_analyst",
+    @SerializedName("user_policy") val userPolicy: String = "",
+    @SerializedName("character_count") val characterCount: Int = 0,
+)
+
+data class IntakeSessionResponseDto(
+    @SerializedName("session_id") val sessionId: String,
+    @SerializedName("workflow_run_id") val workflowRunId: String? = null,
+    @SerializedName("source_kind") val sourceKind: String = "text",
+    @SerializedName("workspace_type") val workspaceType: String = "personal",
+    val classification: String = "informational",
+    @SerializedName("classification_confidence") val classificationConfidence: Double = 0.0,
+    @SerializedName("should_create_cards") val shouldCreateCards: Boolean = false,
+    @SerializedName("canonical_text") val canonicalText: String = "",
+    val cards: List<ActionCardDto> = emptyList(),
+    @SerializedName("prompt_envelope") val promptEnvelope: PromptEnvelopeDto,
+    val warnings: List<String> = emptyList(),
+    val workflow: AnalyzeScreenshotTextResponse? = null,
 )
 
 data class WorkflowEventEnvelope(
@@ -102,6 +189,23 @@ data class OcrCandidateRequest(
     val text: String,
     val engine: String = "mlkit",
     val confidence: Double = 0.8,
+    val blocks: List<OcrBlockDto> = emptyList(),
+    @SerializedName("arrived_at_ms") val arrivedAtMs: Long? = null,
+    @SerializedName("image_width") val imageWidth: Int? = null,
+    @SerializedName("image_height") val imageHeight: Int? = null,
+    @SerializedName("rotation_degrees") val rotationDegrees: Int = 0,
+    val variant: String = "original",
+)
+
+data class OcrBlockDto(
+    val id: String,
+    val text: String,
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+    @SerializedName("reading_order") val readingOrder: Int,
+    @SerializedName("page_index") val pageIndex: Int = 0,
 )
 
 data class ConfirmWorkflowRequest(val revision: Int)
@@ -110,6 +214,101 @@ data class WorkflowReactRequest(
     @SerializedName("base_revision") val baseRevision: Int,
     val instruction: String = "",
     @SerializedName("selected_card_ids") val selectedCardIds: List<String> = emptyList(),
+)
+
+data class CardRefinementOptionsDto(
+    val granularity: String = "balanced",
+    @SerializedName("include_milestones") val includeMilestones: Boolean = true,
+    @SerializedName("include_work_blocks") val includeWorkBlocks: Boolean = true,
+    @SerializedName("milestone_reminders") val milestoneReminders: Boolean = true,
+    @SerializedName("use_profile") val useProfile: Boolean = true,
+)
+
+data class UserProfileContextDto(
+    val version: Int,
+    val scenario: String,
+    @SerializedName("active_period") val activePeriod: String,
+    @SerializedName("planning_granularity") val planningGranularity: String,
+    @SerializedName("reminder_style") val reminderStyle: String,
+    @SerializedName("work_rhythm") val workRhythm: String,
+    @SerializedName("buffer_preference") val bufferPreference: String,
+    @SerializedName("weekend_policy") val weekendPolicy: String,
+    @SerializedName("assistant_tone") val assistantTone: String,
+    val timezone: String,
+)
+
+data class PlanItemDto(
+    val id: String,
+    @SerializedName("parent_id") val parentId: String? = null,
+    val kind: String,
+    val title: String,
+    val description: String = "",
+    val order: Int = 0,
+    @SerializedName("start_time") val startTime: String? = null,
+    val deadline: String? = null,
+    @SerializedName("estimated_minutes") val estimatedMinutes: Int? = null,
+    val importance: String = "normal",
+    val dependencies: List<String> = emptyList(),
+    @SerializedName("reminder_enabled") val reminderEnabled: Boolean = false,
+    val confidence: Double = 0.5,
+    @SerializedName("evidence_refs") val evidenceRefs: List<String> = emptyList(),
+    @SerializedName("need_confirm") val needConfirm: List<String> = emptyList(),
+    val status: String = "proposed",
+)
+
+data class CardRefinementPlanDto(
+    val id: String,
+    @SerializedName("parent_card_id") val parentCardId: String,
+    val revision: Int = 1,
+    val objective: String = "",
+    val items: List<PlanItemDto> = emptyList(),
+    val assumptions: List<String> = emptyList(),
+    @SerializedName("evidence_summary") val evidenceSummary: List<String> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    @SerializedName("generated_by") val generatedBy: String = "rules",
+    @SerializedName("profile_version") val profileVersion: Int? = null,
+    @SerializedName("quality_score") val qualityScore: Double = 0.0,
+    @SerializedName("constraint_errors") val constraintErrors: List<String> = emptyList(),
+    @SerializedName("profile_effects") val profileEffects: List<String> = emptyList(),
+    @SerializedName("verification_summary") val verificationSummary: String = "",
+    val status: String = "draft",
+)
+
+data class AttachmentDescriptorDto(
+    val id: String,
+    val name: String,
+    @SerializedName("mime_type") val mimeType: String,
+    @SerializedName("size_bytes") val sizeBytes: Long,
+    val sha256: String = "",
+    @SerializedName("extraction_status") val extractionStatus: String = "pending",
+    val warning: String? = null,
+)
+
+data class CardRefinementRunResponseDto(
+    @SerializedName("run_id") val runId: String,
+    @SerializedName("trace_id") val traceId: String,
+    val status: String,
+    @SerializedName("pending_action") val pendingAction: String? = null,
+    val plan: CardRefinementPlanDto? = null,
+    val attachments: List<AttachmentDescriptorDto> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    @SerializedName("validation_errors") val validationErrors: List<String> = emptyList(),
+    @SerializedName("provider_usage") val providerUsage: Map<String, ProviderUsageDto> = emptyMap(),
+    @SerializedName("model_enhancement_status") val modelEnhancementStatus: String = "not_configured",
+    val revision: Int = 0,
+    val error: String? = null,
+)
+
+data class CardRefinementReactRequestDto(
+    @SerializedName("base_revision") val baseRevision: Int,
+    val instruction: String,
+    @SerializedName("selected_item_ids") val selectedItemIds: List<String>,
+)
+
+data class CardRefinementConfirmRequestDto(
+    val revision: Int,
+    @SerializedName("selected_item_ids") val selectedItemIds: List<String>,
+    val items: List<PlanItemDto>? = null,
 )
 
 data class NodeTraceDto(
@@ -135,8 +334,20 @@ data class ActionCardDto(
     val materials: List<String> = emptyList(),
     @SerializedName("submit_method") val submitMethod: String? = null,
     val priority: String = "normal",
+    @SerializedName("priority_mode") val priorityMode: String = "adaptive",
+    @SerializedName("priority_score") val priorityScore: Double = 50.0,
+    @SerializedName("priority_reason") val priorityReason: String = "",
+    @SerializedName("priority_updated_at") val priorityUpdatedAt: String? = null,
+    @SerializedName("priority_locked") val priorityLocked: Boolean = false,
+    @SerializedName("workspace_type") val workspaceType: String = "personal",
+    @SerializedName("workspace_id") val workspaceId: String = "personal",
+    @SerializedName("assignee_id") val assigneeId: String? = null,
+    @SerializedName("participant_ids") val participantIds: List<String> = emptyList(),
+    val deliverables: List<String> = emptyList(),
+    @SerializedName("source_session_id") val sourceSessionId: String? = null,
     val tags: List<String> = emptyList(),
     val reminders: List<String> = emptyList(),
+    @SerializedName("reminder_nodes") val reminderNodes: List<ReminderNodeDto> = emptyList(),
     @SerializedName("need_confirm") val needConfirm: List<String> = emptyList(),
     val status: String = "draft",
     @SerializedName("source_text") val sourceText: String = "",
@@ -158,8 +369,20 @@ fun ActionCardDto.toDomain(): ActionCard = ActionCard(
     materials = materials,
     submitMethod = submitMethod,
     priority = priority,
+    priorityMode = priorityMode,
+    priorityScore = priorityScore,
+    priorityReason = priorityReason,
+    priorityUpdatedAt = priorityUpdatedAt,
+    priorityLocked = priorityLocked,
+    workspaceType = workspaceType,
+    workspaceId = workspaceId,
+    assigneeId = assigneeId,
+    participantIds = participantIds,
+    deliverables = deliverables,
+    sourceSessionId = sourceSessionId,
     tags = tags,
     reminders = reminders,
+    reminderNodes = reminderNodes.map { it.toDomain() },
     needConfirm = needConfirm,
     status = status,
     sourceText = sourceText,
@@ -181,12 +404,74 @@ fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
     materials = materials,
     submitMethod = submitMethod,
     priority = priority,
+    priorityMode = priorityMode,
+    priorityScore = priorityScore,
+    priorityReason = priorityReason,
+    priorityUpdatedAt = priorityUpdatedAt,
+    priorityLocked = priorityLocked,
+    workspaceType = workspaceType,
+    workspaceId = workspaceId,
+    assigneeId = assigneeId,
+    participantIds = participantIds,
+    deliverables = deliverables,
+    sourceSessionId = sourceSessionId,
     tags = tags,
     reminders = reminders,
+    reminderNodes = reminderNodes.map { it.toDto() },
     needConfirm = needConfirm,
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+)
+
+data class ReminderNodeDto(
+    val id: String,
+    val mode: String = "relative",
+    @SerializedName("absolute_time") val absoluteTime: String? = null,
+    @SerializedName("offset_minutes") val offsetMinutes: Long? = null,
+    val enabled: Boolean = true,
+    val source: String = "user",
+    val revision: Int = 0,
+    @SerializedName("legacy_label") val legacyLabel: String? = null,
+)
+
+private fun ReminderNodeDto.toDomain() = com.suishouban.app.data.model.ReminderNode(
+    id = id,
+    mode = mode,
+    absoluteTime = absoluteTime,
+    offsetMinutes = offsetMinutes,
+    enabled = enabled,
+    source = source,
+    revision = revision,
+    legacyLabel = legacyLabel,
+)
+
+private fun com.suishouban.app.data.model.ReminderNode.toDto() = ReminderNodeDto(
+    id = id,
+    mode = mode,
+    absoluteTime = absoluteTime,
+    offsetMinutes = offsetMinutes,
+    enabled = enabled,
+    source = source,
+    revision = revision,
+    legacyLabel = legacyLabel,
+)
+
+data class CardReplanRequestDto(
+    @SerializedName("changed_fields") val changedFields: List<String>,
+    @SerializedName("priority_mode") val priorityMode: String? = null,
+    @SerializedName("manual_priority") val manualPriority: String? = null,
+    val importance: Double = 0.5,
+    @SerializedName("estimated_minutes") val estimatedMinutes: Int? = null,
+    @SerializedName("blocked_dependents") val blockedDependents: Int = 0,
+    @SerializedName("team_impact") val teamImpact: Double = 0.0,
+)
+
+data class CardReplanResponseDto(
+    val card: ActionCardDto,
+    val changed: Boolean,
+    @SerializedName("verification_summary") val verificationSummary: String = "",
+    val warnings: List<String> = emptyList(),
 )
 
 fun ProviderUsageDto.toDomain(): ProviderUsage = ProviderUsage(
@@ -198,6 +483,88 @@ fun ProviderUsageDto.toDomain(): ProviderUsage = ProviderUsage(
     latencyMs = latencyMs,
     circuitOpen = circuitOpen,
 )
+
+fun UserProfileContext.toDto(): UserProfileContextDto = UserProfileContextDto(
+    version = version,
+    scenario = scenario,
+    activePeriod = activePeriod,
+    planningGranularity = planningGranularity,
+    reminderStyle = reminderStyle,
+    workRhythm = workRhythm,
+    bufferPreference = bufferPreference,
+    weekendPolicy = weekendPolicy,
+    assistantTone = assistantTone,
+    timezone = timezone,
+)
+
+fun PlanItemDto.toDomain(): PlanItem = PlanItem(
+    id = id,
+    parentId = parentId,
+    kind = kind,
+    title = title,
+    description = description,
+    order = order,
+    startTime = startTime,
+    deadline = deadline,
+    estimatedMinutes = estimatedMinutes,
+    importance = importance,
+    dependencies = dependencies,
+    reminderEnabled = reminderEnabled,
+    confidence = confidence,
+    evidenceRefs = evidenceRefs,
+    needConfirm = needConfirm,
+    status = status,
+)
+
+fun PlanItem.toDto(): PlanItemDto = PlanItemDto(
+    id = id,
+    parentId = parentId,
+    kind = kind,
+    title = title,
+    description = description,
+    order = order,
+    startTime = startTime,
+    deadline = deadline,
+    estimatedMinutes = estimatedMinutes,
+    importance = importance,
+    dependencies = dependencies,
+    reminderEnabled = reminderEnabled,
+    confidence = confidence,
+    evidenceRefs = evidenceRefs,
+    needConfirm = needConfirm,
+    status = status,
+)
+
+fun CardRefinementPlanDto.toDomain(): ActionPlan = ActionPlan(
+    id = id,
+    parentCardId = parentCardId,
+    revision = revision,
+    objective = objective,
+    assumptions = assumptions,
+    evidenceSummary = evidenceSummary,
+    warnings = warnings,
+    generatedBy = generatedBy,
+    profileVersion = profileVersion,
+    qualityScore = qualityScore,
+    constraintErrors = constraintErrors,
+    profileEffects = profileEffects,
+    verificationSummary = verificationSummary,
+    status = status,
+    items = items.map(PlanItemDto::toDomain),
+)
+
+fun AttachmentDescriptorDto.toDomain(cardId: String, uri: String = ""): CardAttachment =
+    CardAttachment(
+        id = id,
+        cardId = cardId,
+        displayName = name,
+        mimeType = mimeType,
+        uri = uri,
+        sizeBytes = sizeBytes,
+        sha256 = sha256,
+        extractionStatus = extractionStatus,
+        warning = warning,
+    )
 
 // Accept legacy workflow responses while stored data migrates from "note".
 private fun normalizeCardType(value: String): String {

@@ -11,6 +11,7 @@ enum class OverlayDisplayMode { COLLAPSED, EXPANDED }
 
 /** Commands are platform independent so placement and gestures remain JVM-testable. */
 enum class OverlayCommand { Expand, Collapse, ShowControls }
+enum class OverlayTapDisposition { DeferSingle, OpenApp }
 
 data class OverlayPlacement(
     val dockSide: OverlayDockSide,
@@ -119,5 +120,34 @@ class MascotOverlayController {
         const val EXPANDED_HEIGHT_DP = MofeiSideArcGeometry.HEIGHT_DP.toInt()
         const val MIN_VERTICAL_FRACTION = 0.1f
         const val MAX_VERTICAL_FRACTION = 0.9f
+    }
+}
+
+/** Pure double-tap arbitration so OEM touch timing remains JVM-testable. */
+class OverlayTapArbiter(
+    private val doubleTapTimeoutMillis: Long = 280L,
+) {
+    private var pendingTapAt: Long? = null
+
+    fun registerTap(nowMillis: Long): OverlayTapDisposition {
+        val first = pendingTapAt
+        return if (first != null && nowMillis - first in 0..doubleTapTimeoutMillis) {
+            pendingTapAt = null
+            OverlayTapDisposition.OpenApp
+        } else {
+            pendingTapAt = nowMillis
+            OverlayTapDisposition.DeferSingle
+        }
+    }
+
+    fun consumeSingle(nowMillis: Long): Boolean {
+        val first = pendingTapAt ?: return false
+        if (nowMillis - first < doubleTapTimeoutMillis) return false
+        pendingTapAt = null
+        return true
+    }
+
+    fun cancel() {
+        pendingTapAt = null
     }
 }

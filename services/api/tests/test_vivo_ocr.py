@@ -11,7 +11,13 @@ from app.schemas.card import AnalyzeScreenshotTextRequest
 from app.services.analyzer import analyze_screenshot_text
 from app.services.demo_scenarios import evaluate_demo_scenarios
 from app.services.image_generation import generate_demo_image
-from app.services.llm_client import _chat_completion_url, _extract_json
+from app.services.llm_client import (
+    ModelProfile,
+    _chat_completion_url,
+    _extract_json,
+    _provider_payload,
+    _reasoning_controls,
+)
 from app.services.rule_extractor import extract_cards_with_rules
 from app.services.vivo_ocr import (
     OcrLine,
@@ -46,6 +52,34 @@ class VivoOcrTest(unittest.TestCase):
             "https://api-ai.vivo.com.cn/v1/chat/completions",
         )
 
+    def test_vivo_chat_uses_prompt_schema_instead_of_unsupported_response_format(self) -> None:
+        profile = ModelProfile(
+            role="fast_model",
+            api_key="server-side-key",
+            base_url="https://api-ai.vivo.com.cn/v1",
+            model="Doubao-Seed-2.0-mini",
+            timeout=8,
+        )
+        payload = {
+            "model": profile.model,
+            "messages": [{"role": "system", "content": "只返回 JSON"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "sample",
+                    "schema": {"type": "object", "required": ["ok"]},
+                },
+            },
+        }
+
+        adapted = _provider_payload(profile, payload)
+
+        self.assertNotIn("response_format", adapted)
+        self.assertIn("JSON Schema", adapted["messages"][0]["content"])
+        self.assertIn('"required":["ok"]', adapted["messages"][0]["content"])
+        self.assertEqual(_reasoning_controls(profile)["reasoning_effort"], "minimal")
+        self.assertEqual(_reasoning_controls(profile)["thinking"], {"type": "disabled"})
+
     def test_cleaning_removes_status_and_file_noise(self) -> None:
         lines = [
             OcrLine("10:54", 50, 55, 130, 80),
@@ -57,6 +91,17 @@ class VivoOcrTest(unittest.TestCase):
         self.assertIn("提交实验报告", cleaned)
         self.assertNotIn("10:54", cleaned)
         self.assertNotIn("video_", cleaned)
+
+    def test_cleaning_preserves_action_terms_and_distant_tasks(self) -> None:
+        lines = [
+            OcrLine("群文件：课程要求.pdf", 120, 300, 780, 360),
+            OcrLine("请在6月10日22:01前发送实验报告", 120, 430, 920, 510),
+            OcrLine("第二项：6月14日09:07到会议室参加答辩", 100, 1680, 940, 1770),
+        ]
+        cleaned = clean_ocr_lines(lines)
+        self.assertIn("群文件", cleaned)
+        self.assertIn("发送实验报告", cleaned)
+        self.assertIn("参加答辩", cleaned)
 
     def test_parse_pos_variants(self) -> None:
         pos2 = {
@@ -96,8 +141,8 @@ class VivoOcrTest(unittest.TestCase):
 
         async def run() -> None:
             with patch("app.services.vivo_ocr.settings", fake_settings), patch(
-                "app.services.vivo_ocr.runtime.client",
-                fake_client,
+                "app.services.vivo_ocr.runtime.client_for_url",
+                return_value=fake_client,
             ):
                 lines = await VivoOcrClient().recognize(b"image")
             self.assertEqual(lines[0].text, "submit report")
@@ -148,8 +193,8 @@ class ImageGenerationProviderTest(unittest.TestCase):
 
         async def run() -> dict[str, object]:
             with patch("app.services.image_generation.settings", fake_settings), patch(
-                "app.services.image_generation.runtime.client",
-                fake_client,
+                "app.services.image_generation.runtime.client_for_url",
+                return_value=fake_client,
             ):
                 return await generate_demo_image("complex schedule poster", size="1024x1024")
 

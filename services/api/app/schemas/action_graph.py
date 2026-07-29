@@ -67,6 +67,51 @@ class ActionNode(BaseModel):
     alternative_hypotheses: list[dict[str, Any]] = Field(default_factory=list)
     lifecycle: Literal["proposed", "validated", "confirmed", "executed", "cancelled"] = "proposed"
     evidence_gaps: list[str] = Field(default_factory=list)
+    workspace_type: Literal["personal", "team"] = "personal"
+    workspace_id: str = "personal"
+    assignee_id: str | None = None
+    participant_ids: list[str] = Field(default_factory=list)
+    deliverables: list[str] = Field(default_factory=list)
+    priority_mode: Literal["manual", "adaptive"] = "adaptive"
+    priority_score: float = Field(default=50, ge=0, le=100)
+    priority_reason: str = ""
+
+
+class TeamMember(BaseModel):
+    id: str
+    display_name: str
+    role: str = ""
+
+
+class TemporalSelection(BaseModel):
+    kind: Literal["deadline", "start", "end", "milestone", "work_block"]
+    instant: str | None = None
+    zone_id: str
+    certainty: Literal["confirmed", "inferred", "uncertain"] = "uncertain"
+
+
+class ReminderNode(BaseModel):
+    id: str
+    mode: Literal["absolute", "relative"]
+    absolute_time: str | None = None
+    offset_minutes: int | None = Field(default=None, ge=0, le=525600)
+    enabled: bool = True
+    source: Literal["user", "rules", "model"] = "user"
+
+
+class DeviceActionProposal(BaseModel):
+    id: str
+    action_id: str
+    action_type: Literal["app_reminder", "calendar_event"]
+    title: str
+    start_time: str | None = None
+    end_time: str | None = None
+    location: str | None = None
+    description: str = ""
+    requires_confirmation: bool = True
+    selected: bool = False
+    temporal: TemporalSelection | None = None
+    reminder_nodes: list[ReminderNode] = Field(default_factory=list)
 
 
 class EntityNode(BaseModel):
@@ -131,4 +176,8 @@ class ActionGraph(BaseModel):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     conflicts: list[ActionConflict] = Field(default_factory=list)
     suggestions: list[ActionSuggestion] = Field(default_factory=list)
+    workspace_type: Literal["personal", "team"] = "personal"
+    workspace_id: str = "personal"
+    team_members: list[TeamMember] = Field(default_factory=list)
+    device_actions: list[DeviceActionProposal] = Field(default_factory=list)
     version: int = 1

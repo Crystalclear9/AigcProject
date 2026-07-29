@@ -4,7 +4,7 @@
     <cache-path
         name="camera"
         path="camera/" />
-    <!-- One-shot MediaProjection frames remain private cache files. -->
+    <!-- One-shot PixelCopy/accessibility frames remain private cache files. -->
     <cache-path
         name="mofei_capture"
         path="mofei_capture/" />

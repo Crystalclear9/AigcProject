@@ -1,6 +1,6 @@
 # 随手办
 
-随手办是一个“截图到行动”的移动产品：用户截图后，App 先在手机端完成 OCR、噪声过滤和行动证据判断。只有识别到明确的待办、截止、会议、报名或承诺信号时，才给出低打扰提示；用户确认后才创建行动卡、注册提醒或同步日历。
+随手办是一款面向真实手机用户的多模态行动助理。它把截图、长截图、聊天记录、文字和常见办公文档整理为可确认的个人或团队行动图，并在卡片创建后持续提供优先级、里程碑、时间块、材料清单和日历建议。
 
 产品默认可以在手机侧独立运行。云端 AI 是可选增强，通过后端 Workflow 网关接入；Android 不直连 vivo/蓝心 provider，也不把 API key 写入 APK。
 
@@ -18,7 +18,7 @@
 ## 用户路径
 
 ```text
-系统截图 / 墨斐当前屏幕 / 相册 / 拍照 / 粘贴文字
+系统截图 / 墨斐当前屏幕 / 长截图 / 多图 / 聊天 / 文档 / 粘贴文字
   -> 端侧 ML Kit OCR 与噪声清洗
   -> 行动证据判定
   -> 无明确行动：静默忽略
@@ -26,7 +26,8 @@
   -> 用户点击“查看”：顶部小窗展示候选，用户再决定是否生成草稿
   -> 本地规则先出草稿，云端 Workflow 可异步增强
   -> 用户选择、编辑、确认
-  -> 保存 Room 行动卡，注册 WorkManager 截止提醒，可选写入系统日历
+  -> 保存 Room 行动卡并注册 WorkManager 截止提醒
+  -> 用户可从卡片详情逐项确认系统日历事件
 ```
 
 确认前不会写入最终卡片、不会注册提醒、不会写日历。云端增强只补字段、追加建议或更新证据，不覆盖用户锁定字段。
@@ -36,15 +37,69 @@
 - **端侧优先**：OCR、截图 gate、本地规则、多任务拆卡、Room 卡片和提醒均可在手机侧完成。
 - **少打扰**：通知采用静默紧凑样式；同一截图被忽略后短时间内不重复提示。
 - **证据驱动**：候选卡展示标题、时间、地点/平台、材料/提交方式、证据摘要和置信度。
-- **用户确认优先**：保存、提醒、日历写入都必须由用户确认触发。
+- **用户确认优先**：候选阶段没有 Room、WorkManager 或日历副作用；系统日历始终通过 `ACTION_INSERT` 交给用户最终确认。
 - **云端可插拔**：vivo/蓝心 provider 只由后端代理调用，Android 只保存 Workflow HTTPS 网关 URL。
 - **可降级**：无网、模型失败、OCR 失败时保留本地规则和手动补全入口。
 
+## 个性化与卡片深度计划
+
+首次启动时，墨斐会创建一个中性的本地画像，并邀请用户完成可跳过的逐题问卷。四道核心问题覆盖使用场景、常用时段、规划粒度和提醒风格；配置 HTTPS Workflow 网关后，AI 最多追加三道结构化选择题，用于确认工作节奏、DDL 缓冲、周末安排或助手语气。问卷不采集自由文本，也不推断年龄、性别、职业或其他敏感身份。持续学习默认关闭，必须由用户单独同意；显式问卷和手动设置永远优先于推断结果。
+
+已创建的行动卡可以在卡片中心点开详情，再按需选择“细化此卡片”：
+
+1. 调整本卡的规划粒度、个性化、时间块和里程碑提醒开关。
+2. 可补充 PDF、DOCX、PPTX、XLSX、TXT、Markdown、JPG 或 PNG，最多 8 个文件，单个不超过 15 MB，总计不超过 40 MB。
+3. 先预览、编辑和选择里程碑、工作时间块、步骤，也可继续用自然语言调整。
+4. 只有点击“应用计划”后，计划、附件元数据和里程碑提醒才会写入本地数据库。
+
+本地模式可直接解析 TXT/Markdown、图片 OCR 和受限 PDF OCR；Office 深度解析需要配置公网 HTTPS Workflow 网关。没有明确截止时间时只生成相对顺序和预计耗时，不创建绝对时间提醒。用户画像只影响规划粒度、时间安排和提醒建议，不会改写父卡的标题、DDL、地点等事实字段。
+
+画像和规划设置可在设置页查看、编辑、暂停学习、清除推断、重新问卷或彻底重置。原附件始终由用户设备保管，后端只在单次解析期间临时读取，完成后删除临时副本。
+
+## 统一工作流
+
+```mermaid
+flowchart LR
+    A["多模态输入"] --> B["IntakeGraph"]
+    B --> C{"内容性质"}
+    C -->|噪声| D["静默结束"]
+    C -->|信息| E["保存为参考"]
+    C -->|行动/混合| F["多事项与团队拆分"]
+    F --> G["ActionGraph 约束验证"]
+    G --> H["用户确认行动卡"]
+    H --> I["PlanningGraph"]
+    I --> J["优先级、里程碑、时间块、交接和设备动作建议"]
+    J --> K["用户逐项确认"]
+```
+
+### IntakeGraph
+
+- 统一接收文本、图片、长截图、聊天记录、TXT/Markdown、PDF 和 OOXML 文档。
+- 图片与扫描 PDF 可调用 vivo OCR；多候选按完整度、布局、关键字段覆盖、乱码、重复块和界面噪声生成质量报告，再做块级对齐与裁决。质量低于 `0.72`、关键时间冲突或任务边界无法确认时会停在 OCR 复核，不会继续生成正式候选卡。
+- 内容分类为 `noise | informational | actionable | mixed | uncertain`；`uncertain` 只提供复核入口，避免把普通信息或残缺 OCR 强制变成待办。
+- 语义、时间、参与者和质量分析使用 LangGraph `Send` 并行执行；多事项不会按数组下标硬匹配。
+- 外部墨斐截图、通知入口和预览共享 `IntakeSession`，Activity 重建后仍能追踪来源；会话不保存完整 OCR。
+
+### PlanningGraph
+
+- 卡片字段变化时重新计算自适应优先级，并生成里程碑、执行步骤、时间块和设备动作建议。
+- 优先级支持 `manual` 与 `adaptive`。手动模式拥有最高优先权，AI 不会改写。
+- 卡片列表、候选预览和详情中的优先级标记会打开明确的低/普通/高选择器；手动选择后立即锁定，并同步改变卡片强调边、背景和标签。恢复自动模式后，编辑截止时间、负责人、依赖或状态会先本地重算，再防抖调用 `/api/cards/{id}/replan`。
+- 日期和时间统一使用五行居中吸附滚轮，分钟固定为 `00–59` 的 1 分钟精度。事件分别选择开始与结束时间，里程碑和时间块复用同一组件；没有可靠时间时保持“待确认”，不会暗中写入“明天整点”。提醒同时支持“指定时刻”和“截止前偏移”，可新增、编辑、启停、删除和去重。
+- 个人与本地团队工作区分离。团队卡支持负责人、参与者、交付物、依赖和交接关系；当前是单设备团队规划能力，不代表成员已经收到任务，首版不包含账号、邀请或跨设备同步。
+- 计划验证依赖环、时间倒置、DDL 越界、工作量、缓冲、提醒过载和事实保护。失败计划不能静默应用。
+
+### Prompt 与画像边界
+
+每次请求都会重新编译版本化 `PromptEnvelope`，只包含枚举化的场景、活跃时段、粒度、节奏、缓冲、周末策略、提醒风格、语气和时区，长度上限为 1200 字符。不会累计历史对话，也不会上传原始行为记录。输入文档始终被标记为不可信证据，不能覆盖系统角色；画像只影响规划表达和时间策略，不得修改标题、DDL、地点等事实。
+
 ## 墨斐行动中心
 
-应用内轻点墨斐会展开七项冰蓝能力环：识别当前屏幕、最近截图、相册导入、拍照识别、通知草稿、当前事项和能力设置。系统悬浮墨斐展开为五项紧凑环，不提供相册和相机入口。
+应用内轻点墨斐会展开七项冰蓝能力环：截图识别、最近截图、相册导入、拍照识别、通知草稿、当前事项和能力设置。系统悬浮墨斐提供截屏、拍照和相册等紧凑入口。
 
-- 当前屏幕识别每次都使用 Android 系统 MediaProjection 授权；只取一帧，随后释放投影和前台服务。受保护页面不会得到伪造结果。
+- 应用内“截图识别”用 `PixelCopy` 截取当前 App 窗口的一帧静态图片，不录屏、不共享屏幕。
+- 跨 App 截屏首次使用时需要在系统设置中开启“墨斐一键截屏”。此后点击悬浮墨斐的“截屏”会直接截取一帧并进入 OCR 预览，不再二次确认；服务不读取页面控件、输入内容或持续画面。
+- 受系统保护的页面不会返回伪造截图；失败、取消和超时都会恢复悬浮墨斐。
 - “最近截图”只匹配系统截图名称或目录，不会退化为读取最近一张普通照片。
 - 通知草稿默认关闭。开启通知读取并选择 App 白名单后，墨斐只保存本地候选并仅用端侧规则分析；验证码、支付内容、常驻通知和分组摘要会被过滤。
 - 通知候选以“消息萤火”显示。打开后仍进入普通候选预览，只有用户选择并确认才会创建行动卡。
@@ -120,7 +175,8 @@ https://your-workflow-gateway.example.com/
 
 后端位于 `services/api`，负责：
 
-- 文本/截图 Workflow 编排。
+- 统一多模态 IntakeGraph、ActionGraph 与 PlanningGraph 编排。
+- 卡片深度计划、附件解析、受控 ReAct 调整与确认。
 - vivo/蓝心 chat provider 服务端代理。
 - vivo OCR 与图片生成代理。
 - provider telemetry、health/readiness、指标和脱敏 probe。
@@ -170,6 +226,7 @@ VIVO_IMAGE_GENERATION_API_KEY=
 VIVO_IMAGE_GENERATION_URL=https://api-ai.vivo.com.cn/api/v1/image_generation
 VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 ENABLE_PROVIDER_PROBE=false
+ENABLE_WORKFLOW_HARNESS=false
 ```
 
 安全边界：
@@ -206,6 +263,55 @@ Invoke-RestMethod http://127.0.0.1:8000/ready
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+卡片深度计划接口：
+
+```text
+POST   /api/card-refinements
+GET    /api/card-refinements/{run_id}
+GET    /api/card-refinements/{run_id}/events
+POST   /api/card-refinements/{run_id}/react
+POST   /api/card-refinements/{run_id}/confirm
+DELETE /api/card-refinements/{run_id}
+```
+
+`POST /api/card-refinements` 使用 multipart：父卡与规划选项为 JSON 字段，附件为重复 `files` 字段。运行结果在确认前只是临时草稿；服务端不会替 Android 保存正式计划、注册提醒或写系统日历。
+
+统一输入与增量规划接口：
+
+```text
+POST /api/intakes
+GET  /api/intakes/{session_id}
+GET  /api/intakes/{session_id}/events
+POST /api/cards/{card_id}/replan
+```
+
+`POST /api/intakes` 使用 multipart，可同时发送文本和最多 8 个附件。旧截图接口仍兼容，但新 Android 客户端优先走 IntakeGraph，失败时才回退旧接口。
+
+### Workflow Harness
+
+仅在非生产环境设置 `ENABLE_WORKFLOW_HARNESS=true` 后开放：
+
+```text
+POST /api/harness/run?limit=150
+```
+
+Harness 固定记录数据集版本、Prompt 版本、分类准确率、多任务召回率、泛化标题率、OCR 质量与编排延迟。当前包含 150 条互不重复的文本压力样例，以及 `docs/test-assets/screenshots/manifest.jsonl` 中已人工复核的复杂图片基线。图片模式会真实调用配置的 vivo OCR，再经过 OCR 质量裁决和 IntakeGraph；报告会明确显示当前图片数量与 200 张目标，不用图片变换或模板包装冒充人工样本。
+
+真实图片基线：
+
+```text
+POST /api/harness/run?mode=image&limit=200
+```
+
+CI 将分类准确率、多任务召回率和关键字段准确率的最低值设为 `0.90`，错误自动完成率必须低于 `1%`，泛化标题率必须为零。Harness 通过 OpenTelemetry 产生不含原始 OCR、附件正文和画像内容的 trace；设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 后可发送到 Phoenix 或其他 OTLP 后端：
+
+```env
+OTEL_SERVICE_NAME=suishouban-workflow
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:6006/v1/traces
+```
+
+Phoenix 是开发与评测界面，不是运行时依赖。未配置 exporter 时，工作流和确定性评估器仍可独立运行。
 
 ### 4. 后端测试
 

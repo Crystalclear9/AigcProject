@@ -6,18 +6,18 @@ import org.junit.Test
 
 class MofeiOverlayCapturePlanTest {
     @Test
-    fun connectedSupportedDeviceHidesOverlayAndCapturesThroughAccessibility() {
+    fun connectedSupportedDeviceKeepsOverlayUntilCaptureBridgeIsVisible() {
         val plan = MofeiOverlayCapturePlan.begin(apiLevel = 35, accessibilityConnected = true)
 
-        assertTrue(plan.removeOverlay)
+        assertTrue(plan.keepOverlayUntilCaptureBridge)
         assertEquals(MofeiOverlayCaptureStart.CAPTURE_ACCESSIBILITY, plan.start)
     }
 
     @Test
-    fun missingServiceOpensAccessibilitySetupWithoutProjectionFallback() {
+    fun missingServiceKeepsOverlayUntilAccessibilitySetupIsVisible() {
         val plan = MofeiOverlayCapturePlan.begin(apiLevel = 35, accessibilityConnected = false)
 
-        assertTrue(plan.removeOverlay)
+        assertTrue(plan.keepOverlayUntilCaptureBridge)
         assertEquals(MofeiOverlayCaptureStart.OPEN_ACCESSIBILITY_SETUP, plan.start)
     }
 
@@ -25,7 +25,7 @@ class MofeiOverlayCapturePlanTest {
     fun unsupportedDeviceReportsUnsupportedWithoutProjectionFallback() {
         val plan = MofeiOverlayCapturePlan.begin(apiLevel = 29, accessibilityConnected = false)
 
-        assertEquals(false, plan.removeOverlay)
+        assertEquals(false, plan.keepOverlayUntilCaptureBridge)
         assertEquals(MofeiOverlayCaptureStart.SHOW_UNSUPPORTED, plan.start)
     }
 

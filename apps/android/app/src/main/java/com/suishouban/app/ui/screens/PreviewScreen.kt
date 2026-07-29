@@ -1,6 +1,7 @@
 package com.suishouban.app.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,10 +18,12 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material.icons.outlined.FactCheck
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +42,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.effectiveReminderNodes
+import com.suishouban.app.data.model.mergeReminderLabels
 import com.suishouban.app.ui.components.NeutralPill
+import com.suishouban.app.ui.components.DateTimeWheelPickerDialog
+import com.suishouban.app.ui.components.ReminderNodesEditor
+import com.suishouban.app.ui.components.PriorityPickerDialog
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.WorkflowStrip
 import com.suishouban.app.ui.theme.AccentIconChip
@@ -49,12 +57,16 @@ import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.SoftCard
 import com.suishouban.app.ui.theme.visualForCardType
+import com.suishouban.app.ui.theme.visualForPriority
+import java.time.OffsetDateTime
 
 @Composable
 fun PreviewScreen(
     state: AppUiState,
     onUpdateDraft: (ActionCard) -> Unit,
     onRemoveDraft: (String) -> Unit,
+    onToggleDraftSelection: (String) -> Unit,
+    onSelectAllDrafts: () -> Unit,
     onConfirm: () -> Unit,
     onManualAdd: () -> Unit,
     onImport: () -> Unit,
@@ -213,15 +225,34 @@ fun PreviewScreen(
             items(state.draftCards, key = { it.id }) { card ->
                 DraftEditor(
                     card = card,
+                    selected = card.id in state.selectedDraftIds,
+                    onSelectedChange = { onToggleDraftSelection(card.id) },
                     onChange = onUpdateDraft,
                     onRemove = { onRemoveDraft(card.id) },
                 )
             }
 
             item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        "已选择 ${state.selectedDraftIds.size}/${state.draftCards.size} 张",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    TextButton(onClick = onSelectAllDrafts) {
+                        Text("全选")
+                    }
+                }
                 Button(
                     onClick = onConfirm,
-                    enabled = localDraftValid && !state.loading && state.workflowStatus !in setOf("queued", "running"),
+                    enabled = localDraftValid &&
+                        state.selectedDraftIds.isNotEmpty() &&
+                        !state.loading &&
+                        state.workflowStatus !in setOf("queued", "running"),
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(DS.RadiusButton),
                     colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
@@ -265,19 +296,37 @@ private fun confidenceLabel(value: String): String = when (value) {
 @Composable
 private fun DraftEditor(
     card: ActionCard,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
     onChange: (ActionCard) -> Unit,
     onRemove: () -> Unit,
 ) {
     val visual = visualForCardType(card.cardType)
+    val priorityVisual = visualForPriority(card.priority)
+    var pickerField by rememberSaveable(card.id) { mutableStateOf<String?>(null) }
+    var showPriorityPicker by rememberSaveable(card.id) { mutableStateOf(false) }
+    var timeError by rememberSaveable(card.id) { mutableStateOf<String?>(null) }
     Card(
         shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.97f)),
-        border = BorderStroke(1.dp, Line),
+        colors = CardDefaults.cardColors(containerColor = priorityVisual.container),
+        border = BorderStroke(1.dp, priorityVisual.accent.copy(alpha = 0.35f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = onSelectedChange,
+                )
                 NeutralPill(text = visual.label, selected = true)
+                NeutralPill(
+                    text = priorityVisual.label,
+                    selected = true,
+                    onClick = { showPriorityPicker = true },
+                )
                 if (card.needConfirm.isNotEmpty()) {
                     NeutralPill(text = "待确认 ${card.needConfirm.size}")
                 }
@@ -302,18 +351,36 @@ private fun DraftEditor(
                 label = { Text("摘要") },
                 shape = RoundedCornerShape(16.dp),
             )
-            OutlinedTextField(
-                value = card.deadline ?: card.startTime ?: "",
-                onValueChange = {
-                    onChange(
-                        if (card.cardType == "event") card.copy(startTime = it.ifBlank { null })
-                        else card.copy(deadline = it.ifBlank { null })
+            if (card.cardType == "event") {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TimeField(
+                        value = card.startTime,
+                        label = "开始时间",
+                        onClick = { pickerField = "start" },
+                        modifier = Modifier.weight(1f),
                     )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("时间") },
-                shape = RoundedCornerShape(16.dp),
-            )
+                    TimeField(
+                        value = card.endTime,
+                        label = "结束时间",
+                        onClick = { pickerField = "end" },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            } else {
+                TimeField(
+                    value = card.deadline,
+                    label = if (card.deadline.isNullOrBlank()) "截止时间 · 待确认" else "截止时间",
+                    onClick = { pickerField = "deadline" },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            timeError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
                     value = card.location ?: "",
@@ -337,12 +404,18 @@ private fun DraftEditor(
                 label = { Text("提交物/准备物") },
                 shape = RoundedCornerShape(16.dp),
             )
-            OutlinedTextField(
-                value = card.reminders.joinToString("，"),
-                onValueChange = { onChange(card.copy(reminders = splitList(it))) },
+            ReminderNodesEditor(
+                nodes = card.effectiveReminderNodes(),
+                deadline = card.deadline,
+                onChange = { nodes ->
+                    onChange(
+                        card.copy(
+                            reminders = nodes.map { it.displayLabel() },
+                            reminderNodes = nodes,
+                        )
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("提醒策略") },
-                shape = RoundedCornerShape(16.dp),
             )
             OutlinedTextField(
                 value = card.needConfirm.joinToString("，"),
@@ -353,6 +426,85 @@ private fun DraftEditor(
             )
         }
     }
+    pickerField?.let { field ->
+        DateTimeWheelPickerDialog(
+            initialValue = when (field) {
+                "start" -> card.startTime
+                "end" -> card.endTime
+                else -> card.deadline
+            },
+            title = when (field) {
+                "start" -> "选择开始时间"
+                "end" -> "选择结束时间"
+                else -> "选择截止时间"
+            },
+            onDismiss = { pickerField = null },
+            onClear = {
+                onChange(
+                    when (field) {
+                        "start" -> card.copy(startTime = null)
+                        "end" -> card.copy(endTime = null)
+                        else -> card.copy(deadline = null)
+                    }
+                )
+                timeError = null
+                pickerField = null
+            },
+            onConfirm = { value ->
+                val invalidEnd = field == "end" &&
+                    card.startTime?.let { start ->
+                        runCatching {
+                            OffsetDateTime.parse(value) <= OffsetDateTime.parse(start)
+                        }.getOrDefault(false)
+                    } == true
+                if (invalidEnd) {
+                    timeError = "结束时间必须晚于开始时间"
+                } else {
+                    onChange(
+                        when (field) {
+                            "start" -> card.copy(startTime = value)
+                            "end" -> card.copy(endTime = value)
+                            else -> card.copy(deadline = value)
+                        }
+                    )
+                    timeError = null
+                    pickerField = null
+                }
+            },
+        )
+    }
+    if (showPriorityPicker) {
+        PriorityPickerDialog(
+            card = card,
+            onDismiss = { showPriorityPicker = false },
+            onChange = {
+                onChange(it)
+                showPriorityPicker = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun TimeField(
+    value: String?,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value.orEmpty(),
+        onValueChange = {},
+        readOnly = true,
+        trailingIcon = {
+            IconButton(onClick = onClick) {
+                Icon(Icons.Outlined.Schedule, contentDescription = label)
+            }
+        },
+        modifier = modifier.clickable(onClick = onClick),
+        label = { Text(label) },
+        shape = RoundedCornerShape(16.dp),
+    )
 }
 
 @Composable

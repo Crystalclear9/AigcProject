@@ -1,0 +1,8 @@
+{"id":"course-notice","file":"complex_course_notice.png","classification":"actionable","minimum_cards":1,"expected_title_terms":["实验报告"],"expected_locations":["学习通"],"annotation_status":"reviewed"}
+{"id":"chat-promise","file":"complex_chat_promise.png","classification":"actionable","minimum_cards":1,"expected_title_terms":["表格"],"expected_locations":[],"annotation_status":"reviewed"}
+{"id":"competition-poster","file":"complex_competition_poster.png","classification":"actionable","minimum_cards":1,"expected_title_terms":["报名"],"expected_locations":[],"annotation_status":"reviewed"}
+{"id":"meeting-poster","file":"complex_meeting_poster.png","classification":"actionable","minimum_cards":1,"expected_title_terms":["会议"],"expected_locations":["腾讯会议"],"annotation_status":"reviewed"}
+{"id":"multi-tasks","file":"complex_multi_tasks.png","classification":"actionable","minimum_cards":2,"expected_title_terms":["实验报告","答辩"],"expected_locations":["学习通"],"annotation_status":"reviewed"}
+{"id":"shopping-noise","file":"noise_shopping_promo.png","classification":"noise","minimum_cards":0,"expected_title_terms":[],"expected_locations":[],"annotation_status":"reviewed"}
+{"id":"system-noise","file":"noise_status_only.png","classification":"noise","minimum_cards":0,"expected_title_terms":[],"expected_locations":[],"annotation_status":"reviewed"}
+{"id":"own-app-noise","file":"noise_own_app_settings.png","classification":"noise","minimum_cards":0,"expected_title_terms":[],"expected_locations":[],"annotation_status":"reviewed"}

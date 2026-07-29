@@ -621,6 +621,8 @@ class WorkflowRepository:
             provider_usage=provider_usage,
             model_enhancement_status=state.get("model_enhancement_status") or model_status,
             ocr_enhancement_status=state.get("ocr_enhancement_status") or ocr_status,
+            ocr_quality_report=state.get("ocr_quality_report"),
+            ocr_review_reasons=state.get("ocr_review_reasons", []),
             image_generation_status=state.get("image_generation_status") or image_generation_status,
             react_session=state.get("react_session"),
             react_suggestions=state.get("react_suggestions", []),

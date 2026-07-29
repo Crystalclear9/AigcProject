@@ -23,6 +23,7 @@ from app.services.provider_runtime import provider_usage_delta, runtime
 from app.services.react_refiner import refine_state_with_react
 from app.services.workflow_graph import build_workflow_graph, create_rule_draft, finalize_rules_fast
 from app.services.workflow_agents import build_action_graph as create_action_graph
+from app.services.ocr_quality import adjudicate_candidates
 
 repository = WorkflowRepository()
 logger = logging.getLogger(__name__)
@@ -618,6 +619,8 @@ def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
         "workflow_status": state.get("workflow_status", "running"),
         "pending_action": state.get("pending_action"),
         "ocr_text": state.get("ocr_text", ""),
+        "ocr_quality_report": state.get("ocr_quality_report"),
+        "ocr_review_reasons": state.get("ocr_review_reasons", []),
         "cards": state.get("cards", []),
         "preview_actions": state.get("preview_actions", []),
         "engine": state.get("engine", ""),
@@ -732,8 +735,9 @@ def _initial_state(
     text: str = "",
     image_bytes: bytes | None = None,
     screenshot_time: str | None = None,
+    workflow_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    state = {
         "run_id": run_id,
         "input_kind": input_kind,
         "input_text": text,
@@ -798,11 +802,24 @@ def _initial_state(
         if not settings.has_image_generation_config
         else "attempted",
     }
+    if workflow_context:
+        state.update(workflow_context)
+    return state
 
 
-async def start_text_workflow(text: str, screenshot_time: str | None = None) -> WorkflowRunResponse:
+async def start_text_workflow(
+    text: str,
+    screenshot_time: str | None = None,
+    workflow_context: dict[str, Any] | None = None,
+) -> WorkflowRunResponse:
     run_id = str(uuid.uuid4())
-    initial = _initial_state(run_id, "text", text=text, screenshot_time=screenshot_time)
+    initial = _initial_state(
+        run_id,
+        "text",
+        text=text,
+        screenshot_time=screenshot_time,
+        workflow_context=workflow_context,
+    )
     primed_state = {
         **initial,
         "ocr_text": text.strip(),
@@ -830,13 +847,23 @@ async def start_text_workflow(text: str, screenshot_time: str | None = None) -> 
     return started_response
 
 
-async def start_image_workflow(image_bytes: bytes, screenshot_time: str | None = None) -> WorkflowRunResponse:
+async def start_image_workflow(
+    image_bytes: bytes,
+    screenshot_time: str | None = None,
+    workflow_context: dict[str, Any] | None = None,
+) -> WorkflowRunResponse:
     run_id = str(uuid.uuid4())
     input_dir = Path(settings.workflow_input_directory)
     input_dir.mkdir(parents=True, exist_ok=True)
     image_path = input_dir / f"{run_id}.bin"
     image_path.write_bytes(image_bytes)
-    initial = _initial_state(run_id, "image", image_bytes=image_bytes, screenshot_time=screenshot_time)
+    initial = _initial_state(
+        run_id,
+        "image",
+        image_bytes=image_bytes,
+        screenshot_time=screenshot_time,
+        workflow_context=workflow_context,
+    )
     initial["image_path"] = str(image_path.resolve())
     repository.create_run(
         run_id,
@@ -857,7 +884,13 @@ async def wait_for_result(
     deadline = time.monotonic() + (timeout if timeout is not None else settings.legacy_sync_wait_seconds)
     while time.monotonic() < deadline:
         response = repository.response(run_id)
-        if response.workflow_status in {"completed", "awaiting_review", "failed", "cancelled"}:
+        if response.workflow_status in {
+            "completed",
+            "awaiting_ocr_review",
+            "awaiting_review",
+            "failed",
+            "cancelled",
+        }:
             return repository.response(run_id)
         if accept_provisional and response.revision > 0:
             return response
@@ -875,13 +908,30 @@ def submit_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowR
         raise ValueError(f"workflow is already {state.get('workflow_status')}")
     candidate = request.model_dump()
     candidates = _merge_ocr_candidates(state.get("ocr_candidates", []), candidate)
-    state["ocr_candidates"] = candidates[-6:]
-    conflict = _ocr_candidate_conflict(candidates)
-    if conflict:
-        state["review_requested"] = True
-        state["warnings"] = list(dict.fromkeys(state.get("warnings", []) + [conflict]))
-        if state.get("workflow_status") == "awaiting_review":
-            state["pending_action"] = "review_cards"
+    adjudication = adjudicate_candidates(candidates[-6:])
+    state["ocr_candidates"] = adjudication.candidates
+    state["ocr_text"] = adjudication.merged_text
+    state["ocr_engine"] = adjudication.selected.get("engine", request.engine)
+    state["ocr_quality"] = adjudication.selected.get("quality_score", 0)
+    state["ocr_quality_report"] = adjudication.selected.get("quality_report", {})
+    state["ocr_review_reasons"] = adjudication.review_reasons
+    conflict = (
+        f"OCR candidates conflict ({'; '.join(adjudication.critical_conflicts)}); "
+        "review critical fields"
+        if adjudication.critical_conflicts
+        else None
+    )
+    state["review_requested"] = adjudication.requires_review
+    if adjudication.requires_review:
+        state["workflow_status"] = "awaiting_ocr_review"
+        state["pending_action"] = "resolve_ocr"
+        state["warnings"] = list(
+            dict.fromkeys(
+                state.get("warnings", [])
+                + [f"OCR review required: {reason}" for reason in adjudication.review_reasons]
+                + ([conflict] if conflict else [])
+            )
+        )
     repository.save(run_id, state)
     repository.append_event(
         run_id,
@@ -889,6 +939,8 @@ def submit_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowR
         {
             "engine": request.engine,
             "confidence": request.confidence,
+            "quality_score": adjudication.selected.get("quality_score", 0),
+            "quality_report": adjudication.selected.get("quality_report", {}),
             "candidate_count": len(candidates),
             "conflict": conflict,
         },
@@ -908,7 +960,9 @@ def _merge_ocr_candidates(
     }
     key = (str(incoming.get("engine", "ocr")), str(incoming.get("text", "")).strip())
     current = merged.get(key)
-    if current is None or float(incoming.get("confidence", 0)) > float(current.get("confidence", 0)):
+    if current is None or float(incoming.get("quality_score", 0)) > float(
+        current.get("quality_score", 0)
+    ):
         merged[key] = dict(incoming)
     return list(merged.values())
 
@@ -1270,6 +1324,66 @@ async def resume_workflow(run_id: str, request: WorkflowResumeRequest) -> Workfl
     )
     updated = patch_draft(run_id, patch)
     return confirm_workflow(run_id, ConfirmWorkflowRequest(revision=updated.revision))
+
+
+async def resolve_ocr_text(
+    run_id: str,
+    request: OcrCandidateRequest,
+) -> WorkflowRunResponse:
+    state = repository.get_state(run_id)
+    if state.get("workflow_status") != "awaiting_ocr_review":
+        raise ValueError("workflow is not awaiting OCR review")
+    corrected = request.text.strip()
+    context = {
+        key: state[key]
+        for key in (
+            "workspace_type",
+            "prompt_envelope",
+            "source_session_id",
+        )
+        if key in state
+    }
+    restarted = _initial_state(
+        run_id,
+        "text",
+        text=corrected,
+        screenshot_time=state.get("screenshot_time"),
+        workflow_context=context,
+    )
+    restarted.update(
+        {
+            "ocr_text": corrected,
+            "ocr_engine": "user-corrected",
+            "ocr_quality": 1.0,
+            "ocr_candidates": [
+                {
+                    **request.model_dump(),
+                    "engine": "user-corrected",
+                    "confidence": 1.0,
+                    "quality_score": 1.0,
+                }
+            ],
+            "revision": int(state.get("revision", 0)) + 1,
+            "warnings": [
+                warning
+                for warning in state.get("warnings", [])
+                if not str(warning).startswith("OCR review required")
+            ],
+        }
+    )
+    repository.save(run_id, restarted)
+    repository.append_event(
+        run_id,
+        "ocr_candidate",
+        {
+            "engine": "user-corrected",
+            "quality_score": 1.0,
+            "resolved": True,
+        },
+        f"ocr-resolved:{hashlib.sha1(corrected.encode('utf-8')).hexdigest()[:16]}",
+    )
+    await _schedule(run_id, restarted)
+    return repository.response(run_id)
 
 
 async def recover_workflows() -> int:
