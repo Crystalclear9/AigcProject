@@ -20,7 +20,9 @@ from app.schemas.agent_workflow import (
     ToolName,
     VerificationSummary,
 )
+from app.schemas.intake import PromptEnvelope
 from app.services.llm_client import extract_cards_with_model, structured_completion
+from app.services.prompt_envelope import render_system_prompt
 from app.services.provider_runtime import runtime
 
 ToolHandler = Callable[[AgentTask, dict[str, Any]], Awaitable[AgentResult]]
@@ -299,11 +301,18 @@ async def create_plan_with_model(state: dict[str, Any]) -> AgentPlan:
         for card in state.get("rule_cards", [])
     ]
     try:
+        envelope_data = state.get("prompt_envelope")
+        envelope_prompt = (
+            render_system_prompt(PromptEnvelope(**envelope_data))
+            if envelope_data
+            else ""
+        )
         recommendation = await structured_completion(
             "fast_model",
             system_prompt=(
                 "Select only the minimum useful tools for a screenshot-to-action evidence "
                 "investigation. Never request code execution or external writes."
+                + (f"\n{envelope_prompt}" if envelope_prompt else "")
             ),
             input_payload={
                 "complexity_reasons": state.get("complexity_reasons", []),

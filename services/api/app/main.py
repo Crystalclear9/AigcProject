@@ -13,6 +13,10 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.db.connection import init_db
 from app.services.provider_runtime import runtime
+from app.services.observability import (
+    configure_observability,
+    observability_status,
+)
 from app.repositories.workflows import WorkflowRepository
 from app.services.workflow_service import (
     cleanup_stale_workflow_inputs,
@@ -44,6 +48,7 @@ def runtime_health() -> tuple[bool, dict[str, object]]:
         "image_generation_configured": settings.has_image_generation_config,
         "provider_urls_valid": not provider_url_errors,
         "provider_url_errors": provider_url_errors,
+        "observability": observability_status().__dict__,
     }
     ready = bool(
         checks["langgraph_version_match"]
@@ -56,6 +61,7 @@ def runtime_health() -> tuple[bool, dict[str, object]]:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_observability()
     ready, checks = runtime_health()
     if not ready:
         logger.warning("workflow runtime degraded: %s", checks)
@@ -86,6 +92,17 @@ def create_app() -> FastAPI:
         limited_paths={
             f"{api_prefix}/analyze/screenshot-image",
             f"{api_prefix}/workflows/screenshot-image",
+        },
+    )
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_bytes=(
+            settings.max_refinement_total_bytes
+            + MULTIPART_OVERHEAD_ALLOWANCE_BYTES
+        ),
+        limited_paths={
+            f"{api_prefix}/card-refinements",
+            f"{api_prefix}/intakes",
         },
     )
     app.add_middleware(

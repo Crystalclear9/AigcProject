@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -15,6 +16,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -37,14 +39,13 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import com.suishouban.app.MainActivity
 import com.suishouban.app.R
-import com.suishouban.app.ScreenshotPreviewActivity
 import com.suishouban.app.SuiShouBanApp
-import com.suishouban.app.capture.AccessibilityCaptureResult
 import com.suishouban.app.capture.MofeiAccessibilitySetupActivity
 import com.suishouban.app.capture.MofeiScreenshotAccessibilityService
 import com.suishouban.app.data.model.ActionCard
@@ -74,6 +75,7 @@ import kotlin.math.abs
  */
 class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedStateRegistryOwner {
     private val controller = MascotOverlayController()
+    private val tapArbiter = OverlayTapArbiter()
     private val resolver = MascotStateResolver()
     private val overlayViewModelStore = ViewModelStore()
     private val overlaySavedStateController = SavedStateRegistryController.create(this)
@@ -92,6 +94,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     private var pendingNotificationDrafts: Int = 0
     private var revealedOverlayAction: MofeiAction? = null
     private var backgroundCards: List<ActionCard> = emptyList()
+    private var pendingSingleTap: Runnable? = null
 
     override val viewModelStore: ViewModelStore
         get() = overlayViewModelStore
@@ -137,6 +140,15 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 }
                 return START_NOT_STICKY
             }
+            ACTION_HIDE_FOR_CAPTURE -> {
+                removeControls()
+                removeOverlay()
+                return START_NOT_STICKY
+            }
+            ACTION_COLLAPSE_FOR_CAPTURE_SETUP -> {
+                if (canShowOverlay()) showCollapsedOverlay()
+                return START_NOT_STICKY
+            }
             ACTION_UPDATE -> Unit
         }
         if (!canShowOverlay()) {
@@ -150,11 +162,19 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // A removed task is not consent to keep an always-on overlay running in the background.
-        stopSelf()
+        super.onTaskRemoved(rootIntent)
+        // The user explicitly opted into the external assistant. Capture uses a short-lived
+        // transparent task; removing that task must not stop the foreground overlay service.
+        // START_NOT_STICKY still prevents Android from resurrecting it after a process stop.
+        mainHandler.post {
+            if (foregroundStarted && canShowOverlay() && overlayView == null) {
+                showCollapsedOverlay()
+            }
+        }
     }
 
     override fun onDestroy() {
+        cancelPendingTap()
         cancelHiddenRestore()
         serviceScope.cancel()
         removeControls()
@@ -261,7 +281,11 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                 isClickable = true
                 isFocusable = true
-                setOnClickListener { handleTap() }
+                setOnClickListener { registerOverlayTap() }
+                ViewCompat.addAccessibilityAction(this, "打开随手办") { _, _ ->
+                    openAppHome()
+                    true
+                }
             } else {
                 // Let each Compose action expose and handle its own click semantics.
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
@@ -428,17 +452,11 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             apiLevel = Build.VERSION.SDK_INT,
             accessibilityConnected = MofeiScreenshotAccessibilityService.isConnected(),
         )
-        if (plan.removeOverlay) {
-            // Both controls and Mofei must be detached before Android samples the display.
-            removeControls()
-            removeOverlay()
-        }
 
         when (plan.start) {
-            MofeiOverlayCaptureStart.CAPTURE_ACCESSIBILITY -> {
-                // WindowManager removal is asynchronous; one short frame delay keeps Mofei out.
-                mainHandler.postDelayed(::requestAccessibilityScreenshot, SCREENSHOT_SETTLE_MILLIS)
-            }
+            // Always enter the transparent foreground bridge first. It hides Mofei after Android
+            // has accepted the user-initiated Activity launch, then captures exactly one frame.
+            MofeiOverlayCaptureStart.CAPTURE_ACCESSIBILITY -> openAccessibilitySetup()
             MofeiOverlayCaptureStart.OPEN_ACCESSIBILITY_SETUP -> openAccessibilitySetup()
             MofeiOverlayCaptureStart.SHOW_UNSUPPORTED -> {
                 showCaptureFailure("当前 Android 版本不支持墨斐直接截屏")
@@ -446,53 +464,24 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         }
     }
 
-    private fun requestAccessibilityScreenshot() {
-        val started = MofeiScreenshotAccessibilityService.requestScreenshot { result ->
-            // Accessibility callbacks run on the capture executor; WindowManager and Activities
-            // must be touched from the service main thread.
-            mainHandler.post {
-                when (MofeiOverlayCapturePlan.finish(result is AccessibilityCaptureResult.Success)) {
-                    MofeiOverlayCaptureFinish.OPEN_PREVIEW ->
-                        openScreenshotPreview((result as AccessibilityCaptureResult.Success).uri)
-                    MofeiOverlayCaptureFinish.RESTORE_AND_REPORT_ERROR ->
-                        showCaptureFailure((result as AccessibilityCaptureResult.Failure).message)
-                }
-            }
-        }
-        if (!started) openAccessibilitySetup()
-    }
-
-    private fun openScreenshotPreview(uri: Uri) {
-        val intent = ScreenshotPreviewActivity.captureIntent(
-            context = this,
-            uri = uri,
-            restoreOverlayAfterCapture = true,
-        ).addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
-                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS,
-        )
-        runCatching {
-            PendingIntent.getActivity(
-                this,
-                SCREENSHOT_PREVIEW_REQUEST_CODE,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            ).send()
-        }.onFailure {
-            runCatching { contentResolver.delete(uri, null, null) }
-            showCaptureFailure("无法打开截屏识别预览，请重试")
-        }
-    }
-
     private fun openAccessibilitySetup() {
         runCatching {
-            PendingIntent.getActivity(
+            val pendingIntent = PendingIntent.getActivity(
                 this,
                 ACCESSIBILITY_SETUP_REQUEST_CODE,
                 MofeiAccessibilitySetupActivity.intent(this),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            ).send()
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val options = ActivityOptions.makeBasic()
+                    .setPendingIntentBackgroundActivityStartMode(
+                        ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED,
+                    )
+                    .toBundle()
+                pendingIntent.send(this, 0, null, null, null, null, options)
+            } else {
+                pendingIntent.send()
+            }
         }.onFailure {
             showCaptureFailure("无法打开一键截屏设置，请进入系统无障碍设置")
         }
@@ -538,6 +527,48 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
             OverlayCommand.Collapse -> showCollapsedOverlay()
             OverlayCommand.ShowControls -> showControls()
         }
+    }
+
+    private fun registerOverlayTap() {
+        if (displayMode != OverlayDisplayMode.COLLAPSED) {
+            handleTap()
+            return
+        }
+        when (tapArbiter.registerTap(SystemClock.elapsedRealtime())) {
+            OverlayTapDisposition.OpenApp -> {
+                cancelPendingTap(resetArbiter = false)
+                openAppHome()
+            }
+            OverlayTapDisposition.DeferSingle -> {
+                cancelPendingTap(resetArbiter = false)
+                val action = Runnable {
+                    pendingSingleTap = null
+                    if (tapArbiter.consumeSingle(SystemClock.elapsedRealtime())) handleTap()
+                }
+                pendingSingleTap = action
+                mainHandler.postDelayed(action, DOUBLE_TAP_TIMEOUT_MILLIS + 8L)
+            }
+        }
+    }
+
+    private fun cancelPendingTap(resetArbiter: Boolean = true) {
+        pendingSingleTap?.let(mainHandler::removeCallbacks)
+        pendingSingleTap = null
+        if (resetArbiter) tapArbiter.cancel()
+    }
+
+    private fun openAppHome() {
+        cancelPendingTap()
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                action = ACTION_OPEN_HOME
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            },
+        )
     }
 
     private fun showControls() {
@@ -680,6 +711,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         private var acceptingGesture = false
         private val longPress = Runnable {
             if (!dragging) {
+                cancelPendingTap()
                 longPressTriggered = true
                 if (controller.commandForLongPress() == OverlayCommand.ShowControls) showControls()
             }
@@ -712,6 +744,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 val deltaX = event.rawX - downX
                 val deltaY = event.rawY - downY
                 if (abs(deltaX) > TOUCH_SLOP_PX || abs(deltaY) > TOUCH_SLOP_PX) {
+                    cancelPendingTap()
                     dragging = true
                     view.removeCallbacks(longPress)
                     currentLayoutParams?.let { params ->
@@ -742,7 +775,7 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
                 } else if (!longPressTriggered && event.actionMasked == MotionEvent.ACTION_UP) {
                     // performClick preserves accessibility behavior in the resting state. The
                     // expanded root has no click listener, so tapping Mofei collapses explicitly.
-                    if (overlayView?.performClick() != true) handleTap()
+                    if (overlayView?.performClick() != true) registerOverlayTap()
                 }
                 acceptingGesture = false
                 true
@@ -825,9 +858,13 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         const val ACTION_STOP = "com.suishouban.app.action.STOP_MOFEI_OVERLAY"
         const val ACTION_HIDE_ONE_HOUR = "com.suishouban.app.action.HIDE_MOFEI_ONE_HOUR"
         const val ACTION_OPEN_CURRENT = "com.suishouban.app.action.OPEN_MOFEI_CURRENT"
+        const val ACTION_OPEN_HOME = "com.suishouban.app.action.OPEN_MOFEI_HOME"
         const val ACTION_OPEN_MOFEI_ACTION = "com.suishouban.app.action.OPEN_MOFEI_ACTION"
         const val ACTION_UPDATE = "com.suishouban.app.action.UPDATE_MOFEI_OVERLAY"
         private const val ACTION_RESTORE_AFTER_CAPTURE = "com.suishouban.app.action.RESTORE_MOFEI_AFTER_CAPTURE"
+        private const val ACTION_HIDE_FOR_CAPTURE = "com.suishouban.app.action.HIDE_MOFEI_FOR_CAPTURE"
+        private const val ACTION_COLLAPSE_FOR_CAPTURE_SETUP =
+            "com.suishouban.app.action.COLLAPSE_MOFEI_FOR_CAPTURE_SETUP"
         const val ACTION_DISMISS_FOR_FOREGROUND = "com.suishouban.app.action.DISMISS_MOFEI_FOR_FOREGROUND"
         const val EXTRA_ACTION_CARD_ID = "com.suishouban.app.extra.MOFEI_ACTION_CARD_ID"
         const val EXTRA_MOFEI_ACTION = "com.suishouban.app.extra.MOFEI_ACTION"
@@ -839,9 +876,8 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         private const val NOTIFICATION_ID = 2030
         private const val ONE_HOUR_MILLIS = 60 * 60 * 1_000L
         private const val LONG_PRESS_TIMEOUT_MILLIS = 550L
+        private const val DOUBLE_TAP_TIMEOUT_MILLIS = 280L
         private const val TOUCH_SLOP_PX = 12f
-        private const val SCREENSHOT_SETTLE_MILLIS = 180L
-        private const val SCREENSHOT_PREVIEW_REQUEST_CODE = 4090
         private const val ACCESSIBILITY_SETUP_REQUEST_CODE = 4091
         /**
          * Task 5 calls this only from a foreground user gesture after the Settings permission
@@ -893,6 +929,19 @@ class MascotOverlayService : LifecycleService(), ViewModelStoreOwner, SavedState
         fun restoreVisibleAfterCapture(context: Context) {
             context.startService(
                 Intent(context, MascotOverlayService::class.java).setAction(ACTION_RESTORE_AFTER_CAPTURE),
+            )
+        }
+
+        fun hideVisibleForCapture(context: Context) {
+            context.startService(
+                Intent(context, MascotOverlayService::class.java).setAction(ACTION_HIDE_FOR_CAPTURE),
+            )
+        }
+
+        fun collapseVisibleForCaptureSetup(context: Context) {
+            context.startService(
+                Intent(context, MascotOverlayService::class.java)
+                    .setAction(ACTION_COLLAPSE_FOR_CAPTURE_SETUP),
             )
         }
 

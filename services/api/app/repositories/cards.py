@@ -16,6 +16,8 @@ ARRAY_FIELDS = {
     "tags",
     "reminders",
     "need_confirm",
+    "participant_ids",
+    "deliverables",
 }
 
 
@@ -70,6 +72,17 @@ class CardRepository:
             "materials",
             "submit_method",
             "priority",
+            "priority_mode",
+            "priority_score",
+            "priority_reason",
+            "priority_updated_at",
+            "priority_locked",
+            "workspace_type",
+            "workspace_id",
+            "assignee_id",
+            "participant_ids",
+            "deliverables",
+            "source_session_id",
             "tags",
             "reminders",
             "need_confirm",

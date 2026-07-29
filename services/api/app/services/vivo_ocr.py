@@ -75,7 +75,7 @@ class VivoOcrClient:
         try:
             async with runtime.semaphores["ocr"]:
                 telemetry_started = runtime.attempt("ocr")
-                response = await runtime.client.post(
+                response = await runtime.client_for_url(settings.vivo_ocr_url).post(
                     settings.vivo_ocr_url,
                     data=payload,
                     params=params,
@@ -145,10 +145,6 @@ def clean_ocr_lines(lines: list[OcrLine]) -> str:
             and not re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|KB/s", line.text, flags=re.I)
             and not re.fullmatch(r"\d{1,2}:\d{2}", line.text.strip())
         ]
-    action_lines = [line for line in candidates if _has_action_signal(line.text)]
-    if action_lines:
-        candidates = _expand_nearby_block(candidates, action_lines)
-
     merged = _merge_same_row(candidates)
     text = "\n".join(line for line in merged if line)
     return _strip_residual_noise(text)
@@ -176,12 +172,13 @@ def _is_noise_line(line: OcrLine) -> bool:
     compact = re.sub(r"\s+", "", text)
     if not compact:
         return True
-    # Top and bottom mobile chrome are layout, not user intent.
-    if line.center_y < 0.12 or line.center_y > 0.90:
+    # Position alone is never enough to discard content: long screenshots often
+    # place a real deadline near the bottom edge.
+    if (line.center_y < 0.08 or line.center_y > 0.96) and len(compact) <= 4:
         return True
     if re.fullmatch(r"\d{1,2}:\d{2}", compact):
         return True
-    if any(token in compact for token in ["KB/s", "5G", "发送", "群文件", "撤回了一条消息"]):
+    if any(token in compact for token in ["KB/s", "5G", "撤回了一条消息"]):
         return True
     if re.search(r"video_\d{8}_\d{6}\.mp4", compact, flags=re.I):
         return True
@@ -212,18 +209,6 @@ def _has_action_signal(text: str) -> bool:
     ) or bool(re.search(r"\d{1,2}[.:：]\d{2}|\d{1,2}\s*[月.]\s*\d{1,2}", text))
 
 
-def _expand_nearby_block(candidates: list[OcrLine], action_lines: list[OcrLine]) -> list[OcrLine]:
-    top = max(0.0, min(line.top for line in action_lines) - 0.04)
-    bottom = min(1.0, max(line.bottom for line in action_lines) + 0.08)
-    left = max(0.0, min(line.left for line in action_lines) - 0.08)
-    right = min(1.0, max(line.right for line in action_lines) + 0.08)
-    return [
-        line
-        for line in candidates
-        if top <= line.center_y <= bottom and left <= line.center_x <= right
-    ]
-
-
 def _merge_same_row(lines: list[OcrLine]) -> list[str]:
     sorted_lines = sorted(lines, key=lambda line: (line.center_y, line.left))
     rows: list[list[OcrLine]] = []
@@ -244,7 +229,7 @@ def _strip_residual_noise(text: str) -> str:
     lines = []
     for line in text.splitlines():
         compact = re.sub(r"\s+", "", line)
-        if re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|撤回了一条消息|群文件", compact, flags=re.I):
+        if re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|撤回了一条消息", compact, flags=re.I):
             continue
         lines.append(line.strip())
     return "\n".join(lines).strip()

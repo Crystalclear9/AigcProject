@@ -15,7 +15,12 @@ enum class MofeiOverlayCaptureFinish {
 }
 
 data class MofeiOverlayCaptureStartPlan(
-    val removeOverlay: Boolean,
+    /**
+     * The visible overlay gives Android a user-initiated foreground launch signal. The transparent
+     * capture bridge removes it only after that Activity is visible, so Android 15+ cannot silently
+     * block the preview path and leave Mofei missing.
+     */
+    val keepOverlayUntilCaptureBridge: Boolean,
     val start: MofeiOverlayCaptureStart,
 )
 
@@ -24,15 +29,15 @@ object MofeiOverlayCapturePlan {
     fun begin(apiLevel: Int, accessibilityConnected: Boolean): MofeiOverlayCaptureStartPlan =
         when (AccessibilityScreenshotPolicy.route(apiLevel, accessibilityConnected)) {
             AccessibilityScreenshotRoute.CAPTURE -> MofeiOverlayCaptureStartPlan(
-                removeOverlay = true,
+                keepOverlayUntilCaptureBridge = true,
                 start = MofeiOverlayCaptureStart.CAPTURE_ACCESSIBILITY,
             )
             AccessibilityScreenshotRoute.SETUP_REQUIRED -> MofeiOverlayCaptureStartPlan(
-                removeOverlay = true,
+                keepOverlayUntilCaptureBridge = true,
                 start = MofeiOverlayCaptureStart.OPEN_ACCESSIBILITY_SETUP,
             )
             AccessibilityScreenshotRoute.UNSUPPORTED -> MofeiOverlayCaptureStartPlan(
-                removeOverlay = false,
+                keepOverlayUntilCaptureBridge = false,
                 start = MofeiOverlayCaptureStart.SHOW_UNSUPPORTED,
             )
         }

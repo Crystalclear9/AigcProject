@@ -42,7 +42,7 @@ async def generate_demo_image(prompt: str, *, size: str = "2K") -> dict[str, Any
     try:
         async with runtime.semaphores["image_generation"]:
             telemetry_started = runtime.attempt("image_generation")
-            response = await runtime.client.post(
+            response = await runtime.client_for_url(settings.vivo_image_generation_url).post(
                 settings.vivo_image_generation_url,
                 params=params,
                 json=payload,

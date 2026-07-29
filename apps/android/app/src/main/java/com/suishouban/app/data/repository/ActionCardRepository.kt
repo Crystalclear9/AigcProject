@@ -4,6 +4,7 @@ import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.content.Context
+import android.provider.OpenableColumns
 import com.suishouban.app.data.local.AppDatabase
 import com.suishouban.app.data.local.toDomain
 import com.suishouban.app.data.local.toEntity
@@ -17,10 +18,14 @@ import com.suishouban.app.data.remote.toDto
 import com.suishouban.app.data.remote.WorkflowResumeRequest
 import com.suishouban.app.data.remote.WorkflowReactRequest
 import com.suishouban.app.data.remote.OcrCandidateRequest
+import com.suishouban.app.data.remote.OcrBlockDto
+import com.suishouban.app.ocr.StructuredOcrResult
 import com.suishouban.app.data.remote.DraftFieldOperation
 import com.suishouban.app.data.remote.DraftPatchRequest
 import com.suishouban.app.data.remote.WorkflowEventEnvelope
 import com.suishouban.app.data.model.NodeTrace
+import com.suishouban.app.data.model.UserProfileContext
+import com.suishouban.app.data.remote.IntakeSessionResponseDto
 import com.suishouban.app.domain.ActionEnhancementInput
 import com.suishouban.app.domain.ActionEnhancer
 import com.suishouban.app.domain.LocalRuleActionEnhancer
@@ -29,6 +34,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -66,22 +72,86 @@ class ActionCardRepository(
 
     fun observeAll(): Flow<List<ActionCard>> = dao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
-    suspend fun analyzeImage(uri: Uri, screenshotTime: String? = null): AnalyzeResult? {
+    suspend fun analyzeImage(
+        uri: Uri,
+        screenshotTime: String? = null,
+        profileContext: UserProfileContext? = null,
+    ): AnalyzeResult? {
         if (!settingsRepository.settings.value.keepOriginalScreenshot) return null
         val api = workflowApiOrNull() ?: return null
 
         return runCatching {
+            val imagePart = buildImagePart(uri)
+            intakeToResult(
+                api.startIntake(
+                    text = "".textPart(),
+                    sourceKind = "screenshot".textPart(),
+                    workspaceType = "personal".textPart(),
+                    roleTemplate = "action_analyst".textPart(),
+                    profileContext = gson.toJson(profileContext ?: emptyMap<String, String>())
+                        .toRequestBody(JSON_MEDIA_TYPE),
+                    files = listOf(imagePart),
+                )
+            )
+        }.recoverCatching {
             val imagePart = buildImagePart(uri)
             val timePart = screenshotTime?.toRequestBody("text/plain".toMediaType())
             responseToResult(api.startImageWorkflow(imagePart, timePart))
         }.getOrNull()
     }
 
-    suspend fun analyzeText(text: String, screenshotTime: String? = null, enginePrefix: String? = null): AnalyzeResult {
+    suspend fun analyzeFiles(
+        uris: List<Uri>,
+        sourceKind: String,
+        profileContext: UserProfileContext? = null,
+        workspaceType: String = "personal",
+    ): AnalyzeResult? {
+        if (uris.isEmpty()) return null
+        val api = workflowApiOrNull() ?: return null
+        val parts = uris.take(8).mapIndexed { index, uri -> buildIntakePart(uri, index) }
+        return runCatching {
+            intakeToResult(
+                api.startIntake(
+                    text = "".textPart(),
+                    sourceKind = sourceKind.textPart(),
+                    workspaceType = workspaceType.textPart(),
+                    roleTemplate = (
+                        if (workspaceType == "team") "team_coordinator" else "action_analyst"
+                        ).textPart(),
+                    profileContext = gson.toJson(profileContext ?: emptyMap<String, String>())
+                        .toRequestBody(JSON_MEDIA_TYPE),
+                    files = parts,
+                )
+            )
+        }.getOrNull()
+    }
+
+    suspend fun analyzeText(
+        text: String,
+        screenshotTime: String? = null,
+        enginePrefix: String? = null,
+        profileContext: UserProfileContext? = null,
+        workspaceType: String = "personal",
+    ): AnalyzeResult {
         val api = workflowApiOrNull()
         if (api != null) {
             val remoteResult = runCatching {
-                val response = api.startTextWorkflow(AnalyzeScreenshotTextRequest(text.cloudSafe(), screenshotTime))
+                intakeToResult(
+                    api.startIntake(
+                        text = text.cloudSafe().textPart(),
+                        sourceKind = "text".textPart(),
+                        workspaceType = workspaceType.textPart(),
+                        roleTemplate = (
+                            if (workspaceType == "team") "team_coordinator" else "action_analyst"
+                            ).textPart(),
+                        profileContext = gson.toJson(profileContext ?: emptyMap<String, String>())
+                            .toRequestBody(JSON_MEDIA_TYPE),
+                    )
+                ).let { it.copy(engine = prefixEngine(it.engine, enginePrefix)) }
+            }.recoverCatching {
+                val response = api.startTextWorkflow(
+                    AnalyzeScreenshotTextRequest(text.cloudSafe(), screenshotTime)
+                )
                 responseToResult(response).copy(engine = prefixEngine(response.engine, enginePrefix))
             }.getOrNull()
             if (remoteResult != null) return remoteResult
@@ -117,9 +187,52 @@ class ActionCardRepository(
         )
     }
 
-    suspend fun submitOcrCandidate(runId: String, text: String): AnalyzeResult {
+    suspend fun submitOcrCandidate(
+        runId: String,
+        text: String,
+        structured: StructuredOcrResult? = null,
+    ): AnalyzeResult {
         val api = requireRemoteApi()
-        return responseToResult(api.submitOcrCandidate(runId, OcrCandidateRequest(text.cloudSafe())))
+        return responseToResult(
+            api.submitOcrCandidate(
+                runId,
+                OcrCandidateRequest(
+                    text = text.cloudSafe(),
+                    engine = structured?.let { "mlkit:${it.variant}" } ?: "mlkit",
+                    blocks = structured?.blocks?.map { block ->
+                        OcrBlockDto(
+                            id = block.id,
+                            text = block.text.cloudSafe(),
+                            left = block.left,
+                            top = block.top,
+                            right = block.right,
+                            bottom = block.bottom,
+                            readingOrder = block.readingOrder,
+                            pageIndex = block.pageIndex,
+                        )
+                    }.orEmpty(),
+                    arrivedAtMs = System.currentTimeMillis(),
+                    imageWidth = structured?.imageWidth,
+                    imageHeight = structured?.imageHeight,
+                    rotationDegrees = structured?.rotationDegrees ?: 0,
+                    variant = structured?.variant ?: "original",
+                ),
+            )
+        )
+    }
+
+    suspend fun resolveOcr(runId: String, correctedText: String): AnalyzeResult {
+        val api = requireRemoteApi()
+        return responseToResult(
+            api.resolveOcr(
+                runId,
+                OcrCandidateRequest(
+                    text = correctedText.cloudSafe(),
+                    engine = "user-corrected",
+                    confidence = 1.0,
+                ),
+            ),
+        )
     }
 
     suspend fun followWorkflow(runId: String, onUpdate: (AnalyzeResult) -> Unit): AnalyzeResult {
@@ -307,10 +420,36 @@ class ActionCardRepository(
             providerUsage = response.providerUsage.mapValues { it.value.toDomain() },
             modelEnhancementStatus = response.modelEnhancementStatus,
             ocrEnhancementStatus = response.ocrEnhancementStatus,
+            ocrQualityReport = response.ocrQualityReport?.toDomain(),
+            ocrReviewReasons = response.ocrReviewReasons,
             imageGenerationStatus = response.imageGenerationStatus,
             reactSuggestions = response.reactSuggestions,
         )
     }
+
+    private fun intakeToResult(response: IntakeSessionResponseDto): AnalyzeResult {
+        response.workflow?.let { workflow ->
+            return responseToResult(workflow).copy(
+                ocrText = response.canonicalText.ifBlank { workflow.ocrText },
+                warnings = response.warnings + workflow.warnings,
+            )
+        }
+        return AnalyzeResult(
+            ocrText = response.canonicalText,
+            cards = response.cards.map { it.toDomain() },
+            previewActions = emptyList(),
+            engine = "intake:${response.classification}",
+            traceId = response.workflowRunId ?: response.sessionId,
+            warnings = response.warnings,
+            workflowStatus = if (response.shouldCreateCards) "running" else "completed",
+            resultStage = if (response.shouldCreateCards) "provisional" else "final",
+            overallConfidence = response.classificationConfidence,
+            route = if (response.shouldCreateCards) "intake_graph" else "classification_only",
+        )
+    }
+
+    private fun String.textPart(): RequestBody =
+        toRequestBody("text/plain; charset=utf-8".toMediaType())
 
     private fun editableFields(card: ActionCard): List<Pair<String, Any?>> = listOf(
         "card_type" to card.cardType,
@@ -336,6 +475,38 @@ class ActionCardRepository(
         val bytes = readCompressedJpeg(uri)
         val body = bytes.toRequestBody("image/jpeg".toMediaType())
         return MultipartBody.Part.createFormData("image", "screenshot.jpg", body)
+    }
+
+    private fun buildIntakePart(uri: Uri, index: Int): MultipartBody.Part {
+        val resolver = appContext.contentResolver
+        val declaredMime = resolver.getType(uri).orEmpty()
+        val (bytes, mime, fallbackName) = if (declaredMime.startsWith("image/")) {
+            Triple(readCompressedJpeg(uri), "image/jpeg", "image-$index.jpg")
+        } else {
+            val data = resolver.openInputStream(uri)?.use { input ->
+                input.readNBytes(MAX_INTAKE_FILE_BYTES + 1)
+            } ?: error("Unable to read attachment")
+            require(data.size <= MAX_INTAKE_FILE_BYTES) { "Attachment exceeds 15 MB" }
+            Triple(
+                data,
+                declaredMime.ifBlank { "application/octet-stream" },
+                "attachment-$index",
+            )
+        }
+        val displayName = resolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }.orEmpty().ifBlank { fallbackName }
+        return MultipartBody.Part.createFormData(
+            "files",
+            displayName,
+            bytes.toRequestBody(mime.toMediaType()),
+        )
     }
 
     private fun readCompressedJpeg(uri: Uri): ByteArray {
@@ -392,6 +563,23 @@ class ActionCardRepository(
         val safeCard = card.safeForLocalStorage()
         dao.upsert(safeCard.toEntity())
         remoteApiOrNull()?.let { api -> runCatching { api.updateCard(safeCard.id, safeCard.safeForCloud().toDto()) } }
+    }
+
+    suspend fun replan(card: ActionCard, changedFields: List<String>): ActionCard? {
+        val api = remoteApiOrNull() ?: return null
+        val request = com.suishouban.app.data.remote.CardReplanRequestDto(
+            changedFields = changedFields.distinct(),
+            priorityMode = card.priorityMode,
+            manualPriority = card.priority.takeIf { card.priorityLocked },
+            importance = when (card.priority) {
+                "high" -> 0.85
+                "low" -> 0.25
+                else -> 0.5
+            },
+            blockedDependents = card.dependencies.size,
+            teamImpact = if (card.workspaceType == "team") 0.7 else 0.0,
+        )
+        return runCatching { api.replanCard(card.id, request).card.toDomain() }.getOrNull()
     }
 
     suspend fun complete(id: String) {
@@ -469,3 +657,5 @@ private val snapshotRequiredEvents = setOf(
     "completed",
     "failed",
 )
+private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+private const val MAX_INTAKE_FILE_BYTES = 15 * 1024 * 1024

@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -96,9 +97,28 @@ object MascotVisuals {
             primaryArgb = definition.primaryArgb,
             contentDescription = "墨斐，${definition.accessibilityLabel}。$message",
             message = message,
-            motion = if (reduceMotion) MofeiMotion.STILL else definition.motion,
+            motion = if (reduceMotion) {
+                MofeiMotion.STILL
+            } else {
+                motionForHint(state.animationHint, definition.motion)
+            },
         )
     }
+
+    private fun motionForHint(
+        hint: MascotAnimationHint,
+        fallback: MofeiMotion,
+    ): MofeiMotion = when (hint) {
+        MascotAnimationHint.BREATHE -> MofeiMotion.BREATHE
+        MascotAnimationHint.SCAN -> MofeiMotion.SCAN
+        MascotAnimationHint.PEEK -> MofeiMotion.PEEK
+        MascotAnimationHint.NUDGE -> MofeiMotion.NUDGE
+        MascotAnimationHint.WARNING_PULSE -> MofeiMotion.WARNING_PULSE
+        MascotAnimationHint.ALERT_PULSE -> MofeiMotion.ALERT_PULSE
+        MascotAnimationHint.CELEBRATE -> MofeiMotion.CELEBRATE
+        MascotAnimationHint.SETTLE -> MofeiMotion.SETTLE
+        MascotAnimationHint.DIM -> MofeiMotion.DIM
+    }.takeIf { it != MofeiMotion.STILL } ?: fallback
 
     private fun definitionFor(mood: MascotMood): MofeiVisualDefinition = when (mood) {
         MascotMood.IDLE -> MofeiVisualDefinition(MofeiPalette.ICE_BLUE, "待命", "墨斐正在待命", MofeiMotion.BREATHE)
@@ -304,7 +324,11 @@ fun MofeiPetSprite(
         painter = painterResource(frames[frameIndex.coerceIn(0, frames.size - 1)]),
         contentDescription = null,
         contentScale = ContentScale.Fit,
-        modifier = modifier.testTag("mofei-pet-sprite"),
+        modifier = modifier
+            .testTag("mofei-pet-sprite")
+            .semantics {
+                stateDescription = "frame ${frameIndex + 1} of ${frames.size}"
+            },
     )
 }
 

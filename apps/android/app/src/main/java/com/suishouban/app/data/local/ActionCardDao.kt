@@ -26,6 +26,9 @@ interface ActionCardDao {
     @Query("SELECT * FROM cards WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ActionCardEntity?
 
+    @Query("SELECT * FROM cards WHERE priority_mode = 'adaptive' AND priority_locked = 0")
+    suspend fun adaptiveCards(): List<ActionCardEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(card: ActionCardEntity)
 

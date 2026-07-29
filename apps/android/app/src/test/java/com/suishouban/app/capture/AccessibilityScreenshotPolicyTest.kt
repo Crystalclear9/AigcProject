@@ -31,6 +31,30 @@ class AccessibilityScreenshotPolicyTest {
     }
 
     @Test
+    fun listedButDisconnectedServiceRequiresReconnect() {
+        assertEquals(
+            MofeiAccessibilityConnectionState.CONFIGURED_NOT_CONNECTED,
+            AccessibilityScreenshotPolicy.connectionState(
+                serviceConnected = false,
+                accessibilityMasterEnabled = false,
+                serviceListedAsEnabled = true,
+            ),
+        )
+    }
+
+    @Test
+    fun boundServiceWinsOverStaleSystemFlags() {
+        assertEquals(
+            MofeiAccessibilityConnectionState.CONNECTED,
+            AccessibilityScreenshotPolicy.connectionState(
+                serviceConnected = true,
+                accessibilityMasterEnabled = false,
+                serviceListedAsEnabled = false,
+            ),
+        )
+    }
+
+    @Test
     fun accessibilityCaptureHasItsOwnFingerprintSource() {
         assertNotEquals(
             ScreenshotCaptureSource.MEDIA_PROJECTION,

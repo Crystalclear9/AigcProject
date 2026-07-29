@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import com.suishouban.app.domain.screenshot.ScreenshotCaptureSource
@@ -32,6 +33,7 @@ class MofeiScreenshotAccessibilityService : AccessibilityService() {
         // Metadata must declare an event type, but this service does not need event delivery.
         serviceInfo = serviceInfo.apply { eventTypes = 0 }
         activeService = this
+        Log.i(TAG, "external_capture stage=service_connected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
@@ -40,12 +42,14 @@ class MofeiScreenshotAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         if (activeService === this) activeService = null
+        Log.i(TAG, "external_capture stage=service_disconnected")
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         if (activeService === this) activeService = null
         captureExecutor.shutdownNow()
+        Log.i(TAG, "external_capture stage=service_destroyed")
         super.onDestroy()
     }
 
@@ -70,18 +74,18 @@ class MofeiScreenshotAccessibilityService : AccessibilityService() {
                                     this@MofeiScreenshotAccessibilityService,
                                     uri,
                                 )
-                                val isNewImage = imageHash == null || store.checkAndRecordImage(
-                                    imageHash,
-                                    ScreenshotCaptureSource.ACCESSIBILITY,
-                                    System.currentTimeMillis(),
-                                )
-                                if (isNewImage) {
-                                    callback(AccessibilityCaptureResult.Success(uri))
-                                } else {
-                                    // The URI is an app-private temporary capture and is safe to remove.
-                                    runCatching { contentResolver.delete(uri, null, null) }
-                                    callback(AccessibilityCaptureResult.Failure("同一画面刚刚已经处理"))
+                                if (imageHash != null) {
+                                    store.checkAndRecordImage(
+                                        imageHash,
+                                        ScreenshotCaptureSource.ACCESSIBILITY,
+                                        System.currentTimeMillis(),
+                                    )
                                 }
+                                // This is an explicit user gesture, not an automatic screenshot
+                                // observer event. Re-running the same screen is intentional and
+                                // must still open OCR preview.
+                                Log.i(TAG, "external_capture stage=frame_written")
+                                callback(AccessibilityCaptureResult.Success(uri))
                             }
                             .onFailure { error ->
                                 val message = if (error is ProtectedContentException) {
@@ -94,6 +98,7 @@ class MofeiScreenshotAccessibilityService : AccessibilityService() {
                     }
 
                     override fun onFailure(errorCode: Int) {
+                        Log.w(TAG, "external_capture stage=platform_failed code=$errorCode")
                         callback(AccessibilityCaptureResult.Failure("系统截屏失败（错误码 $errorCode）"))
                     }
                 },
@@ -104,6 +109,8 @@ class MofeiScreenshotAccessibilityService : AccessibilityService() {
     }
 
     companion object {
+        private const val TAG = "MofeiCapture"
+
         @Volatile
         private var activeService: MofeiScreenshotAccessibilityService? = null
 

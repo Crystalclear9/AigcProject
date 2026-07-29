@@ -1,12 +1,13 @@
 package com.suishouban.app.mascot
 
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionAvailability
 import com.suishouban.app.mascot.action.MofeiActionItem
@@ -53,11 +54,13 @@ class MofeiActionRingTest {
         compose.onNodeWithText("3").assertExists()
         compose.onAllNodes(hasText("需要通知读取权限")).assertCountEquals(0)
         compose.onAllNodes(hasText("相册导入")).assertCountEquals(0)
-        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.OnClick)
         compose.onNodeWithTag("mofei-action-hint", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("拍照识别").assertExists()
         assertEquals(null, selected)
-        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(MofeiAction.TAKE_PHOTO, selected)
     }
 
@@ -76,14 +79,38 @@ class MofeiActionRingTest {
             )
         }
 
-        compose.onNodeWithTag("mofei-action-dismiss").performClick()
+        compose.onNodeWithTag("mofei-action-dismiss")
+            .performSemanticsAction(SemanticsActions.OnClick)
         assertEquals(true, dismissed)
+    }
+
+    @Test
+    fun screenshotActionCapturesOnTheFirstTap() {
+        var selected: MofeiAction? = null
+        compose.setContent {
+            MofeiActionRing(
+                surface = MofeiSurface.IN_APP,
+                items = listOf(
+                    MofeiActionItem(
+                        action = MofeiAction.CAPTURE_CURRENT_SCREEN,
+                        availability = MofeiActionAvailability.READY,
+                    ),
+                ),
+                expanded = true,
+                reduceMotion = true,
+                onAction = { selected = it },
+                onDismiss = {},
+            )
+        }
+
+        compose.onNodeWithTag("mofei-action-capture-current-screen", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.OnClick)
+        assertEquals(MofeiAction.CAPTURE_CURRENT_SCREEN, selected)
     }
 
     @Test
     fun expandedRingAutoDismissesFiveSecondsAfterTheLatestInteraction() {
         var dismissed = false
-        compose.mainClock.autoAdvance = false
         compose.setContent {
             MofeiActionRing(
                 surface = MofeiSurface.IN_APP,
@@ -98,14 +125,14 @@ class MofeiActionRingTest {
                 onAction = {},
                 onDismiss = { dismissed = true },
                 dockSide = OverlayDockSide.RIGHT,
+                idleTimeoutMillis = 500L,
             )
         }
 
-        compose.mainClock.advanceTimeBy(4_000L)
-        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true).performClick()
-        compose.mainClock.advanceTimeBy(4_999L)
-        assertEquals(false, dismissed)
-        compose.mainClock.advanceTimeBy(2L)
+        compose.onNodeWithTag("mofei-action-take-photo", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { assertEquals(false, dismissed) }
+        compose.waitUntil(timeoutMillis = 2_000L) { dismissed }
         compose.runOnIdle { assertEquals(true, dismissed) }
     }
 }

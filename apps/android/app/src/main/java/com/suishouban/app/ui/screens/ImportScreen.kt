@@ -53,6 +53,7 @@ import com.suishouban.app.ui.theme.SoftCard
 fun ImportScreen(
     state: AppUiState,
     onPickImage: (Uri) -> Unit,
+    onPickFiles: (List<Uri>) -> Unit,
     onAnalyzeText: (String) -> Unit,
     onPreview: () -> Unit,
     mascotState: MascotState,
@@ -60,6 +61,11 @@ fun ImportScreen(
     var text by rememberSaveable { mutableStateOf("") }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) onPickImage(uri)
+    }
+    val multiFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) onPickFiles(uris.take(8))
     }
 
     LazyColumn(
@@ -121,6 +127,25 @@ fun ImportScreen(
                             Spacer(Modifier.width(8.dp))
                             Text("示例")
                         }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            multiFileLauncher.launch(
+                                arrayOf(
+                                    "image/*",
+                                    "text/plain",
+                                    "text/markdown",
+                                    "application/pdf",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DS.RadiusButton),
+                    ) {
+                        Text("导入长截图、聊天记录或文档")
                     }
                     if (state.loading) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

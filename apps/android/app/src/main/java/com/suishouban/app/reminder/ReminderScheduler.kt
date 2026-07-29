@@ -8,6 +8,9 @@ import androidx.work.WorkManager
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.data.model.primaryTime
+import com.suishouban.app.data.model.PlanItem
+import com.suishouban.app.data.model.ReminderModes
+import com.suishouban.app.data.model.effectiveReminderNodes
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
@@ -29,15 +32,38 @@ class ReminderScheduler(private val context: Context) {
         val workManager = WorkManager.getInstance(context)
         workManager.cancelAllWorkByTag(cardTag(card.id))
 
+        val explicitNodes = card.effectiveReminderNodes().filter { it.enabled }
+        val scheduleItems = if (explicitNodes.isNotEmpty()) {
+            explicitNodes.mapNotNull { node ->
+                val triggerAt = when (node.mode) {
+                    ReminderModes.ABSOLUTE -> parseTime(node.absoluteTime)
+                    else -> node.offsetMinutes?.let(time::minusMinutes)
+                } ?: return@mapNotNull null
+                ScheduledReminder(
+                    key = "${node.id}:${node.revision}",
+                    triggerAt = triggerAt,
+                    offset = Duration.between(triggerAt, time).coerceAtLeast(Duration.ZERO),
+                )
+            }
+        } else {
+            reminderOffsetsFor(card, now, time).map { offset ->
+                ScheduledReminder(
+                    key = "legacy:${offset.toMinutes()}",
+                    triggerAt = if (offset.isZero) now.plusSeconds(5) else time.minus(offset),
+                    offset = offset,
+                )
+            }
+        }.distinctBy { it.triggerAt.withSecond(0).withNano(0) }
+
         var scheduledCount = 0
-        reminderOffsetsFor(card, now, time).forEach { offset ->
-            val triggerAt = if (offset.isZero) now.plusSeconds(5) else time.minus(offset)
+        scheduleItems.forEach { item ->
+            val triggerAt = item.triggerAt
             val delay = Duration.between(now, triggerAt)
             if (delay.isNegative) return@forEach
 
             val data = Data.Builder()
                 .putString(CardReminderWorker.KEY_TITLE, "随手办：${card.title}")
-                .putString(CardReminderWorker.KEY_BODY, buildBody(card, offset, time))
+                .putString(CardReminderWorker.KEY_BODY, buildBody(card, item.offset, time))
                 .build()
             val request = OneTimeWorkRequestBuilder<CardReminderWorker>()
                 .setInitialDelay(delay.toMillis().coerceAtLeast(0), TimeUnit.MILLISECONDS)
@@ -45,7 +71,7 @@ class ReminderScheduler(private val context: Context) {
                 .addTag(cardTag(card.id))
                 .build()
             workManager.enqueueUniqueWork(
-                uniqueWorkName(card, offset),
+                uniqueWorkName(card, item.key),
                 ExistingWorkPolicy.REPLACE,
                 request,
             )
@@ -58,12 +84,63 @@ class ReminderScheduler(private val context: Context) {
         }
     }
 
-    private fun uniqueWorkName(card: ActionCard, offset: Duration): String {
+    fun scheduleMilestone(
+        card: ActionCard,
+        planId: String,
+        item: PlanItem,
+    ): ReminderScheduleResult {
+        val time = parseTime(item.deadline ?: item.startTime)
+            ?: return ReminderScheduleResult(0, "里程碑未设置可用时间：${item.title}")
+        val now = OffsetDateTime.now()
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelAllWorkByTag(milestoneTag(card.id, item.id))
+        val offsets = smartDeadlineOffsets(now, time)
+        var scheduledCount = 0
+        offsets.forEach { offset ->
+            val triggerAt = if (offset.isZero) now.plusSeconds(5) else time.minus(offset)
+            val delay = Duration.between(now, triggerAt)
+            if (delay.isNegative) return@forEach
+            val data = Data.Builder()
+                .putString(CardReminderWorker.KEY_TITLE, "计划节点：${item.title}")
+                .putString(
+                    CardReminderWorker.KEY_BODY,
+                    "${card.title} · ${if (offset.isZero) "现在需要处理" else "${formatOffset(offset)}后到达节点"}",
+                )
+                .build()
+            val request = OneTimeWorkRequestBuilder<CardReminderWorker>()
+                .setInitialDelay(delay.toMillis().coerceAtLeast(0), TimeUnit.MILLISECONDS)
+                .setInputData(data)
+                .addTag(milestoneTag(card.id, item.id))
+                .addTag(planTag(planId))
+                .build()
+            workManager.enqueueUniqueWork(
+                "milestone:${card.id}:${item.id}:${offset.toMinutes()}",
+                ExistingWorkPolicy.REPLACE,
+                request,
+            )
+            scheduledCount += 1
+        }
+        return if (scheduledCount > 0) {
+            ReminderScheduleResult(scheduledCount, "已创建 $scheduledCount 个里程碑提醒：${item.title}")
+        } else {
+            ReminderScheduleResult(0, "里程碑时间已过或提醒时间不可用：${item.title}")
+        }
+    }
+
+    fun cancelPlan(planId: String) {
+        WorkManager.getInstance(context).cancelAllWorkByTag(planTag(planId))
+    }
+
+    private fun uniqueWorkName(card: ActionCard, nodeRevisionKey: String): String {
         val prefix = if (card.hasDeadline()) "deadline" else "reminder"
-        return "$prefix:${card.id}:${offset.toMinutes()}"
+        return "$prefix:${card.id}:$nodeRevisionKey"
     }
 
     private fun cardTag(cardId: String): String = "card:$cardId"
+    private fun milestoneTag(cardId: String, itemId: String): String =
+        "milestone:$cardId:$itemId"
+
+    private fun planTag(planId: String): String = "plan:$planId"
 
     private fun parseTime(value: String?): OffsetDateTime? {
         if (value.isNullOrBlank()) return null
@@ -123,14 +200,17 @@ class ReminderScheduler(private val context: Context) {
 
         internal fun offsetFor(reminder: String): Duration? {
             if (reminder.isBlank()) return null
-            val number = Regex("(\\d+)").find(reminder)?.value?.toLongOrNull() ?: 1L
-            return when {
-                "天" in reminder || "日" in reminder -> Duration.ofDays(number)
-                "小时" in reminder || "时" in reminder -> Duration.ofHours(number)
-                "分钟" in reminder || "分" in reminder -> Duration.ofMinutes(number)
-                "尽快" in reminder || "马上" in reminder || "现在" in reminder -> Duration.ZERO
-                else -> null
+            if (listOf("尽快", "马上", "现在").any(reminder::contains)) {
+                return Duration.ZERO
             }
+            val days = Regex("""(\d+)\s*(?:天|日)""").find(reminder)
+                ?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+            val hours = Regex("""(\d+)\s*(?:小时|时)""").find(reminder)
+                ?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+            val minutes = Regex("""(\d+)\s*(?:分钟|分)""").find(reminder)
+                ?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+            if (days == 0L && hours == 0L && minutes == 0L) return null
+            return Duration.ofDays(days).plusHours(hours).plusMinutes(minutes)
         }
 
         private fun defaultOffsets(cardType: String): List<Duration> {
@@ -149,6 +229,12 @@ class ReminderScheduler(private val context: Context) {
             }
         }
     }
+
+    private data class ScheduledReminder(
+        val key: String,
+        val triggerAt: OffsetDateTime,
+        val offset: Duration,
+    )
 }
 
 private fun ActionCard.hasDeadline(): Boolean = !deadline.isNullOrBlank()

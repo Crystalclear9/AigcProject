@@ -1,5 +1,6 @@
 package com.suishouban.app.data.repository
 
+import com.suishouban.app.BuildConfig
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 object WorkflowUrlPolicy {
@@ -23,19 +24,41 @@ object WorkflowUrlPolicy {
         ocrRecognitionPath,
     )
 
-    fun isAccepted(rawBaseUrl: String): Boolean = normalize(rawBaseUrl) != null
+    fun isAccepted(
+        rawBaseUrl: String,
+        allowLocalDebugGateway: Boolean = localDebugGatewayEnabled(),
+    ): Boolean = normalize(rawBaseUrl, allowLocalDebugGateway) != null
 
-    fun normalize(rawBaseUrl: String): String? {
+    fun normalize(
+        rawBaseUrl: String,
+        allowLocalDebugGateway: Boolean = localDebugGatewayEnabled(),
+    ): String? {
         val url = rawBaseUrl.trim().takeIf { it.isNotBlank() }?.toHttpUrlOrNull() ?: return null
-        if (url.scheme != "https") return null
         val host = url.host.lowercase()
         val path = url.encodedPath.lowercase()
         if (url.username.isNotBlank() || url.password.isNotBlank()) return null
         if (url.query != null || url.fragment != null) return null
+        if (allowLocalDebugGateway && isAdbReverseLoopback(url.scheme, host, path, url.port)) {
+            return url.toString()
+        }
+        if (url.scheme != "https") return null
         if (host in blockedHosts || host.endsWith(".local") || isPrivateIpHost(host) || isPrivateIpv6Host(host)) return null
         if (host == vivoProviderHost || host.endsWith(".$vivoProviderHost") || blockedProviderPaths.any { path.contains(it) }) return null
         return url.toString()
     }
+
+    private fun localDebugGatewayEnabled(): Boolean =
+        BuildConfig.DEBUG && BuildConfig.ALLOW_LOCAL_WORKFLOW_GATEWAY
+
+    private fun isAdbReverseLoopback(
+        scheme: String,
+        host: String,
+        path: String,
+        port: Int,
+    ): Boolean = scheme == "http" &&
+        host == "127.0.0.1" &&
+        path == "/" &&
+        port in 1..65535
 
     private fun isPrivateIpHost(host: String): Boolean {
         val parts = host.split(".").mapNotNull { it.toIntOrNull() }

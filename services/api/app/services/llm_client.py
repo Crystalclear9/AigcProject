@@ -7,6 +7,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 import httpx
 
@@ -142,13 +143,41 @@ def _without_response_format(payload: dict[str, Any], instruction: str) -> dict[
     return fallback
 
 
+def _provider_payload(profile: ModelProfile, payload: dict[str, Any]) -> dict[str, Any]:
+    response_format = payload.get("response_format")
+    if (
+        not isinstance(response_format, dict)
+        or urlparse(profile.base_url).hostname != "api-ai.vivo.com.cn"
+    ):
+        return payload
+    schema = response_format.get("json_schema", {}).get("schema", {})
+    return _without_response_format(
+        payload,
+        (
+            "只返回一个严格 JSON 对象，不要输出解释、Markdown 或代码块。"
+            "输出必须符合以下 JSON Schema："
+            f"{json.dumps(schema, ensure_ascii=False, separators=(',', ':'))}"
+        ),
+    )
+
+
+def _reasoning_controls(profile: ModelProfile) -> dict[str, Any]:
+    controls: dict[str, Any] = {"reasoning_effort": "minimal"}
+    model = profile.model.lower()
+    if "doubao" in model:
+        controls["thinking"] = {"type": "disabled"}
+    elif "qwen" in model:
+        controls["enable_thinking"] = False
+    return controls
+
+
 async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {profile.api_key}", "Content-Type": "application/json"}
     url = _chat_completion_url(profile.base_url)
     telemetry_started: float | None = None
 
     async def send(body: dict[str, Any]) -> httpx.Response:
-        return await runtime.client.post(
+        return await runtime.client_for_url(url).post(
             url,
             params={"request_id": str(uuid.uuid4())},
             json=body,
@@ -159,15 +188,19 @@ async def _post_chat_completion(profile: ModelProfile, payload: dict[str, Any]) 
     try:
         async with runtime.semaphores[profile.role]:
             telemetry_started = runtime.attempt(profile.role)
+            provider_payload = _provider_payload(profile, payload)
             try:
-                response = await send(payload)
+                response = await send(provider_payload)
                 response.raise_for_status()
             except httpx.HTTPStatusError as error:
-                if "response_format" not in payload or not _provider_rejected_response_format(error):
+                if (
+                    "response_format" not in provider_payload
+                    or not _provider_rejected_response_format(error)
+                ):
                     raise
                 response = await send(
                     _without_response_format(
-                        payload,
+                        provider_payload,
                         "如果服务端不支持 response_format/json_schema，也必须只返回一个严格 JSON 对象；不要输出解释、Markdown 或代码块。",
                     )
                 )
@@ -309,6 +342,7 @@ async def extract_cards_with_model(
 
     payload = {
         "model": profile.model,
+        **_reasoning_controls(profile),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -365,6 +399,7 @@ async def structured_completion(
         raise RuntimeError(f"{role} circuit is open")
     payload = {
         "model": profile.model,
+        **_reasoning_controls(profile),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": json.dumps(input_payload, ensure_ascii=False)},

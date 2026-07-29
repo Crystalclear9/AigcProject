@@ -163,5 +163,23 @@ class WorkflowModelsTest {
         assertFalse(WorkflowUrlPolicy.isAccepted("https://proxy.api-ai.vivo.com.cn/v1/chat/completions"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://api-ai.vivo.com.cn/api/v1/image_generation"))
         assertFalse(WorkflowUrlPolicy.isAccepted("https://api-ai.vivo.com.cn/ocr/general_recognition"))
+        assertFalse(
+            WorkflowUrlPolicy.isAccepted(
+                "http://127.0.0.1:8000/",
+                allowLocalDebugGateway = false,
+            ),
+        )
+        assertTrue(
+            WorkflowUrlPolicy.isAccepted(
+                "http://127.0.0.1:8000/",
+                allowLocalDebugGateway = true,
+            ),
+        )
+        assertFalse(
+            WorkflowUrlPolicy.isAccepted(
+                "http://127.0.0.1:8000/api/providers/probe",
+                allowLocalDebugGateway = true,
+            ),
+        )
     }
 }

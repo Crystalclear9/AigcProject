@@ -38,7 +38,7 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 1. 应用内墨斐不需要悬浮窗权限。轻点后可直接使用 Photo Picker 和相机。
 2. 跨 App 墨斐需要在系统“显示在其他应用上层”页面单独授权。
-3. “识别当前屏幕”每次由 Android MediaProjection 系统页确认。授权只对本次捕获有效，App 不保存授权结果。
+3. 跨 App 首次截屏需要在系统无障碍页面开启“墨斐一键截屏”；后续点击“截屏”直接截取一帧。应用内截图只截当前 App 窗口。两条路径都不使用 MediaProjection 或录屏。
 4. 通知草稿需要在设置中同时开启功能、授予“通知使用权”、选择来源 App 白名单。撤销通知使用权后只有该能力被锁定。
 5. Android 13+ 的系统截图监听和“最近截图”需要图片读取权限；Photo Picker 本身不依赖全量相册权限。
 
@@ -52,9 +52,10 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 主动截屏验收：
 
-- 从跨 App 能力环点击“识别当前屏”，确认悬浮墨斐在截屏前隐藏，预览关闭后恢复。
-- 取消授权、受保护黑屏和 6 秒超时均应停止前台服务且不打开伪预览。
-- 读取成功后检查 `adb shell dumpsys activity services com.suishouban.app`，不应残留 MofeiScreenCaptureService。
+- 首次开启“墨斐一键截屏”后，从跨 App 能力环单击“截屏”，确认不出现第二次确认或屏幕共享页。
+- 确认悬浮墨斐只在取帧前暂时隐藏，成功进入预览；失败、受保护内容和 8 秒超时后都自动恢复。
+- 读取成功后检查日志依次出现 `bridge_ready`、`requested`、`frame_written`、`captured` 和 `preview_opened`。
+- 检查 Manifest 与运行中服务，均不应存在 MediaProjection 权限或截图录屏服务。
 - 私有截屏文件位于 FileProvider 对应的 App 缓存路径，预览销毁后删除；系统截图和相机照片不受该清理影响。
 
 当前产品不接受系统图片分享。清单中不应出现 `android.intent.action.SEND`；相册导入统一走系统 Photo Picker。
@@ -89,3 +90,25 @@ cd apps\android
 脚本会连接测试设备，清装 APK，授权通知/图片权限，推送复杂样例图，验证广告、系统页和自身页面不提示，课程截图出现“可能有待办”小窗，多任务截图至少拆出两张候选卡，并检查 WorkManager 截止提醒与 logcat。未传 `-WorkflowUrl` 时只算端侧闭环；传入公网 HTTPS Workflow 网关后才算 vivo API 增强验收。
 
 只有 `adb devices` 显示 `device` 且 APK 安装成功后，才算进入设备验收；`unauthorized` 或 `offline` 只能算开发环境阻塞，不能算通过。
+# 持续使用本机 AI 增强
+
+需要让已连接的调试手机长期通过当前 Windows 主机访问 AI 网关时，可安装用户级自启动任务：
+
+```powershell
+.\scripts\install_phone_ai_gateway_autostart.ps1
+```
+
+首次执行会安全提示输入 vivo API key。密钥由 Windows DPAPI 加密后保存在
+`%LOCALAPPDATA%\Suishouban\secrets`，不会写入仓库、APK 或任务命令行。任务会在用户登录后：
+
+- 以隐藏窗口启动后端并在异常退出后重启；
+- 监听已授权的 ADB 设备并自动恢复 `tcp:8000` 反向映射；
+- 将非敏感运行日志写入 `%LOCALAPPDATA%\Suishouban\gateway`。
+
+移除自启动任务：
+
+```powershell
+.\scripts\install_phone_ai_gateway_autostart.ps1 -Remove
+```
+
+这是调试/个人设备桥接方式，要求 Windows 主机在线且手机保持 ADB 连接。面向普通用户发布时，应把同一后端部署到固定公网 HTTPS 网关。

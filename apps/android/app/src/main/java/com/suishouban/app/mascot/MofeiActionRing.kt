@@ -63,6 +63,7 @@ fun MofeiActionRing(
     revealedActionOverride: MofeiAction? = null,
     onActionPreview: (MofeiAction) -> Unit = {},
     dockSide: OverlayDockSide = OverlayDockSide.RIGHT,
+    idleTimeoutMillis: Long = MOFEI_ACTION_RING_IDLE_TIMEOUT_MS,
     modifier: Modifier = Modifier,
 ) {
     var revealedAction by remember { mutableStateOf<MofeiAction?>(null) }
@@ -73,7 +74,7 @@ fun MofeiActionRing(
     }
     LaunchedEffect(expanded, interactionVersion) {
         if (expanded) {
-            delay(MOFEI_ACTION_RING_IDLE_TIMEOUT_MS)
+            delay(idleTimeoutMillis)
             onDismiss()
         }
     }
@@ -145,7 +146,12 @@ fun MofeiActionRing(
                             dockSide = dockSide,
                             onClick = {
                                 interactionVersion += 1
-                                if (effectiveRevealedAction == item.action) {
+                                if (item.action == MofeiAction.CAPTURE_CURRENT_SCREEN) {
+                                    // Screenshot is reversible and already guarded by platform
+                                    // permission. One tap should capture instead of asking twice.
+                                    revealedAction = null
+                                    onAction(item.action)
+                                } else if (effectiveRevealedAction == item.action) {
                                     revealedAction = null
                                     onAction(item.action)
                                 } else {
@@ -256,7 +262,7 @@ private fun MofeiActionOrb(
 }
 
 private fun actionLabel(surface: MofeiSurface, action: MofeiAction): String = when (action) {
-    MofeiAction.CAPTURE_CURRENT_SCREEN -> if (surface == MofeiSurface.OVERLAY) "截屏" else "识别当前屏"
+    MofeiAction.CAPTURE_CURRENT_SCREEN -> if (surface == MofeiSurface.OVERLAY) "截屏" else "截图识别"
     MofeiAction.ANALYZE_LATEST_SCREENSHOT -> "最近截图"
     MofeiAction.PICK_IMAGE -> "相册导入"
     MofeiAction.TAKE_PHOTO -> "拍照识别"

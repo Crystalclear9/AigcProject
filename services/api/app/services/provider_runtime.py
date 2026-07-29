@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -50,6 +51,9 @@ class ProviderRuntime:
             keepalive_expiry=30,
         )
         self.client = httpx.AsyncClient(http2=True, limits=limits)
+        # vivo's public provider endpoints currently fail TLS negotiation over HTTP/2 in
+        # httpx while succeeding over HTTP/1.1. Keep both pools shared at app scope.
+        self.compat_client = httpx.AsyncClient(http2=False, limits=limits)
         self.semaphores = {
             "ocr": asyncio.Semaphore(settings.provider_max_concurrency),
             "fast_model": asyncio.Semaphore(settings.provider_max_concurrency),
@@ -62,6 +66,12 @@ class ProviderRuntime:
 
     async def close(self) -> None:
         await self.client.aclose()
+        await self.compat_client.aclose()
+
+    def client_for_url(self, url: str) -> httpx.AsyncClient:
+        if urlparse(url).hostname == "api-ai.vivo.com.cn":
+            return self.compat_client
+        return self.client
 
     def allow(self, provider: str) -> bool:
         circuit = self.circuits[provider]

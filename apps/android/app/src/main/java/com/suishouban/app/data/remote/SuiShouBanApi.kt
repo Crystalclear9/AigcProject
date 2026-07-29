@@ -2,6 +2,7 @@ package com.suishouban.app.data.remote
 
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.DELETE
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.Part
@@ -15,8 +16,27 @@ import retrofit2.http.Header
 import retrofit2.http.Streaming
 
 interface SuiShouBanApi {
+    @POST("api/onboarding/turn")
+    suspend fun onboardingTurn(@Body request: OnboardingTurnRequestDto): OnboardingTurnResponseDto
+
     @POST("api/workflows/screenshot-text")
     suspend fun startTextWorkflow(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse
+
+    @Multipart
+    @POST("api/intakes")
+    suspend fun startIntake(
+        @Part("text") text: RequestBody,
+        @Part("source_kind") sourceKind: RequestBody,
+        @Part("workspace_type") workspaceType: RequestBody,
+        @Part("role_template") roleTemplate: RequestBody,
+        @Part("profile_context") profileContext: RequestBody,
+        @Part files: List<MultipartBody.Part> = emptyList(),
+    ): IntakeSessionResponseDto
+
+    @GET("api/intakes/{session_id}")
+    suspend fun getIntake(
+        @Path("session_id") sessionId: String,
+    ): IntakeSessionResponseDto
 
     @Multipart
     @POST("api/workflows/screenshot-image")
@@ -40,6 +60,12 @@ interface SuiShouBanApi {
         @Body request: OcrCandidateRequest,
     ): AnalyzeScreenshotTextResponse
 
+    @POST("api/workflows/{run_id}/resolve-ocr")
+    suspend fun resolveOcr(
+        @Path("run_id") runId: String,
+        @Body request: OcrCandidateRequest,
+    ): AnalyzeScreenshotTextResponse
+
     @PATCH("api/workflows/{run_id}/draft")
     suspend fun patchDraft(
         @Path("run_id") runId: String,
@@ -57,6 +83,38 @@ interface SuiShouBanApi {
         @Path("run_id") runId: String,
         @Body request: WorkflowReactRequest,
     ): AnalyzeScreenshotTextResponse
+
+    @Multipart
+    @POST("api/card-refinements")
+    suspend fun startCardRefinement(
+        @Part("card") card: RequestBody,
+        @Part("options") options: RequestBody,
+        @Part("profile_context") profileContext: RequestBody?,
+        @Part("instruction") instruction: RequestBody,
+        @Part files: List<MultipartBody.Part>,
+    ): CardRefinementRunResponseDto
+
+    @GET("api/card-refinements/{run_id}")
+    suspend fun getCardRefinement(
+        @Path("run_id") runId: String,
+    ): CardRefinementRunResponseDto
+
+    @POST("api/card-refinements/{run_id}/react")
+    suspend fun reactCardRefinement(
+        @Path("run_id") runId: String,
+        @Body request: CardRefinementReactRequestDto,
+    ): CardRefinementRunResponseDto
+
+    @POST("api/card-refinements/{run_id}/confirm")
+    suspend fun confirmCardRefinement(
+        @Path("run_id") runId: String,
+        @Body request: CardRefinementConfirmRequestDto,
+    ): CardRefinementRunResponseDto
+
+    @DELETE("api/card-refinements/{run_id}")
+    suspend fun cancelCardRefinement(
+        @Path("run_id") runId: String,
+    ): CardRefinementRunResponseDto
 
     @Streaming
     @GET("api/workflows/{run_id}/events")
@@ -96,4 +154,10 @@ interface SuiShouBanApi {
 
     @POST("api/cards/{id}/complete")
     suspend fun completeCard(@Path("id") id: String): ActionCardDto
+
+    @POST("api/cards/{id}/replan")
+    suspend fun replanCard(
+        @Path("id") id: String,
+        @Body request: CardReplanRequestDto,
+    ): CardReplanResponseDto
 }

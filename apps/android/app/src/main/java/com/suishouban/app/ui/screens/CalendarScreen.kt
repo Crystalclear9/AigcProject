@@ -49,11 +49,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.ActionPlan
 import com.suishouban.app.data.model.CardStatus
+import com.suishouban.app.data.model.PlanItem
+import com.suishouban.app.data.model.PlanItemKinds
 import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.formatDay
+import com.suishouban.app.ui.components.formatSmartTime
 import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.DS
@@ -79,9 +83,18 @@ fun CalendarScreen(
     val active = state.cards.filter { it.status != CardStatus.ARCHIVED }
     val today = LocalDate.now()
     val cardsByDate = active.groupByDate()
+    val workBlocks = state.actionPlans.flatMap { plan ->
+        plan.items
+            .filter { it.kind == PlanItemKinds.WORK_BLOCK && it.startTime != null }
+            .map { plan to it }
+    }
+    val workBlocksByDate = workBlocks.groupBy { (_, item) -> item.primaryLocalDate() }
+        .filterKeys { it != null }
+        .mapKeys { (key, _) -> requireNotNull(key) }
     var visibleMonth by remember { mutableStateOf(YearMonth.from(today)) }
     var selectedDate by remember { mutableStateOf(today) }
     val selectedCards = cardsByDate[selectedDate].orEmpty()
+    val selectedWorkBlocks = workBlocksByDate[selectedDate].orEmpty()
     val undatedCards = active.filter { it.primaryLocalDate() == null }
 
     LazyColumn(
@@ -90,7 +103,11 @@ fun CalendarScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("日历视图", "${active.size} 项", icon = Icons.Outlined.CalendarMonth)
+            SectionHeader(
+                "日历视图",
+                "${active.size} 张卡 · ${workBlocks.size} 个时间块",
+                icon = Icons.Outlined.CalendarMonth,
+            )
         }
         item {
             MonthCalendarCard(
@@ -98,6 +115,7 @@ fun CalendarScreen(
                 selectedDate = selectedDate,
                 today = today,
                 cardsByDate = cardsByDate,
+                workBlocksByDate = workBlocksByDate,
                 onPreviousMonth = {
                     visibleMonth = visibleMonth.minusMonths(1)
                     selectedDate = visibleMonth.atDay(1)
@@ -113,8 +131,18 @@ fun CalendarScreen(
             SelectedDaySection(
                 selectedDate = selectedDate,
                 cards = selectedCards,
+                workBlockCount = selectedWorkBlocks.size,
                 onComplete = onComplete,
             )
+        }
+        if (selectedWorkBlocks.isNotEmpty()) {
+            item {
+                WorkBlockSection(
+                    selectedDate = selectedDate,
+                    workBlocks = selectedWorkBlocks,
+                    cards = state.cards,
+                )
+            }
         }
         if (undatedCards.isNotEmpty()) {
             item {
@@ -140,6 +168,7 @@ private fun MonthCalendarCard(
     selectedDate: LocalDate,
     today: LocalDate,
     cardsByDate: Map<LocalDate, List<ActionCard>>,
+    workBlocksByDate: Map<LocalDate, List<Pair<ActionPlan, PlanItem>>>,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit,
@@ -189,6 +218,7 @@ private fun MonthCalendarCard(
                         selected = date == selectedDate,
                         isToday = date == today,
                         cards = cardsByDate[date].orEmpty(),
+                        workBlockCount = workBlocksByDate[date].orEmpty().size,
                         onClick = { onSelectDate(date) },
                     )
                 }
@@ -220,6 +250,7 @@ private fun CalendarDayCell(
     selected: Boolean,
     isToday: Boolean,
     cards: List<ActionCard>,
+    workBlockCount: Int,
     onClick: () -> Unit,
 ) {
     val borderColor = when {
@@ -261,9 +292,9 @@ private fun CalendarDayCell(
                     color = dayColor,
                 )
                 Spacer(Modifier.weight(1f))
-                if (cards.isNotEmpty()) {
+                if (cards.isNotEmpty() || workBlockCount > 0) {
                     Text(
-                        text = cards.size.toString(),
+                        text = (cards.size + workBlockCount).toString(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = if (selected) Color.White else BrandBlue,
@@ -285,6 +316,57 @@ private fun CalendarDayCell(
                     }
                 }
             }
+            if (workBlockCount > 0) {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .background(
+                            if (selected) Color.White else Color(0xFF805AD5),
+                            CircleShape,
+                        ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkBlockSection(
+    selectedDate: LocalDate,
+    workBlocks: List<Pair<ActionPlan, PlanItem>>,
+    cards: List<ActionCard>,
+) {
+    val label = remember(selectedDate) {
+        selectedDate.format(DateTimeFormatter.ofPattern("M 月 d 日", Locale.CHINA))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "$label 的计划时间块",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Ink,
+        )
+        workBlocks.forEach { (plan, item) ->
+            val parentTitle = cards.firstOrNull { it.id == plan.parentCardId }?.title ?: plan.objective
+            SoftCard {
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(item.title, fontWeight = FontWeight.Bold, color = Ink)
+                    Text(
+                        formatSmartTime(item.startTime),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = BrandBlue,
+                    )
+                    Text(
+                        "来自：$parentTitle" +
+                            item.estimatedMinutes?.let { " · 预计 $it 分钟" }.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Muted,
+                    )
+                }
+            }
         }
     }
 }
@@ -293,6 +375,7 @@ private fun CalendarDayCell(
 private fun SelectedDaySection(
     selectedDate: LocalDate,
     cards: List<ActionCard>,
+    workBlockCount: Int,
     onComplete: (String) -> Unit,
 ) {
     val selectedDateLabel = remember(selectedDate) {
@@ -309,13 +392,13 @@ private fun SelectedDaySection(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "${cards.size} 项",
+                "${cards.size + workBlockCount} 项",
                 style = MaterialTheme.typography.labelMedium,
                 color = Muted,
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        if (cards.isEmpty()) {
+        if (cards.isEmpty() && workBlockCount == 0) {
             SoftCard {
                 Row(
                     Modifier.fillMaxWidth().padding(20.dp),
@@ -330,7 +413,7 @@ private fun SelectedDaySection(
                     )
                 }
             }
-        } else {
+        } else if (cards.isNotEmpty()) {
             cards.forEach { card ->
                 ActionCardItem(
                     card = card,
@@ -436,6 +519,11 @@ private fun List<ActionCard>.groupByDate(): Map<LocalDate, List<ActionCard>> =
 
 private fun ActionCard.primaryLocalDate(): LocalDate? {
     val value = primaryTime() ?: return null
+    return runCatching { OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
+}
+
+private fun PlanItem.primaryLocalDate(): LocalDate? {
+    val value = startTime ?: deadline ?: return null
     return runCatching { OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
 }
 
