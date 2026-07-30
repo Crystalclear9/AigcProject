@@ -124,6 +124,8 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
             ),
         )
         self.assertEqual(resumed.run_id, started.run_id)
+        self.assertIsNotNone(resumed.ocr_quality_report)
+        self.assertEqual(resumed.ocr_quality_report.quality_score, 1.0)
         completed = await wait_for_result(
             started.run_id,
             timeout=2,
@@ -135,6 +137,10 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         persisted = WorkflowRepository().get_state(started.run_id)
         self.assertEqual(persisted["ocr_engine"], "user-corrected")
         self.assertEqual(persisted["ocr_candidates"][0]["engine"], "user-corrected")
+        self.assertEqual(
+            persisted["ocr_candidates"][0]["quality_report"]["quality_score"],
+            1.0,
+        )
 
     async def test_user_locked_draft_cannot_be_overwritten(self) -> None:
         started = await start_text_workflow(

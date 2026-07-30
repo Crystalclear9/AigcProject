@@ -23,7 +23,10 @@ from app.services.provider_runtime import provider_usage_delta, runtime
 from app.services.react_refiner import refine_state_with_react
 from app.services.workflow_graph import build_workflow_graph, create_rule_draft, finalize_rules_fast
 from app.services.workflow_agents import build_action_graph as create_action_graph
-from app.services.ocr_quality import adjudicate_candidates
+from app.services.ocr_quality import (
+    adjudicate_candidates,
+    create_trusted_text_candidate,
+)
 
 repository = WorkflowRepository()
 logger = logging.getLogger(__name__)
@@ -1350,19 +1353,18 @@ async def resolve_ocr_text(
         screenshot_time=state.get("screenshot_time"),
         workflow_context=context,
     )
+    corrected_candidate = create_trusted_text_candidate(
+        corrected,
+        engine="user-corrected",
+    )
     restarted.update(
         {
             "ocr_text": corrected,
             "ocr_engine": "user-corrected",
             "ocr_quality": 1.0,
-            "ocr_candidates": [
-                {
-                    **request.model_dump(),
-                    "engine": "user-corrected",
-                    "confidence": 1.0,
-                    "quality_score": 1.0,
-                }
-            ],
+            "ocr_quality_report": corrected_candidate["quality_report"],
+            "ocr_review_reasons": [],
+            "ocr_candidates": [corrected_candidate],
             "revision": int(state.get("revision", 0)) + 1,
             "warnings": [
                 warning
