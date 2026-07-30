@@ -66,6 +66,37 @@ class OcrAdjudication:
     critical_conflicts: list[str]
 
 
+def create_trusted_text_candidate(
+    text: str,
+    *,
+    engine: str,
+) -> dict[str, Any]:
+    """Build a complete OCR-shaped candidate for text verified by the user."""
+    candidate = evaluate_candidate(
+        {
+            "text": text,
+            "engine": engine,
+            "confidence": 1.0,
+        }
+    )
+    report = dict(candidate["quality_report"])
+    report.update(
+        {
+            "quality_score": 1.0,
+            "agreement_score": 1.0,
+            "reasons": ["user_verified_text"],
+        }
+    )
+    candidate.update(
+        {
+            "confidence": 1.0,
+            "quality_score": 1.0,
+            "quality_report": report,
+        }
+    )
+    return candidate
+
+
 def evaluate_candidate(
     candidate: dict[str, Any],
     peers: list[dict[str, Any]] | None = None,

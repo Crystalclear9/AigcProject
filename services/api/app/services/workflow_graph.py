@@ -22,7 +22,11 @@ from app.services.autonomous_agents import (
 )
 from app.services.rule_extractor import extract_cards_with_rules, preview_actions_for
 from app.services.vivo_ocr import VivoOcrClient, clean_ocr_lines
-from app.services.ocr_quality import adjudicate_candidates, evaluate_candidate
+from app.services.ocr_quality import (
+    adjudicate_candidates,
+    create_trusted_text_candidate,
+    evaluate_candidate,
+)
 from app.services.workflow_agents import (
     adjudicate,
     build_action_graph as create_action_graph,
@@ -106,17 +110,21 @@ def _card_dicts(cards: list[ActionCard]) -> list[dict[str, Any]]:
 async def prepare_text(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
     text = state.get("input_text", "").strip()
+    engine = (
+        "user-corrected"
+        if state.get("ocr_engine") == "user-corrected"
+        else "provided-text"
+    )
+    candidate = create_trusted_text_candidate(text, engine=engine)
     return {
         "ocr_text": text,
-        "ocr_engine": "provided-text",
+        "ocr_engine": engine,
         "ocr_quality": 1.0,
-        "ocr_candidates": [
-            evaluate_candidate(
-                {"text": text, "engine": "provided-text", "confidence": 1.0}
-            )
-        ],
+        "ocr_quality_report": candidate["quality_report"],
+        "ocr_review_reasons": [],
+        "ocr_candidates": [candidate],
         "workflow_status": "running",
-        "node_trace": [_trace("prepare_text", started, engine="provided-text")],
+        "node_trace": [_trace("prepare_text", started, engine=engine)],
     }
 
 
