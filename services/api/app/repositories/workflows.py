@@ -613,6 +613,8 @@ class WorkflowRepository:
             field_conflicts=state.get("field_conflicts", []),
             agent_plan=state.get("agent_plan"),
             agent_tasks=state.get("agent_task_results", []),
+            agent_contract_version=state.get("agent_contract_version", "agent-contract-v2"),
+            agent_outputs=state.get("agent_outputs", []),
             unresolved_evidence=state.get("unresolved_evidence", []),
             budget_usage=state.get("budget_usage", {}),
             retrieval_sources=state.get("retrieval_sources", []),

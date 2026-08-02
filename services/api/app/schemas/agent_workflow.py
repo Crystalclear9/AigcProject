@@ -126,6 +126,13 @@ class AgentResult(BaseModel):
     attempt: int = Field(default=1, ge=1, le=2)
     model_tier: ModelTier = "none"
     idempotency_key: str
+    contract_version: str = "agent-contract-v2"
+    output_type: str = "legacy"
+    validated_output: dict[str, Any] = Field(default_factory=dict)
+    contract_errors: list[str] = Field(default_factory=list)
+    evidence_coverage: float = Field(default=0, ge=0, le=1)
+    dependency_failures: list[dict[str, str]] = Field(default_factory=list)
+    decision_summary: str = Field(default="", max_length=240)
 
 
 class BudgetUsage(BaseModel):

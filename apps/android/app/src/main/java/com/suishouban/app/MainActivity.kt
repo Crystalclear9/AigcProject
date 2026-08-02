@@ -151,17 +151,20 @@ class MainActivity : ComponentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
                     if (uri != null) {
-                        viewModel.analyzeImage(uri) { hasCards ->
-                            if (hasCards) current = Screen.Preview.route
-                        }
+                        current = Screen.Preview.route
+                        viewModel.analyzeImage(uri)
                     }
+                }
+                val intakeMaterialsLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenMultipleDocuments(),
+                ) { uris ->
+                    if (uris.isNotEmpty()) viewModel.addMaterialsToActiveIntake(uris)
                 }
                 val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
                     val uri = pendingCameraUri
                     if (captured && uri != null) {
-                        viewModel.analyzeImage(uri) { hasCards ->
-                            if (hasCards) current = Screen.Preview.route
-                        }
+                        current = Screen.Preview.route
+                        viewModel.analyzeImage(uri)
                     }
                     pendingCameraUri = null
                 }
@@ -216,9 +219,8 @@ class MainActivity : ComponentActivity() {
                                     Toast.LENGTH_SHORT,
                                 ).show()
                             } else {
-                                viewModel.analyzeImage(uri) { hasCards ->
-                                    if (hasCards) current = Screen.Preview.route
-                                }
+                                current = Screen.Preview.route
+                                viewModel.analyzeImage(uri)
                             }
                         }
                         MofeiActionCommand.OpenNotificationDrafts -> {
@@ -334,19 +336,16 @@ class MainActivity : ComponentActivity() {
                             Screen.Import.route -> ImportScreen(
                                 state = state,
                                 onPickImage = { uri ->
-                                    viewModel.analyzeImage(uri) { hasCards ->
-                                        if (hasCards) current = Screen.Preview.route
-                                    }
+                                    current = Screen.Preview.route
+                                    viewModel.analyzeImage(uri)
                                 },
                                 onPickFiles = { uris ->
-                                    viewModel.analyzeFiles(uris) { hasCards ->
-                                        if (hasCards) current = Screen.Preview.route
-                                    }
+                                    current = Screen.Preview.route
+                                    viewModel.analyzeFiles(uris)
                                 },
                                 onAnalyzeText = { text ->
-                                    viewModel.analyzeText(text) { hasCards ->
-                                        if (hasCards) current = Screen.Preview.route
-                                    }
+                                    current = Screen.Preview.route
+                                    viewModel.analyzeText(text)
                                 },
                                 onPreview = { current = Screen.Preview.route },
                                 mascotState = mascotState,
@@ -360,6 +359,20 @@ class MainActivity : ComponentActivity() {
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
+                                onAddMaterials = {
+                                    intakeMaterialsLauncher.launch(
+                                        arrayOf(
+                                            "application/pdf",
+                                            "text/plain",
+                                            "text/markdown",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            "image/jpeg",
+                                            "image/png",
+                                        )
+                                    )
+                                },
                             )
                             Screen.Cards.route -> CardsScreen(
                                 state = state,
@@ -378,6 +391,8 @@ class MainActivity : ComponentActivity() {
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
+                                onSaveProviderApiKey = viewModel::saveProviderApiKey,
+                                onClearProviderApiKey = viewModel::clearProviderApiKey,
                                 mascotState = mascotState,
                                 notificationAccessGranted = notificationAccessGranted,
                                 notificationApps = notificationApps,

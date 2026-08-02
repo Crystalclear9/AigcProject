@@ -7,7 +7,10 @@ import com.suishouban.app.data.repository.NotificationCandidatePolicy
 import com.suishouban.app.data.repository.NotificationCandidateRepository
 import com.suishouban.app.data.repository.CardRefinementRepository
 import com.suishouban.app.data.repository.UserProfileRepository
+import com.suishouban.app.data.repository.ProviderSecretStore
 import com.suishouban.app.data.local.AppDatabase
+import com.suishouban.app.data.local.toDomain
+import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.ocr.TextRecognitionService
 import com.suishouban.app.reminder.CalendarSyncer
 import com.suishouban.app.reminder.ReminderScheduler
@@ -20,6 +23,7 @@ import com.suishouban.app.mascot.MascotStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class SuiShouBanApp : Application() {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -39,6 +43,8 @@ class SuiShouBanApp : Application() {
         private set
     lateinit var cardRefinementRepository: CardRefinementRepository
         private set
+    lateinit var providerSecretStore: ProviderSecretStore
+        private set
     val mascotStateStore = MascotStateStore(
         MascotState(
             mood = MascotMood.IDLE,
@@ -51,6 +57,7 @@ class SuiShouBanApp : Application() {
     override fun onCreate() {
         super.onCreate()
         settingsRepository = AppSettingsRepository(this)
+        providerSecretStore = ProviderSecretStore(this)
         cardRepository = ActionCardRepository(this, settingsRepository)
         textRecognitionService = TextRecognitionService()
         reminderScheduler = ReminderScheduler(this)
@@ -68,6 +75,16 @@ class SuiShouBanApp : Application() {
             dao = AppDatabase.get(this).notificationCandidateDao(),
             policy = NotificationCandidatePolicy(packageName),
         )
+        applicationScope.launch { cardRepository.repairLegacySummaries() }
+        applicationScope.launch {
+            // WorkManager requests are uniquely keyed, so replaying confirmed cards is safe and
+            // repairs a process death between the Room confirmation transaction and scheduling.
+            AppDatabase.get(this@SuiShouBanApp).cardDao().loadAll()
+                .asSequence()
+                .map { it.toDomain() }
+                .filter { it.status == CardStatus.CONFIRMED }
+                .forEach(reminderScheduler::schedule)
+        }
         PriorityCalibrationWorker.schedule(this)
     }
 }

@@ -8,7 +8,12 @@ from pydantic import BaseModel, Field
 from app.schemas.action_graph import ActionGraph
 from app.schemas.card import ActionCard
 from app.schemas.workflow import WorkflowRunResponse
-from app.schemas.card_refinement import CardRefinementPlan, UserProfileContext
+from app.schemas.card_refinement import (
+    AttachmentDescriptor,
+    CardRefinementPlan,
+    RefinementOptions,
+    UserProfileContext,
+)
 
 ContentClassification = Literal["noise", "informational", "actionable", "mixed", "uncertain"]
 SourceKind = Literal[
@@ -23,11 +28,13 @@ RoleTemplate = Literal["action_analyst", "personal_planner", "team_coordinator"]
 
 
 class PromptEnvelope(BaseModel):
-    version: str = "prompt-envelope-v1"
+    version: str = "prompt-envelope-v2"
     role_template: RoleTemplate = "action_analyst"
     role_instruction: str
     user_policy: str = ""
     source_contract: str
+    fact_protection: str = ""
+    output_policy: str = ""
     character_count: int = Field(ge=0, le=1200)
 
 
@@ -44,9 +51,23 @@ class IntakeSessionResponse(BaseModel):
     action_graph: ActionGraph = Field(default_factory=ActionGraph)
     prompt_envelope: PromptEnvelope
     warnings: list[str] = Field(default_factory=list)
+    attachments: list[AttachmentDescriptor] = Field(default_factory=list)
+    refinement_run_id: str | None = None
     workflow: WorkflowRunResponse | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class IntakeRefineRequest(BaseModel):
+    card_id: str
+    options: RefinementOptions = Field(default_factory=RefinementOptions)
+    profile_context: UserProfileContext | None = None
+    instruction: str = Field(default="", max_length=600)
+
+
+class IntakeConfirmRequest(BaseModel):
+    revision: int = Field(ge=1)
+    selected_card_ids: list[str] = Field(min_length=1, max_length=40)
 
 
 class PriorityPolicy(BaseModel):

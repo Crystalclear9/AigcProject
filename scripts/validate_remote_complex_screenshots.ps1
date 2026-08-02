@@ -1,11 +1,12 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:37065",
+    [string]$Device = "",
     [string]$ApkPath = "",
     [string]$SampleDir = "",
     [string]$WorkflowUrl = "",
     [int]$AdbWaitSeconds = 300,
     [switch]$SkipBuild,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [switch]$CleanInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +31,15 @@ if (-not $sdk) {
 }
 
 $adb = Join-Path $sdk "platform-tools\adb.exe"
+if (-not $Device) {
+    $online = @(& $adb devices | Select-Object -Skip 1 | ForEach-Object {
+        if ($_ -match '^([^\s]+)\s+device$') { $Matches[1] }
+    })
+    if ($online.Count -ne 1) {
+        throw "Expected exactly one online ADB device; found $($online.Count). Pass -Device explicitly."
+    }
+    $Device = $online[0]
+}
 $remoteSampleDir = "/sdcard/Pictures/SuishoubanSamples"
 $artifactDir = Join-Path $root "artifacts"
 if (-not (Test-Path -LiteralPath $artifactDir)) {
@@ -185,6 +195,10 @@ $T = @{
     AllowAllMedia = Utf8Text "5YWB6K645a6M5YWo6K6/6Zeu"
     LocalMode = Utf8Text "5omL5py656uv6K+G5Yir"
     PhoneIndependentMode = Utf8Text "5omL5py654us56uL6L+Q6KGM"
+    OnboardingLater = Utf8Text "5Lul5ZCO5YaN6K6+572u"
+    HomeHeadline = Utf8Text "5oiq5Zu+5Y+Y5b6F5Yqe"
+    Today = Utf8Text "5LuK5pel"
+    Import = Utf8Text "5a+85YWl"
     MaybeTodo = Utf8Text "5Y+v6IO95pyJ5b6F5Yqe"
     OpenPrompt = Utf8Text "5p+l55yL"
     Generate = Utf8Text "55Sf5oiQ"
@@ -193,6 +207,9 @@ $T = @{
     ConfirmCreate = Utf8Text "56Gu6K6k5Yib5bu6"
     CreateAll = Utf8Text "5YWo6YOo5Yib5bu6"
     CreateSelected = Utf8Text "5Y+q5Yib5bu6"
+    UseSuggestedOcr = Utf8Text "5L2/55So5bu66K6u5L+u5q2j"
+    ApplyCorrectedOcr = Utf8Text "5bqU55So5L+u5q2j5bm26YeN5paw5YiG5p6Q"
+    OcrReviewTitle = Utf8Text "6K+G5Yir5paH5a2X6ZyA6KaB5aSN5qC4"
     AiRefine = Utf8Text "57un57ut6K6pIEFJIOWujOWWhA=="
     AiRefineTitle = Utf8Text "6K6pIEFJIOe7p+e7reWujOWWhA=="
     AiRefineRunning = Utf8Text "QUkg5q2j5Zyo6KeC5a+f6K+B5o2u"
@@ -211,6 +228,7 @@ $T = @{
     HighConfidence = Utf8Text "6auY5Y+v5L+h"
     GenericSchedule = Utf8Text "55u45YWz5pel56iL"
     Settings = Utf8Text "6K6+572u"
+    Cards = Utf8Text "5Y2h54mH"
     SaveEndpoint = Utf8Text "5L+d5a2Y5pyN5Yqh5Zyw5Z2A"
     TestService = Utf8Text "5rWL6K+V5pyN5Yqh6L+e5o6l"
     CloudOnline = Utf8Text "5LqR56uv5aKe5by65Zyo57q/"
@@ -249,6 +267,9 @@ function Quote-ProcessArg {
 
 function Invoke-AdbConnectWithTimeout {
     param([int]$TimeoutSeconds = 12)
+    if ($Device -notmatch ':') {
+        return @{ ExitCode = 0; Output = "using connected USB device $Device" }
+    }
     return Invoke-AdbRawWithTimeout -Args @("connect", $Device) -TimeoutSeconds $TimeoutSeconds
 }
 
@@ -360,7 +381,7 @@ function Escape-AdbInputText {
 function Wait-AdbDevice {
     param([int]$Attempts = 0)
     Initialize-AdbKeyEnvironment
-    Disconnect-StaleCloudDevices
+    if ($Device -match ':') { Disconnect-StaleCloudDevices }
     $deadline = [DateTimeOffset]::Now.AddSeconds([Math]::Max(30, $AdbWaitSeconds))
     $attempt = 0
     if ($Attempts -gt 0) {
@@ -368,6 +389,19 @@ function Wait-AdbDevice {
     }
     while ([DateTimeOffset]::Now -lt $deadline) {
         $attempt++
+        if ($Device -notmatch ':') {
+            $usbState = (& $adb -s $Device get-state 2>&1) -join ""
+            $usbProbe = (& $adb -s $Device shell echo adb-ready 2>&1) -join ""
+            Write-Host "ADB wait attempt $attempt state=[$usbState]"
+            if ($LASTEXITCODE -eq 0 -and $usbState.Trim() -eq "device" -and $usbProbe -match "adb-ready") {
+                return
+            }
+            if ($usbState -match "unauthorized") {
+                throw "USB device $Device is unauthorized. Approve this computer on the phone; local ADB keys were not deleted."
+            }
+            Start-Sleep -Seconds 2
+            continue
+        }
         $oldPreference = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
         $connectResult = Invoke-AdbConnectWithTimeout
@@ -398,6 +432,9 @@ function Wait-AdbDevice {
             return
         }
         if ($state -match "unauthorized" -or $devicesText -match ([regex]::Escape($Device) + "\s+unauthorized")) {
+            if ($Device -notmatch ':') {
+                throw "USB device $Device is unauthorized. Approve this computer on the phone; local ADB keys were not deleted."
+            }
             if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
                 Reset-AdbAuthorization
             } else {
@@ -751,12 +788,24 @@ function Wait-UiNotContains {
     throw $Message
 }
 
+function Get-AppUpdateTime {
+    $result = Invoke-AdbLoose shell dumpsys package com.suishouban.app
+    $match = $result.Output | Select-String -Pattern 'lastUpdateTime=' | Select-Object -First 1
+    if ($match) { return $match.ToString().Trim() }
+    return ""
+}
+
 function Confirm-VivoInstaller {
+    param([string]$PreviousUpdateTime = "")
     for ($attempt = 1; $attempt -le 12; $attempt++) {
         Wait-AdbDevice -Attempts 10
         $installedResult = Invoke-AdbLoose shell pm path com.suishouban.app
         $installed = ($installedResult.Output -join "")
-        if ($installedResult.ExitCode -eq 0 -and $installed -match "package:") { return }
+        $currentUpdateTime = Get-AppUpdateTime
+        if ($installedResult.ExitCode -eq 0 -and $installed -match "package:" -and
+            ([string]::IsNullOrWhiteSpace($PreviousUpdateTime) -or $currentUpdateTime -ne $PreviousUpdateTime)) {
+            return
+        }
         SafeCollapseStatusBar
         Start-Sleep -Seconds 1
         $xml = ""
@@ -779,13 +828,12 @@ function Confirm-VivoInstaller {
             if ($checkbox) {
                 Tap-RemotePoint -X $checkbox.X -Y $checkbox.Y
             } else {
-                Invoke-Adb shell input tap 630 2305 | Out-Null
-                Start-Sleep -Milliseconds 700
+                throw "Installer risk checkbox could not be identified safely."
             }
             if ($installButton) {
                 Tap-RemotePoint -X $installButton.X -Y $installButton.Y
             } else {
-                Invoke-Adb shell input tap 630 2475 | Out-Null
+                throw "Installer confirmation button could not be identified safely."
             }
             Start-Sleep -Seconds 8
         } else {
@@ -801,11 +849,17 @@ function Install-App {
         throw "APK was not found: $ApkPath"
     }
     Wait-AdbDevice
-    $uninstallResult = Invoke-AdbLoose uninstall com.suishouban.app
-    $uninstallText = ($uninstallResult.Output -join "`n")
-    if ($uninstallText) { $uninstallText | Out-Host }
-    if ($uninstallText -match "offline|device .*not found|EOF|failed to read copy response") {
-        Wait-AdbDevice -Attempts 20
+    $previousUpdateTime = Get-AppUpdateTime
+    if ($CleanInstall) {
+        Write-Warning "CleanInstall explicitly requested: app data and the installed package will be removed."
+        $uninstallResult = Invoke-AdbLoose uninstall com.suishouban.app
+        $uninstallText = ($uninstallResult.Output -join "`n")
+        if ($uninstallText) { $uninstallText | Out-Host }
+        if ($uninstallText -match "offline|device .*not found|EOF|failed to read copy response") {
+            Wait-AdbDevice -Attempts 20
+        }
+    } else {
+        Write-Host "Installing over the existing app; user data will be preserved."
     }
     $remoteApk = "/data/local/tmp/suishouban-debug.apk"
     Invoke-Adb push $ApkPath $remoteApk | Out-Null
@@ -817,9 +871,18 @@ function Install-App {
     }
     $sessionId = $Matches[1]
     Invoke-Adb shell pm install-write -S $apkSize $sessionId base.apk $remoteApk | Out-Null
-    Invoke-Adb shell cmd package install-commit $sessionId | Out-Null
+    $commitProcess = Start-Process -FilePath $adb -ArgumentList @(
+        "-s", $Device, "shell", "cmd", "package", "install-commit", $sessionId
+    ) -PassThru -WindowStyle Hidden
     Wait-AdbDevice -Attempts 80
-    Confirm-VivoInstaller
+    Confirm-VivoInstaller -PreviousUpdateTime $previousUpdateTime
+    if (-not $commitProcess.WaitForExit(30000)) {
+        $commitProcess.Kill()
+        throw "Package install commit did not finish after installer confirmation."
+    }
+    if ($commitProcess.ExitCode -ne 0) {
+        throw "Package install commit failed with exit code $($commitProcess.ExitCode)."
+    }
     Invoke-Adb @("shell", "rm", "-f", $remoteApk) | Out-Null
     $packagePath = (Invoke-Adb shell pm path com.suishouban.app) -join ""
     if ($packagePath -notmatch "package:") { throw "APK installation did not finish." }
@@ -1150,9 +1213,14 @@ function Reset-AppData {
 }
 
 function Start-App {
-    param([switch]$SkipModeAssert)
+    param(
+        [switch]$SkipModeAssert,
+        [switch]$PreserveLogcat
+    )
     Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
-    Invoke-Adb @("shell", "logcat", "-c") | Out-Null
+    if (-not $PreserveLogcat) {
+        Invoke-Adb @("shell", "logcat", "-c") | Out-Null
+    }
     Invoke-Adb @("shell", "am", "start", "-W", "-n", "com.suishouban.app/.MainActivity") | Out-Host
     Start-Sleep -Seconds 4
     $xml = Get-UiXml "startup.xml"
@@ -1171,15 +1239,33 @@ function Start-App {
     }
     SafeCollapseStatusBar
     Start-Sleep -Seconds 1
+    $homeXml = Get-UiXml "startup-onboarding.xml"
+    if ($homeXml -match [regex]::Escape($T.OnboardingLater)) {
+        Tap-Text $T.OnboardingLater "startup-onboarding.xml"
+        Start-Sleep -Seconds 2
+    }
     if (-not $SkipModeAssert) {
         $homeXml = Get-UiXml "startup-mode.xml"
         if (
-            $homeXml -notmatch [regex]::Escape($T.LocalMode) -and
-            $homeXml -notmatch [regex]::Escape($T.PhoneIndependentMode)
+            $homeXml -notmatch [regex]::Escape($T.HomeHeadline) -or
+            $homeXml -notmatch [regex]::Escape($T.Today) -or
+            $homeXml -notmatch [regex]::Escape($T.Import) -or
+            $homeXml -notmatch [regex]::Escape($T.Cards)
         ) {
-            throw "Home did not show phone-side mode."
+            throw "Home did not expose the expected product navigation."
         }
     }
+}
+
+function Reset-PromptTestState {
+    Invoke-Adb shell am force-stop com.suishouban.app | Out-Null
+    $emptyPrefs = "<?xml version='1.0' encoding='utf-8' standalone='yes' ?><map />"
+    $encodedPrefs = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($emptyPrefs))
+    foreach ($name in @("screenshot_prompt_policy.xml", "screenshot_prompt_pending.xml")) {
+        $remoteCommand = "run-as com.suishouban.app sh -c 'mkdir -p shared_prefs && echo $encodedPrefs | base64 -d > shared_prefs/$name'"
+        Invoke-Adb @("shell", $remoteCommand) | Out-Null
+    }
+    Start-App -SkipModeAssert -PreserveLogcat
 }
 
 function Push-Sample {
@@ -1226,6 +1312,16 @@ function Assert-NoActionSuggestionNotification {
 }
 
 function Assert-ActionSuggestionNotification {
+    if (Test-PreviewOpen) {
+        $promptXml = Get-UiXml "direct-action-prompt.xml"
+        foreach ($text in @($T.MaybeTodo, $T.GenerateDraft, $T.Ignore)) {
+            if ($promptXml -notmatch [regex]::Escape($text)) {
+                throw "Expected direct screenshot prompt text/action missing: $text"
+            }
+        }
+        Write-Host "Foreground screenshot opened the compact prompt directly."
+        return $promptXml
+    }
     $xml = Open-Notifications
     foreach ($text in @($T.MaybeTodo)) {
         if ($xml -notmatch [regex]::Escape($text)) {
@@ -1251,6 +1347,10 @@ function Assert-ActionSuggestionNotification {
 }
 
 function Test-ActionSuggestionNotification {
+    if (Test-PreviewOpen) {
+        $promptXml = Get-UiXml "direct-action-prompt-presence.xml"
+        return $promptXml -match [regex]::Escape($T.MaybeTodo)
+    }
     $xml = Open-Notifications
     return $xml -match [regex]::Escape($T.MaybeTodo)
 }
@@ -1287,6 +1387,13 @@ function Expand-ActionSuggestionNotification {
 
 function Dismiss-ActionSuggestionWithIgnore {
     for ($attempt = 1; $attempt -le 3; $attempt++) {
+        if (Test-PreviewOpen) {
+            Wait-UiContains $T.Ignore "Direct compact prompt did not expose Ignore." 10
+            Tap-Text $T.Ignore "direct-compact-prompt-ignore.xml"
+            Start-Sleep -Seconds 1
+            if (-not (Test-PreviewOpen)) { return }
+            continue
+        }
         try {
             Tap-NotificationAction $T.OpenPrompt
             SafeCollapseStatusBar
@@ -1329,6 +1436,12 @@ function Tap-NotificationRootFallback {
 }
 
 function Open-GeneratedPreviewFromNotification {
+    if (Test-PreviewOpen) {
+        Wait-UiContains $T.GenerateDraft "Direct screenshot prompt did not expose Generate draft." 10
+        Assert-FloatingPanelHeightUnder 0.35 "direct request prompt"
+        Tap-Text $T.GenerateDraft "direct-generate-draft.xml"
+        return
+    }
     $sawNotification = $false
     for ($attempt = 1; $attempt -le 5; $attempt++) {
         try {
@@ -1432,6 +1545,13 @@ function Confirm-Preview {
     for ($attempt = 1; $attempt -le 10; $attempt++) {
         if (-not (Test-PreviewOpen)) { return }
         $xml = Get-UiXml "preview.xml"
+        if ($xml -match [regex]::Escape($T.UseSuggestedOcr)) {
+            Tap-Text $T.UseSuggestedOcr "preview-ocr-suggestion.xml"
+            Start-Sleep -Milliseconds 500
+            Tap-Text $T.ApplyCorrectedOcr "preview-ocr-apply.xml"
+            Wait-UiNotContains $T.ApplyCorrectedOcr "Corrected OCR did not leave review state." 20
+            continue
+        }
         $center = $null
         foreach ($candidate in @($T.ConfirmCreate, $T.CreateAll, $T.CreateSelected)) {
             if ($xml -match [regex]::Escape($candidate)) {
@@ -1462,17 +1582,58 @@ function Confirm-Preview {
     throw "Could not find confirm button in preview."
 }
 
+function Resolve-OcrReviewIfNeeded {
+    for ($attempt = 1; $attempt -le 8; $attempt++) {
+        if (-not (Test-PreviewOpen)) { return }
+        $xml = Get-UiXml "ocr-review-$attempt.xml"
+        if ($xml -match [regex]::Escape($T.UseSuggestedOcr)) {
+            Tap-Text $T.UseSuggestedOcr "ocr-review-suggestion.xml"
+            Start-Sleep -Milliseconds 500
+            # Applying the suggestion changes the text-field height and can move the submit
+            # button outside this viewport. Re-dump and let the next loop find it reliably.
+            continue
+        }
+        if ($xml -match [regex]::Escape($T.ApplyCorrectedOcr)) {
+            Tap-Text $T.ApplyCorrectedOcr "ocr-review-apply.xml"
+            Wait-UiNotContains $T.OcrReviewTitle "Corrected OCR did not leave review state." 20
+            return
+        }
+        $isOcrReview = $xml -match [regex]::Escape($T.ApplyCorrectedOcr) -or
+            $xml -match [regex]::Escape($T.OcrReviewTitle)
+        if (-not $isOcrReview -and (
+                $xml -match [regex]::Escape($T.CourseScenario) -or
+                $xml -match [regex]::Escape($T.ConfirmCreate) -or
+                $xml -match [regex]::Escape($T.CreateAll) -or
+                $xml -match [regex]::Escape($T.CreateSelected)
+            )) { return }
+        if (-not $isOcrReview) {
+            Start-Sleep -Seconds 1
+            continue
+        }
+        # Stay inside the LazyColumn bounds; the fixed action bar starts below it.
+        Invoke-Adb shell input swipe 650 1200 650 650 420 | Out-Null
+        Start-Sleep -Milliseconds 700
+    }
+    Save-RemoteDiagnostics "ocr-review-recovery-missing"
+    throw "OCR review was required but no conservative correction action was available."
+}
+
 function Toggle-PreviewCardSelectionByText {
     param([string]$Text)
     for ($attempt = 1; $attempt -le 8; $attempt++) {
         $xml = Get-UiXml "preview-toggle-$attempt.xml"
-        $center = Get-TextCenter $xml $Text
+        $center = Get-TextCenter $xml "选择候选：$Text"
+        if (-not $center) {
+            $center = Get-TextCenter $xml $Text
+        }
         if ($center) {
-            Invoke-Adb shell input tap 112 $center.Y | Out-Null
+            Invoke-Adb shell input tap $center.X $center.Y | Out-Null
             Start-Sleep -Seconds 1
             return
         }
-        Invoke-Adb shell input swipe 650 1850 650 650 450 | Out-Null
+        # Keep the gesture inside the actual LazyColumn bounds (roughly 490..1190 on
+        # the 1260x2800 test device). Starting below it hits the fixed action panel.
+        Invoke-Adb shell input swipe 650 1080 650 570 520 | Out-Null
         Start-Sleep -Seconds 1
     }
     Save-RemoteDiagnostics "preview-toggle-missing"
@@ -1481,7 +1642,7 @@ function Toggle-PreviewCardSelectionByText {
 
 function Get-CardsXmlAcrossScroll {
     $combined = ""
-    Invoke-Adb shell input tap 630 2635 | Out-Null
+    Tap-Text $T.Cards "cards-nav.xml"
     Start-Sleep -Seconds 2
     for ($attempt = 1; $attempt -le 6; $attempt++) {
         $combined += "`n" + (Get-UiXml "cards-scan-$attempt.xml")
@@ -1562,7 +1723,7 @@ function Assert-MultiSelectionSavedWithoutRegistration {
 }
 
 function Assert-CardAndReminderCreated {
-    Invoke-Adb shell input tap 630 2635 | Out-Null
+    Tap-Text $T.Cards "cards-nav-confirmed.xml"
     Start-Sleep -Seconds 2
     $sawConcreteCard = $false
     $sawReminder = $false
@@ -1616,8 +1777,15 @@ if (-not $SkipInstall) {
     Install-App
 }
 Wait-AdbDevice
-Reset-AppData
+if ($CleanInstall) {
+    Reset-AppData
+} else {
+    Write-Host "Preserving existing app data. Use -CleanInstall only for an explicit first-install test."
+}
 Grant-AppPermissions
+# The product defaults screenshot monitoring to off until the user opts in. Remote
+# validation must establish that opt-in explicitly instead of depending on stale
+# preferences from an earlier install.
 Write-ValidationPrefsDirect
 Start-App
 Configure-WorkflowUrl
@@ -1631,6 +1799,7 @@ Open-SampleAndScreenshot "noise_own_app_settings.png"
 Assert-NoActionSuggestionNotification
 
 Write-Host "Validating action screenshot notification and ignore action..."
+Reset-PromptTestState
 Open-SampleAndScreenshot "complex_chat_promise.png"
 Assert-ActionSuggestionNotification | Out-Null
 $ignoreSideEffectBaseline = Get-SideEffectBaseline @($T.LabReport, $T.TeamReport, $T.Registration, $T.Submit, $T.PrepareAttachment)
@@ -1639,6 +1808,7 @@ Wait-UiNotContains $T.MaybeTodo "Ignore action unexpectedly opened the request p
 Assert-NoPreConfirmationSideEffects $ignoreSideEffectBaseline "ignored screenshot prompt"
 
 Write-Host "Validating action screenshot notification, generate action, preview, save, reminder..."
+Reset-PromptTestState
 Open-SampleAndScreenshot "complex_course_notice.png"
 Assert-ActionSuggestionNotification | Out-Null
 $courseSideEffectBaseline = Get-SideEffectBaseline @($T.LabReport, $T.Submit, $T.PrepareAttachment)
@@ -1647,10 +1817,12 @@ if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     $courseProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
 }
 Open-GeneratedPreviewFromNotification
+Resolve-OcrReviewIfNeeded
 Wait-UiContains $T.LabReport "Preview did not contain the expected task title."
 Assert-FloatingPanelHeightUnder 0.65 "course candidate review"
-Wait-UiContains $T.CourseScenario "Preview did not show course scenario classification."
-Wait-UiContains $T.HighConfidence "Preview did not show confidence label."
+$coursePreviewXml = Get-PreviewXmlAcrossScroll
+Assert-XmlContains $coursePreviewXml $T.CourseScenario "Preview did not show course scenario classification."
+Assert-XmlContains $coursePreviewXml $T.HighConfidence "Preview did not show confidence label."
 if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     Wait-UiContains $T.CloudModelParticipated "Preview did not show cloud model participation."
     Assert-ProviderStatusAdvanced $WorkflowUrl $courseProviderBefore @("fast_model", "expert_model") "phone course screenshot workflow"
@@ -1671,6 +1843,7 @@ Confirm-Preview
 Assert-CardAndReminderCreated
 
 Write-Host "Validating multi-task screenshot decomposition and selective card surface..."
+Reset-PromptTestState
 Open-SampleAndScreenshot "complex_multi_tasks.png"
 Assert-ActionSuggestionNotification | Out-Null
 $multiSideEffectBaseline = Get-SideEffectBaseline @($T.LabReport, $T.TeamReport, $T.Registration)
@@ -1679,6 +1852,7 @@ if (-not [string]::IsNullOrWhiteSpace($WorkflowUrl)) {
     $multiProviderBefore = Get-ProviderStatusSnapshot $WorkflowUrl
 }
 Open-GeneratedPreviewFromNotification
+Resolve-OcrReviewIfNeeded
 $multiPreviewXml = Get-PreviewXmlAcrossScroll
 Assert-FloatingPanelHeightUnder 0.65 "multi-task candidate review"
 Assert-XmlContains $multiPreviewXml $T.LabReport "Multi-task preview did not include the lab report task."

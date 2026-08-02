@@ -8,6 +8,8 @@ import com.suishouban.app.data.model.ActionPlan
 import com.suishouban.app.data.model.CardAttachment
 import com.suishouban.app.data.model.PlanItem
 import com.suishouban.app.data.model.UserProfileContext
+import com.suishouban.app.domain.EvidenceSummaryComposer
+import com.suishouban.app.domain.TextIntegrity
 
 data class OnboardingTurnRequestDto(
     @SerializedName("session_id") val sessionId: String,
@@ -81,6 +83,8 @@ data class AnalyzeScreenshotTextResponse(
     @SerializedName("ocr_review_reasons") val ocrReviewReasons: List<String> = emptyList(),
     @SerializedName("image_generation_status") val imageGenerationStatus: String = "not_configured",
     @SerializedName("react_suggestions") val reactSuggestions: List<String> = emptyList(),
+    @SerializedName("agent_contract_version") val agentContractVersion: String = "agent-contract-v2",
+    @SerializedName("agent_outputs") val agentOutputs: List<Map<String, Any?>> = emptyList(),
 )
 
 data class OcrQualityReportDto(
@@ -127,6 +131,18 @@ data class IntakeSessionResponseDto(
     @SerializedName("prompt_envelope") val promptEnvelope: PromptEnvelopeDto,
     val warnings: List<String> = emptyList(),
     val workflow: AnalyzeScreenshotTextResponse? = null,
+)
+
+data class IntakeConfirmRequestDto(
+    val revision: Int,
+    @SerializedName("selected_card_ids") val selectedCardIds: List<String>,
+)
+
+data class IntakeRefineRequestDto(
+    @SerializedName("card_id") val cardId: String,
+    val options: CardRefinementOptionsDto,
+    @SerializedName("profile_context") val profileContext: UserProfileContext? = null,
+    val instruction: String = "",
 )
 
 data class WorkflowEventEnvelope(
@@ -361,7 +377,17 @@ fun ActionCardDto.toDomain(): ActionCard = ActionCard(
     evidenceSummary = evidenceSummary,
     cardType = normalizeCardType(cardType),
     title = title,
-    summary = summary,
+    summary = TextIntegrity.chooseBetterSummary(
+        EvidenceSummaryComposer.compose(
+            title = title,
+            deadline = deadline,
+            startTime = startTime,
+            location = location,
+            materials = materials,
+            submitMethod = submitMethod,
+        ),
+        summary,
+    ),
     deadline = deadline,
     startTime = startTime,
     endTime = endTime,

@@ -316,7 +316,7 @@ class OcrTextNormalizer {
 
         val lines = converted
             .split(Regex("[\\r\\n]+"))
-            .map { it.trim() }
+            .map { cleanChromeFragments(it.trim()) }
             .filter { it.length >= 2 }
             .filterNot(::isLowValueChromeLine)
             .take(MAX_LINES)
@@ -347,6 +347,19 @@ class OcrTextNormalizer {
         val actionCount = ACTION_WORDS.count { it in line }
         return chromeCount >= 3 && actionCount == 0
     }
+
+    private fun cleanChromeFragments(line: String): String = line
+        .replace(
+            Regex("^[口□■]+(?=(课程通知|作业通知|会议通知|报名通知|重要通知))"),
+            "",
+        )
+        .replace(
+            Regex("(?<=(课程通知|作业通知|会议通知|报名通知|重要通知))[口□■]+"),
+            " ",
+        )
+        // OCR often flattens the bottom navigation into the final content line.
+        .replace(Regex("(?:\\s+(?:首页|消息|我的|发现|通讯录|动态|设置|返回|搜索)){2,}\\s*$"), "")
+        .trim()
 
     private fun toHalfWidth(char: Char): Char {
         return when (char.code) {

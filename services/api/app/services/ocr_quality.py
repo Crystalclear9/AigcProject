@@ -6,6 +6,7 @@ import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
+from app.services.text_integrity import evaluate_text_integrity
 
 ACTION_TERMS = (
     "提交",
@@ -103,6 +104,22 @@ def evaluate_candidate(
 ) -> dict[str, Any]:
     candidate = _normalize_candidate_blocks(candidate)
     text = _normalize_text(str(candidate.get("text", "")))
+    existing_report = candidate.get("quality_report") or {}
+    if (
+        candidate.get("engine") == "user-corrected"
+        and "user_verified_text" in existing_report.get("reasons", [])
+    ):
+        trusted = dict(candidate)
+        trusted["text"] = text
+        trusted["confidence"] = 1.0
+        trusted["quality_score"] = 1.0
+        trusted["quality_report"] = {
+            **existing_report,
+            "quality_score": 1.0,
+            "agreement_score": 1.0,
+            "reasons": ["user_verified_text"],
+        }
+        return trusted
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     compact = "".join(lines)
     char_count = len(compact)
@@ -128,6 +145,7 @@ def evaluate_candidate(
         + 0.10 * min(block_count / 4, 1),
     )
     agreement = _peer_agreement(text, peers or [])
+    integrity = evaluate_text_integrity(text)
     provider_hint = float(candidate.get("confidence", 0.5))
     quality = (
         0.24 * completeness
@@ -138,6 +156,7 @@ def evaluate_candidate(
         + 0.20 * (1.0 - min(1.0, replacement_ratio + invalid_ratio))
         - 0.10 * duplicate_ratio
         - 0.08 * noise_ratio
+        - 0.22 * (1.0 - integrity.score)
     )
     quality = max(0.0, min(1.0, quality))
     reasons: list[str] = []
@@ -153,6 +172,7 @@ def evaluate_candidate(
         reasons.append("incomplete_action_evidence")
     if not action_hits and not object_hits:
         reasons.append("no_action_evidence")
+    reasons.extend(integrity.reasons)
     report = {
         "quality_score": round(quality, 4),
         "garbled_ratio": round(replacement_ratio + invalid_ratio, 4),
@@ -344,9 +364,14 @@ def _task_boundary_uncertain(text: str) -> bool:
     ]
     if len(action_lines) <= 1:
         return False
-    distinct_times = set(TIME_PATTERN.findall(text))
+    date_count = len(
+        set(re.findall(r"(?:20\d{2}[年./-])?\d{1,2}[月./-]\d{1,2}[日号]?", text))
+    )
+    clock_count = len(set(re.findall(r"\d{1,2}[:：]\d{2}|\d{1,2}\s*点", text)))
     has_boundaries = bool(re.search(r"(?:^|\n|\s)[1-9][.、)]|[；;]\s*", text))
-    return len(distinct_times) > 1 and not has_boundaries and len(action_lines) >= 3
+    # A date plus a clock is one temporal anchor, not evidence of two tasks.
+    multiple_temporal_anchors = date_count >= 2 or clock_count >= 2
+    return multiple_temporal_anchors and not has_boundaries and len(action_lines) >= 3
 
 
 def _merge_complementary_lines(

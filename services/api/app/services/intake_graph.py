@@ -10,15 +10,20 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from app.services.rule_extractor import extract_cards_with_rules
+from app.services.extraction_context import build_summary
+from app.services.text_integrity import evaluate_text_integrity
 from app.schemas.card import ActionCard
 
 ACTION_WORDS = (
     "提交",
+    "上传",
+    "交",
     "参加",
     "完成",
     "报名",
     "准备",
     "发送",
+    "发到",
     "回复",
     "发送",
     "发给",
@@ -26,23 +31,41 @@ ACTION_WORDS = (
     "答应",
     "开会",
     "会议",
+    "答辩",
+    "开题",
+    "评审",
     "考试",
     "作业",
     "截止",
     "提醒",
     "请于",
     "务必",
+    "submit",
+    "upload",
 )
 TIME_PATTERN = re.compile(
     r"(?:20\d{2}[年./-])?\d{1,2}[月./-]\d{1,2}[日号]?|"
     r"\d{1,2}:\d{2}|今天|明天|后天|本周[一二三四五六日天]|截止"
 )
 NOISE_WORDS = ("电量", "信号", "返回", "设置", "首页", "购物", "立即购买", "广告")
+COMMERCE_WORDS = (
+    "限时秒杀",
+    "优惠",
+    "满减",
+    "购物车",
+    "下单",
+    "抽奖",
+    "直播间",
+    "红包",
+    "立即抢购",
+)
 ACTION_OBJECTS = (
     "报告",
     "答辩",
     "报名表",
+    "报名材料",
     "申请表",
+    "报价表",
     "合同",
     "作业",
     "方案",
@@ -50,22 +73,34 @@ ACTION_OBJECTS = (
     "材料",
     "数据",
     "会议",
+    "选题表",
+    "参考文献",
+    "原型",
+    "PDF",
+    "report",
 )
-PLATFORM_PATTERNS = ("学习通", "腾讯会议", "群文件", "雨课堂", "钉钉", "飞书")
+PLATFORM_PATTERNS = ("学习通", "腾讯会议", "群文件", "雨课堂", "钉钉", "飞书", "Moodle")
 DELIVERABLE_PATTERNS = (
     "实验报告",
     "答辩PPT",
     "PPT",
     "报名表",
+    "报名材料",
     "测试报告",
     "需求分析",
     "实验数据",
     "数据",
     "申请表",
+    "报价表",
     "合同",
+    "选题表",
+    "参考文献",
+    "原型",
+    "PDF",
 )
 NEGATED_ACTIONS = ("无需完成", "不用提交", "不需要参加", "仅供参考", "无需报名")
 DECORATION_PHRASES = ("会议群聊天记录", "通知中心", "截图文字可能有空格")
+INFORMATIONAL_PHRASES = ("背景介绍", "仅供阅读", "课程目标", "评分标准", "参考信息")
 
 
 class IntakeGraphState(TypedDict, total=False):
@@ -95,35 +130,37 @@ def classify_input(state: IntakeGraphState) -> dict[str, Any]:
     scored_text = text
     for phrase in DECORATION_PHRASES:
         scored_text = scored_text.replace(phrase, "")
-    action_hits = sum(word in scored_text for word in ACTION_WORDS)
+    lowered = scored_text.lower()
+    action_hits = sum(word.lower() in lowered for word in ACTION_WORDS)
     time_hits = len(TIME_PATTERN.findall(scored_text))
     object_hits = sum(word in scored_text for word in ACTION_OBJECTS)
     noise_hits = sum(word in scored_text for word in NOISE_WORDS)
+    commerce_hits = sum(word in scored_text for word in COMMERCE_WORDS)
     negated_hits = sum(word in scored_text for word in NEGATED_ACTIONS)
+    integrity = evaluate_text_integrity(text)
     action_hits = max(0, action_hits - negated_hits)
     segments = split_action_segments(
         text,
         split_commas=state.get("workspace_type") == "team",
     )
-    actionable_segments = [
-        segment
-        for segment in segments
-        if any(word in segment for word in ACTION_WORDS)
-        or (
-            state.get("workspace_type") == "team"
-            and re.search(r"[\u4e00-\u9fffA-Za-z]{2,12}负责", segment)
-        )
-    ]
-    if not text.strip() or (
+    actionable_segments = contextualize_action_segments(
+        segments,
+        workspace_type=state.get("workspace_type", "personal"),
+    )
+    if "mojibake" in integrity.reasons:
+        classification, confidence = "uncertain", min(0.55, integrity.score)
+    elif not text.strip() or (
         noise_hits >= 2
         and (action_hits == 0 or (negated_hits > 0 and time_hits == 0 and object_hits == 0))
-    ) or (noise_hits >= 1 and negated_hits > 0 and time_hits == 0):
+    ) or (noise_hits >= 1 and negated_hits > 0 and time_hits == 0) or (
+        commerce_hits >= 2 and object_hits == 0
+    ):
         classification, confidence = "noise", 0.92
     elif action_hits == 0:
         classification, confidence = "informational", 0.78
     elif time_hits == 0 and object_hits == 0:
         classification, confidence = "uncertain", 0.52
-    elif len(actionable_segments) < len(segments) and len(segments) > 1:
+    elif any(phrase in scored_text for phrase in INFORMATIONAL_PHRASES):
         classification, confidence = "mixed", min(0.95, 0.68 + action_hits * 0.05)
     else:
         classification = "actionable"
@@ -186,7 +223,12 @@ def analyze(state: IntakeGraphState) -> dict[str, Any]:
                             id=str(uuid.uuid4()),
                             card_type="promise",
                             title=f"发送{deliverable}",
-                            summary=context_segment,
+                            summary=build_summary(
+                                card_type="promise",
+                                text=context_segment,
+                                title=f"发送{deliverable}",
+                                materials=[deliverable],
+                            ),
                             materials=[deliverable],
                             source_text=context_segment,
                             evidence_summary=[context_segment],
@@ -206,7 +248,11 @@ def analyze(state: IntakeGraphState) -> dict[str, Any]:
                     ActionCard(
                         id=str(uuid.uuid4()),
                         title=match.group("task").strip("，。；; "),
-                        summary=segment,
+                        summary=build_summary(
+                            card_type="task",
+                            text=segment,
+                            title=match.group("task").strip("，。；; "),
+                        ),
                         assignee_id=match.group("person"),
                         participant_ids=[match.group("person")],
                         workspace_type="team",
@@ -302,6 +348,12 @@ def finalize(state: IntakeGraphState) -> dict[str, Any]:
         value["workspace_id"] = "team-default" if workspace == "team" else "personal"
         value["participant_ids"] = value.get("participant_ids") or participants
         normalized_cards.append(value)
+    if len(normalized_cards) > 1:
+        normalized_cards = [
+            value
+            for value in normalized_cards
+            if not _is_advisory_support_card(value, normalized_cards)
+        ]
     findings = []
     temporal = next(
         (
@@ -334,6 +386,28 @@ def finalize(state: IntakeGraphState) -> dict[str, Any]:
     if workspace == "team" and not participants:
         findings.append("团队任务尚未分配负责人")
     return {"cards": normalized_cards, "findings": findings}
+
+
+def _is_advisory_support_card(
+    card: dict[str, Any],
+    all_cards: list[dict[str, Any]],
+) -> bool:
+    source = str(card.get("source_text", ""))
+    title = str(card.get("title", ""))
+    if not source.startswith(("老师提醒", "温馨提醒", "注意")):
+        return False
+    if card.get("deadline") or card.get("start_time") or card.get("location"):
+        return False
+    if not any(token in title for token in ("附件", "材料", "文件")):
+        return False
+    return any(
+        other is not card
+        and (
+            other.get("deadline")
+            or any(token in str(other.get("title", "")) for token in ("提交", "发送", "上传"))
+        )
+        for other in all_cards
+    )
 
 
 def build_intake_graph():
@@ -377,6 +451,64 @@ def split_action_segments(text: str, *, split_commas: bool = False) -> list[str]
     return [chunk.strip() for chunk in chunks if len(chunk.strip()) >= 2]
 
 
+def contextualize_action_segments(
+    segments: list[str],
+    *,
+    workspace_type: str,
+) -> list[str]:
+    """Attach nearby temporal and continuation evidence before extracting cards."""
+    results: list[str] = []
+    for index, segment in enumerate(segments):
+        lowered = segment.lower()
+        is_action = any(word.lower() in lowered for word in ACTION_WORDS) or (
+            workspace_type == "team"
+            and re.search(r"[\u4e00-\u9fffA-Za-z]{2,12}负责", segment) is not None
+        )
+        if not is_action:
+            continue
+
+        parts: list[str] = []
+        if index > 0:
+            previous = segments[index - 1]
+            previous_is_action = any(
+                word.lower() in previous.lower() for word in ACTION_WORDS
+            )
+            if TIME_PATTERN.search(previous) and not previous_is_action:
+                parts.append(previous)
+        parts.append(segment)
+
+        combined = "\n".join(parts)
+        if results and _segments_describe_same_action(results[-1], combined):
+            results[-1] = f"{results[-1]}\n{segment}"
+        else:
+            results.append(combined)
+    return list(dict.fromkeys(results))
+
+
+def _segments_describe_same_action(left: str, right: str) -> bool:
+    left_actor = _leading_actor(left.splitlines()[-1])
+    right_actor = _leading_actor(right.splitlines()[-1])
+    if left_actor and right_actor and left_actor != right_actor:
+        return False
+    shared_deliverable = any(
+        term in left and term in right for term in DELIVERABLE_PATTERNS
+    )
+    right_is_submission_detail = any(
+        platform in right for platform in PLATFORM_PATTERNS
+    ) and any(
+        marker in right for marker in ("提交至", "提交到", "发送至", "发送到", "上传至", "通过")
+    )
+    return shared_deliverable or right_is_submission_detail
+
+
+def _leading_actor(segment: str) -> str | None:
+    match = re.match(
+        r"^(?P<actor>[\u4e00-\u9fffA-Za-z]{1,12})(?:[：:]|负责|需|应|本周|周|拿到)",
+        segment.strip(),
+    )
+    return match.group("actor") if match else None
+
+
 def normalize_ocr_spacing(text: str) -> str:
     normalized = text
     protected_terms = (
@@ -403,13 +535,13 @@ def _is_status_bar_line(line: str) -> bool:
 
 def _enrich_card_from_segment(card: ActionCard, segment: str) -> ActionCard:
     updates: dict[str, Any] = {}
-    if "参加答辩" in segment:
-        updates["title"] = "参加答辩"
+    if "答辩" in segment and card.card_type == "event":
+        updates["title"] = "参加中期答辩" if "中期" in segment else "参加答辩"
     location = card.location
     if not location:
         platform = next((value for value in PLATFORM_PATTERNS if value in segment), None)
         room = re.search(
-            r"(?:行政楼\d+层|[\u4e00-\u9fff]{2,10}[A-Z]\d{3}|[A-Z]\d{3}|"
+            r"(?:行政楼[一二三四五六七八九十\d]+层|[\u4e00-\u9fff]{2,10}[A-Z]\d{3}|[A-Z]\d{3}|"
             r"[\u4e00-\u9fff]{2,10}(?:教室|会议室|活动中心))",
             segment,
         )
@@ -461,6 +593,15 @@ def _participants(text: str) -> list[str]:
 
 def _segment_assignee(segment: str) -> str | None:
     normalized = re.sub(r"^\d+[.、]\s*", "", segment.strip())
+    leading = re.match(
+        r"^(?P<person>[\u4e00-\u9fff]{2,4}?)(?=(?:本周|这周|下周|周[一二三四五六日天]|"
+        r"今天|明天|负责|拿到|完成|提交|参加|制作|整理|评审))",
+        normalized,
+    )
+    if leading:
+        person = leading.group("person").removeprefix("请")
+        if 2 <= len(person) <= 4:
+            return person
     match = re.search(
         r"(?:^|[\uff1a:，,；;\s])(?:请)?(?P<person>[\u4e00-\u9fff]{2,4})(?:请)?"
         r"(?:负责|需|需要|于|在|完成|提交|参加|制作|整理)",

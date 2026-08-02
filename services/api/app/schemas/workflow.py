@@ -169,6 +169,8 @@ class WorkflowRunResponse(BaseModel):
     field_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     agent_plan: AgentPlan | None = None
     agent_tasks: list[AgentResult] = Field(default_factory=list)
+    agent_contract_version: str = "agent-contract-v2"
+    agent_outputs: list[dict[str, Any]] = Field(default_factory=list)
     unresolved_evidence: list[str] = Field(default_factory=list)
     budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
     retrieval_sources: list[RetrievalSource] = Field(default_factory=list)

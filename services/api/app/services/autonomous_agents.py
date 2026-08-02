@@ -22,8 +22,17 @@ from app.schemas.agent_workflow import (
 )
 from app.schemas.intake import PromptEnvelope
 from app.services.llm_client import extract_cards_with_model, structured_completion
-from app.services.prompt_envelope import render_system_prompt
+from app.services.prompt_envelope import (
+    compile_agent_system_prompt,
+    compile_prompt_envelope,
+    render_system_prompt,
+)
+from app.schemas.agent_contracts import SemanticDecomposerOutput, QualityVerifierOutput
 from app.services.provider_runtime import runtime
+from app.services.agent_contract_registry import (
+    contract_for,
+    project_and_validate_result,
+)
 
 ToolHandler = Callable[[AgentTask, dict[str, Any]], Awaitable[AgentResult]]
 PRIVATE_PATTERNS = [
@@ -57,6 +66,7 @@ def _task(
     timeout_ms: int = 2500,
     arguments: dict[str, Any] | None = None,
 ) -> AgentTask:
+    contract = contract_for(tool)
     task_id = stable_id("task", run_id, round_number, tool, objective)
     return AgentTask(
         id=task_id,
@@ -64,10 +74,10 @@ def _task(
         tool=tool,
         depends_on=depends_on or [],
         expected_evidence=expected or [],
-        acceptance_criteria=[f"produce typed {item}" for item in (expected or ["findings"])],
+        acceptance_criteria=list(contract.acceptance_criteria),
         priority=priority,
         model_tier=model_tier,
-        timeout_ms=timeout_ms,
+        timeout_ms=timeout_ms or contract.default_timeout_ms,
         round=round_number,
         idempotency_key=stable_id("task-key", run_id, round_number, tool, objective),
         arguments=arguments or {},
@@ -396,6 +406,16 @@ def _claim(
 
 
 async def execute_task(task: AgentTask, state: dict[str, Any]) -> AgentResult:
+    dependency_failures = _task_dependency_failures(task, state)
+    if dependency_failures:
+        task = task.model_copy(
+            update={
+                "arguments": {
+                    **task.arguments,
+                    "dependency_failures": dependency_failures,
+                }
+            }
+        )
     handler = TOOL_REGISTRY[task.tool]
     started = time.perf_counter()
     try:
@@ -424,7 +444,7 @@ async def execute_task(task: AgentTask, state: dict[str, Any]) -> AgentResult:
             model_tier=task.model_tier,
         )
     result.duration_ms = round((time.perf_counter() - started) * 1000, 2)
-    return result
+    return project_and_validate_result(result, state)
 
 
 async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentResult:
@@ -434,13 +454,48 @@ async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentRe
     status = "completed"
     if task.model_tier in {"fast_model", "expert_model"}:
         try:
-            model_cards = await extract_cards_with_model(
-                text,
-                task.model_tier,
-                state.get("screenshot_time"),
-                state.get("validation_errors"),
+            envelope_data = state.get("prompt_envelope")
+            envelope = (
+                PromptEnvelope(**envelope_data)
+                if envelope_data
+                else compile_prompt_envelope("action_analyst")
             )
-            cards = [card.model_dump(mode="json") for card in model_cards]
+            payload = await structured_completion(
+                task.model_tier,
+                system_prompt=compile_agent_system_prompt(
+                    envelope,
+                    task.tool,
+                    runtime_context={
+                        "user_locked_fields": [
+                            field
+                            for fields in state.get("user_locked", {}).values()
+                            for field in fields
+                        ],
+                        "dependency_failures": task.arguments.get("dependency_failures", []),
+                    },
+                ),
+                input_payload={
+                    "untrusted_source": text,
+                    "existing_rule_candidates": cards,
+                    "screenshot_time": state.get("screenshot_time"),
+                    "required": "Return action boundaries with exact evidence spans; do not return final cards.",
+                },
+                schema_name="semantic_decomposition_v2",
+                schema=SemanticDecomposerOutput.model_json_schema(),
+                max_tokens=1800,
+            )
+            semantic = SemanticDecomposerOutput.model_validate(payload)
+            cards = [
+                {
+                    "action_id": action.action_id,
+                    "id": action.action_id,
+                    "card_type": action.card_type,
+                    "title": action.title,
+                    "summary": action.summary,
+                    "source_text": action.evidence.source_text,
+                }
+                for action in semantic.actions
+            ]
         except Exception as error:
             status = "degraded"
             findings.append(f"model_fallback:{type(error).__name__}")
@@ -449,7 +504,11 @@ async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentRe
         findings.append("no_action_candidates")
     claims: list[ToolClaim] = []
     for card in cards:
-        action_id = str(card.get("action_id") or stable_id("action", card.get("id"), card.get("title")))
+        action_id = str(
+            card.get("action_id")
+            or card.get("id")
+            or stable_id("action", card.get("title"))
+        )
         for field in ("card_type", "title", "summary"):
             if card.get(field) not in (None, "", []):
                 claims.append(
@@ -720,25 +779,43 @@ async def quality_verifier(task: AgentTask, state: dict[str, Any]) -> AgentResul
     model_claims: list[ToolClaim] = []
     if task.model_tier == "expert_model":
         try:
-            expert_cards = await extract_cards_with_model(
-                str(state.get("ocr_text", "")),
-                "expert_model",
-                state.get("screenshot_time"),
-                findings,
+            envelope_data = state.get("prompt_envelope")
+            envelope = (
+                PromptEnvelope(**envelope_data)
+                if envelope_data
+                else compile_prompt_envelope("action_analyst")
             )
-            expected_titles = {
-                _normalize(str(card.get("title", "")))
-                for card in state.get("rule_cards", [])
-                if card.get("title")
-            }
-            expert_titles = {_normalize(card.title) for card in expert_cards}
-            if expected_titles and expert_titles and not expected_titles.intersection(expert_titles):
-                findings.append("expert_disagrees_on_action_identity")
+            payload = await structured_completion(
+                "expert_model",
+                system_prompt=compile_agent_system_prompt(
+                    envelope,
+                    task.tool,
+                    runtime_context={"dependency_failures": task.arguments.get("dependency_failures", [])},
+                ),
+                input_payload={
+                    "untrusted_source": str(state.get("ocr_text", "")),
+                    "candidate_actions": state.get("rule_cards", []),
+                    "typed_agent_outputs": [
+                        result.get("validated_output", {})
+                        for result in state.get("agent_task_results", [])
+                    ],
+                    "known_constraint_errors": findings,
+                },
+                schema_name="quality_verification_v2",
+                schema=QualityVerifierOutput.model_json_schema(),
+                max_tokens=1600,
+            )
+            expert = QualityVerifierOutput.model_validate(payload)
+            findings.extend(expert.constraint_errors)
+            findings.extend(expert.missing_evidence)
             model_claims.append(
                 _claim(
                     task,
                     "quality",
-                    value={"expert_card_count": len(expert_cards)},
+                    value={
+                        "passed": expert.passed,
+                        "coverage_count": len(expert.field_coverage),
+                    },
                     confidence=0.86,
                     rationale="expert-model independent structured extraction",
                     correlation_group=f"expert-verifier:{task.id}",
@@ -801,21 +878,47 @@ def verify_results(state: dict[str, Any]) -> VerificationSummary:
     missing_tools = required - completed_tools
     claims = [claim for result in results for claim in result.get("claims", [])]
     critical_cards = state.get("rule_cards", [])
-    critical_total = max(1, len(critical_cards) * 2)
-    covered = sum(
-        1
-        for card in critical_cards
-        for field in ("title", "deadline" if card.get("card_type") in {"task", "promise"} else "start_time")
-        if card.get(field)
-    )
+    critical_fields: list[tuple[str, str, Any]] = []
+    source_text = str(state.get("ocr_text", ""))
+    for card in critical_cards:
+        action_id = str(card.get("action_id") or stable_id("action", card.get("id"), card.get("title")))
+        time_field = "deadline" if card.get("card_type") in {"task", "promise"} else "start_time"
+        for field in ("title", time_field):
+            value = card.get(field)
+            if value not in (None, "", []):
+                critical_fields.append((action_id, field, value))
+    supported_fields = 0
+    missing_field_evidence: list[str] = []
+    for action_id, field, value in critical_fields:
+        groups: set[str] = set()
+        if str(value) in source_text:
+            groups.add(f"rules:{action_id}:{field}")
+        for claim in claims:
+            if claim.get("action_id") != action_id or claim.get("field") != field:
+                continue
+            if not claim.get("source_text") or claim.get("start") is None or claim.get("end") is None:
+                continue
+            groups.add(str(claim.get("correlation_group") or claim.get("id")))
+        if groups:
+            supported_fields += 1
+        else:
+            missing_field_evidence.append(f"missing_evidence:{action_id}:{field}")
+    critical_total = max(1, len(critical_fields))
+    covered = supported_fields
     coverage = min(1.0, covered / critical_total)
-    unresolved = list(errors)
+    unresolved = [*errors, *missing_field_evidence]
     if not critical_cards:
         unresolved.append("no_action_candidates")
     if missing_tools:
         unresolved.extend(f"missing_tool:{tool}" for tool in sorted(missing_tools))
     if not claims:
         unresolved.append("no_independent_evidence")
+    contract_errors = [
+        error
+        for result in results
+        for error in result.get("contract_errors", [])
+    ]
+    unresolved.extend(f"contract:{error}" for error in contract_errors)
     recommendations: list[ToolName] = []
     if any("time" in item for item in unresolved):
         recommendations.append("temporal_solver")
@@ -823,7 +926,7 @@ def verify_results(state: dict[str, Any]) -> VerificationSummary:
         recommendations.append("dependency_solver")
     if coverage < 0.6:
         recommendations.append("semantic_decomposer")
-    passed = not unresolved and coverage >= 0.5
+    passed = not unresolved and coverage >= 1.0
     return VerificationSummary(
         passed=passed,
         evidence_coverage=round(coverage, 3),
@@ -833,6 +936,19 @@ def verify_results(state: dict[str, Any]) -> VerificationSummary:
         requires_review=not passed,
         reason="evidence and constraints passed" if passed else "additional evidence or user review required",
     )
+
+
+def _task_dependency_failures(task: AgentTask, state: dict[str, Any]) -> list[dict[str, str]]:
+    dependencies = set(task.depends_on)
+    return [
+        {
+            "task_id": str(result.get("task_id")),
+            "status": str(result.get("status")),
+            "failure_type": str(result.get("failure_type") or "degraded"),
+        }
+        for result in state.get("agent_task_results", [])
+        if result.get("task_id") in dependencies and result.get("status") != "completed"
+    ]
 
 
 def _normalize(value: str) -> str:

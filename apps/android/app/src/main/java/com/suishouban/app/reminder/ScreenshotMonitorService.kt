@@ -32,8 +32,11 @@ import com.suishouban.app.domain.screenshot.ScreenshotCaptureSource
 import com.suishouban.app.domain.screenshot.ScreenshotFingerprintStore
 import com.suishouban.app.domain.screenshot.ScreenshotImageFingerprint
 import com.suishouban.app.domain.ocr.OcrCandidate
+import com.suishouban.app.domain.ocr.OcrEvidenceBlock
 import com.suishouban.app.domain.workflow.OcrCoordinator
 import com.suishouban.app.ocr.TextRecognitionService
+import com.suishouban.app.SuiShouBanApp
+import com.suishouban.app.data.model.OcrEnhancementPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -124,6 +127,8 @@ class ScreenshotMonitorService : Service() {
     }
 
     private fun detectLatestScreenshot() {
+        val settings = (applicationContext as SuiShouBanApp).settingsRepository.settings.value
+        if (!settings.autoDetectScreenshots || !settings.importSources.screenshots) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -279,16 +284,33 @@ class ScreenshotMonitorService : Service() {
                 runCatching { ocr.recognizeCandidates(this@ScreenshotMonitorService, uri) }
                     .getOrDefault(emptyList())
             }
-            val arbitration = OcrCoordinator.adjudicate(
-                candidates.mapIndexed { index, result ->
+            val localCandidates = candidates.mapIndexed { index, result ->
                     OcrCandidate(
                         engine = "mlkit:${result.variant}",
                         text = result.text,
                         blocks = result.blocks.size,
+                        evidenceBlocks = result.blocks.map { block ->
+                            OcrEvidenceBlock(
+                                text = block.text,
+                                left = block.left.toDouble(),
+                                top = block.top.toDouble(),
+                                right = block.right.toDouble(),
+                                bottom = block.bottom.toDouble(),
+                                readingOrder = block.readingOrder,
+                            )
+                        },
                         arrivedAtMs = index.toLong(),
                     )
                 }
-            )
+            val app = application as SuiShouBanApp
+            val policy = app.settingsRepository.settings.value.ocrEnhancementPolicy
+            val shouldUseDirect = policy == OcrEnhancementPolicy.ALWAYS_COMPARE ||
+                (policy == OcrEnhancementPolicy.LOW_QUALITY &&
+                    localCandidates.maxOfOrNull { it.qualityScore }?.let { it < 0.72 } != false)
+            val directCandidate = if (shouldUseDirect) {
+                withContext(Dispatchers.IO) { app.cardRepository.recognizeImageDirect(uri) }
+            } else null
+            val arbitration = OcrCoordinator.adjudicate(localCandidates + listOfNotNull(directCandidate))
             val text = arbitration?.selectedCandidate?.text.orEmpty()
             val gate = actionGate.evaluate(text, uri.toString(), System.currentTimeMillis())
             lastNotifiedId = maxOf(lastNotifiedId, id)

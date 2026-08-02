@@ -69,6 +69,7 @@ import com.suishouban.app.ui.theme.SoftCard
 import com.suishouban.app.ui.theme.softCardShadow
 import com.suishouban.app.ui.theme.Warning
 import com.suishouban.app.ui.theme.visualForCardType
+import com.suishouban.app.ui.theme.visualForPriority
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.OffsetDateTime
@@ -309,7 +310,7 @@ private fun CalendarDayCell(
                             Modifier
                                 .size(7.dp)
                                 .background(
-                                    if (selected) Color.White else visualForCardType(card.cardType).color,
+                                    if (selected) Color.White else visualForPriority(card.priority).accent,
                                     CircleShape,
                                 )
                         )
@@ -477,7 +478,7 @@ private fun TimelineCalendarMode(
                 }
                 items(cards, key = { it.id }) { card ->
                     Row {
-                        TimelineMarker(color = visualForCardType(card.cardType).color)
+                        TimelineMarker(color = visualForPriority(card.priority).accent)
                         Spacer(Modifier.width(10.dp))
                         ActionCardItem(
                             card = card,

@@ -5,4 +5,5 @@
     <exclude domain="sharedpref" path="screenshot_prompt_policy.xml" />
     <exclude domain="sharedpref" path="workflow_runtime.xml" />
     <exclude domain="sharedpref" path="suishouban_settings.xml" />
+    <exclude domain="sharedpref" path="provider_secrets.xml" />
 </full-backup-content>

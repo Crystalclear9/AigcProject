@@ -24,6 +24,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +71,7 @@ fun PreviewScreen(
     onConfirm: () -> Unit,
     onManualAdd: () -> Unit,
     onImport: () -> Unit,
+    onAddMaterials: () -> Unit,
 ) {
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val localDraftValid = state.draftCards.all {
@@ -88,11 +90,24 @@ fun PreviewScreen(
             WorkflowStrip(currentStep = 2, modifier = Modifier.fillMaxWidth())
         }
 
-        if (state.draftCards.isEmpty()) {
+        if (state.loading && state.draftCards.isEmpty()) {
             item {
-                EmptyPreviewCard(onImport = onImport, onManualAdd = onManualAdd)
+                LoadingPreviewCard()
+            }
+        } else if (state.draftCards.isEmpty()) {
+            item {
+                EmptyPreviewCard(
+                    awaitingOcrReview = state.workflowStatus == "awaiting_ocr_review",
+                    onImport = onImport,
+                    onManualAdd = onManualAdd,
+                )
             }
         } else {
+            item {
+                TextButton(onClick = onAddMaterials, enabled = !state.loading) {
+                    Text("添加材料并继续完善")
+                }
+            }
             item {
                 SoftCard {
                     Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -252,7 +267,7 @@ fun PreviewScreen(
                     enabled = localDraftValid &&
                         state.selectedDraftIds.isNotEmpty() &&
                         !state.loading &&
-                        state.workflowStatus !in setOf("queued", "running"),
+                        state.workflowStatus !in setOf("queued", "running", "awaiting_ocr_review"),
                     modifier = Modifier.fillMaxWidth().height(54.dp),
                     shape = RoundedCornerShape(DS.RadiusButton),
                     colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
@@ -262,6 +277,7 @@ fun PreviewScreen(
                     Text(
                         when {
                             state.loading || state.workflowStatus in setOf("queued", "running") -> "等待分析完成"
+                            state.workflowStatus == "awaiting_ocr_review" -> "先返回修正识别文字"
                             !localDraftValid -> "补全关键信息后继续"
                             else -> "确认并创建行动卡"
                         },
@@ -508,22 +524,51 @@ private fun TimeField(
 }
 
 @Composable
-private fun EmptyPreviewCard(onImport: () -> Unit, onManualAdd: () -> Unit) {
+private fun LoadingPreviewCard() {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Line),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            CircularProgressIndicator(modifier = Modifier.width(28.dp), strokeWidth = 3.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("正在识别行动事项", style = MaterialTheme.typography.titleMedium)
+                Text("正在检查文字质量、任务边界和时间信息。", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPreviewCard(
+    awaitingOcrReview: Boolean,
+    onImport: () -> Unit,
+    onManualAdd: () -> Unit,
+) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Line),
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("暂无预览", style = MaterialTheme.typography.titleLarge)
+            Text(if (awaitingOcrReview) "识别文字需要复核" else "暂无预览", style = MaterialTheme.typography.titleLarge)
             Text(
-                "没有识别到稳定行动事项。可以重新导入截图，也可以先手动创建一张候选卡再补全字段。",
+                if (awaitingOcrReview) {
+                    "当前文字存在乱码、时间冲突或任务边界不清。返回导入页可修改识别文字后继续。"
+                } else {
+                    "没有识别到稳定行动事项。可以重新导入截图，也可以先手动创建一张候选卡再补全字段。"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = onImport, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp)) {
-                    Text("重新导入")
+                    Text(if (awaitingOcrReview) "修正识别文字" else "重新导入")
                 }
                 TextButton(onClick = onManualAdd, modifier = Modifier.weight(1f)) {
                     Text("手动添加")

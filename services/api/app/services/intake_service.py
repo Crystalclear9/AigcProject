@@ -9,9 +9,21 @@ from app.schemas.action_graph import ActionGraph
 from app.schemas.card import ActionCard
 from app.schemas.intake import IntakeSessionResponse, RoleTemplate, SourceKind
 from app.schemas.workflow import WorkflowRunResponse
+from app.schemas.workflow import ConfirmWorkflowRequest, DraftPatchRequest
+from app.schemas.card_refinement import (
+    AttachmentDescriptor,
+    CardRefinementRunResponse,
+    CardRefinementStartPayload,
+)
 from app.services.intake_graph import build_intake_graph
 from app.services.prompt_envelope import compile_prompt_envelope
-from app.services.workflow_service import get_workflow, start_text_workflow
+from app.services.card_refinement_service import start_card_refinement
+from app.services.workflow_service import (
+    confirm_workflow,
+    get_workflow,
+    patch_draft,
+    start_text_workflow,
+)
 
 repository = IntakeRepository()
 _graph = build_intake_graph()
@@ -83,11 +95,101 @@ async def start_intake(
         ).model_dump(mode="json"),
         "prompt_envelope": envelope.model_dump(),
         "warnings": list(warnings or []) + list(graph_state.get("findings", [])),
+        "attachments": [],
+        "refinement_run_id": None,
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
     }
     repository.save(session_id, state)
     return _response(state, workflow)
+
+
+def append_intake_attachments(
+    session_id: str,
+    descriptors: list[AttachmentDescriptor],
+    extracted_texts: list[str],
+    warnings: list[str],
+) -> IntakeSessionResponse:
+    state = repository.get(session_id)
+    existing = {
+        str(item.get("sha256")): item
+        for item in state.get("attachments", [])
+    }
+    for descriptor in descriptors:
+        existing[descriptor.sha256] = descriptor.model_dump(mode="json")
+    if extracted_texts:
+        state["canonical_text"] = "\n\n".join(
+            value
+            for value in [state.get("canonical_text", ""), *extracted_texts]
+            if str(value).strip()
+        )
+    state["attachments"] = list(existing.values())
+    state["warnings"] = list(dict.fromkeys([*state.get("warnings", []), *warnings]))
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    repository.save(session_id, state)
+    return get_intake(session_id)
+
+
+async def refine_intake(
+    session_id: str,
+    payload: CardRefinementStartPayload,
+) -> CardRefinementRunResponse:
+    state = repository.get(session_id)
+    card = next(
+        (ActionCard(**item) for item in state.get("cards", []) if item.get("id") == payload.card.id),
+        None,
+    )
+    if card is None:
+        raise ValueError("selected card is not part of this intake")
+    evidence = str(state.get("canonical_text", ""))[:4000]
+    instruction = payload.instruction.strip()
+    if evidence:
+        instruction = f"{instruction}\n补充材料证据：{evidence}".strip()
+    result = await start_card_refinement(
+        payload.model_copy(update={"card": card, "instruction": instruction}),
+        [],
+    )
+    state["refinement_run_id"] = result.run_id
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    repository.save(session_id, state)
+    return result
+
+
+def confirm_intake(
+    session_id: str,
+    revision: int,
+    selected_card_ids: list[str],
+) -> IntakeSessionResponse:
+    state = repository.get(session_id)
+    run_id = state.get("workflow_run_id")
+    if not run_id:
+        raise ValueError("intake has no workflow to confirm")
+    workflow = get_workflow(run_id)
+    selected = [card for card in workflow.cards if card.id in set(selected_card_ids)]
+    if not selected:
+        raise ValueError("at least one valid candidate must be selected")
+    requires_explicit_review = bool(
+        workflow.verification_summary
+        and workflow.verification_summary.requires_review
+    )
+    if len(selected) != len(workflow.cards) or requires_explicit_review:
+        patched = patch_draft(
+            run_id,
+            DraftPatchRequest(
+                base_revision=revision,
+                cards=selected,
+                # Confirming a selected candidate is an explicit review of its
+                # identity. Lock only the title; other fields remain editable.
+                locked_fields={card.id: ["title"] for card in selected},
+            ),
+        )
+        revision = patched.revision
+    confirm_workflow(run_id, ConfirmWorkflowRequest(revision=revision))
+    state["confirmed_card_ids"] = [card.id for card in selected]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    repository.save(session_id, state)
+    repository.redact_sensitive(session_id)
+    return get_intake(session_id)
 
 
 def get_intake(session_id: str) -> IntakeSessionResponse:

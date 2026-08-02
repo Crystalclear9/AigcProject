@@ -39,6 +39,25 @@ interface SuiShouBanApi {
     ): IntakeSessionResponseDto
 
     @Multipart
+    @POST("api/intakes/{session_id}/attachments")
+    suspend fun addIntakeAttachments(
+        @Path("session_id") sessionId: String,
+        @Part files: List<MultipartBody.Part>,
+    ): IntakeSessionResponseDto
+
+    @POST("api/intakes/{session_id}/refine")
+    suspend fun refineIntake(
+        @Path("session_id") sessionId: String,
+        @Body request: IntakeRefineRequestDto,
+    ): CardRefinementRunResponseDto
+
+    @POST("api/intakes/{session_id}/confirm")
+    suspend fun confirmIntake(
+        @Path("session_id") sessionId: String,
+        @Body request: IntakeConfirmRequestDto,
+    ): IntakeSessionResponseDto
+
+    @Multipart
     @POST("api/workflows/screenshot-image")
     suspend fun startImageWorkflow(
         @Part image: MultipartBody.Part,
