@@ -37,11 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
@@ -428,18 +424,7 @@ private fun WheelColumn(
     Box(
         modifier = modifier
             .height(wheelRowHeight * WHEEL_ROWS)
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Transparent,
-                        0.32f to Color.Black,
-                        0.68f to Color.Black,
-                        1f to Color.Transparent,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
+            .background(MaterialTheme.colorScheme.surface),
         contentAlignment = Alignment.Center,
     ) {
         LazyColumn(
@@ -487,6 +472,30 @@ private fun WheelColumn(
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(wheelRowHeight * 2)
+                .background(
+                    Brush.verticalGradient(
+                        0f to MaterialTheme.colorScheme.surface,
+                        1f to MaterialTheme.colorScheme.surface.copy(alpha = 0f),
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(wheelRowHeight * 2)
+                .background(
+                    Brush.verticalGradient(
+                        0f to MaterialTheme.colorScheme.surface.copy(alpha = 0f),
+                        1f to MaterialTheme.colorScheme.surface,
+                    )
+                )
+        )
     }
 }
 

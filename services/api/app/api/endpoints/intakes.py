@@ -12,11 +12,22 @@ from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.repositories.intakes import IntakeRepository
 from app.repositories.workflows import WorkflowRepository
-from app.schemas.intake import IntakeSessionResponse
+from app.schemas.intake import (
+    IntakeConfirmRequest,
+    IntakeRefineRequest,
+    IntakeSessionResponse,
+)
+from app.schemas.card_refinement import CardRefinementRunResponse, CardRefinementStartPayload
 from app.schemas.workflow import OcrCandidateRequest, WorkflowRunResponse
 from app.services.document_extractor import extract_document
 from app.services.intake_graph import merge_overlapping_lines
-from app.services.intake_service import get_intake, start_intake
+from app.services.intake_service import (
+    append_intake_attachments,
+    confirm_intake,
+    get_intake,
+    refine_intake,
+    start_intake,
+)
 from app.services.workflow_service import resolve_ocr_text, submit_ocr_candidate
 
 router = APIRouter()
@@ -177,6 +188,90 @@ async def resolve_intake_ocr(
         if not run_id:
             raise ValueError("intake has no active image workflow")
         return await resolve_ocr_text(run_id, request)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="intake session not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{session_id}/attachments", response_model=IntakeSessionResponse)
+async def add_intake_attachments(
+    session_id: str,
+    files: list[UploadFile] = File(...),
+) -> IntakeSessionResponse:
+    if not files or len(files) > MAX_FILES:
+        raise HTTPException(status_code=413, detail=f"最多上传 {MAX_FILES} 个文件")
+    try:
+        intake_repository.get(session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="intake session not found") from error
+    staging = Path(settings.workflow_input_directory) / "intakes" / uuid.uuid4().hex
+    descriptors = []
+    extracted_texts: list[str] = []
+    warnings: list[str] = []
+    total = 0
+    try:
+        staging.mkdir(parents=True, exist_ok=False)
+        for upload in files:
+            data = await _read_file(upload)
+            total += len(data)
+            if total > settings.max_refinement_total_bytes:
+                raise HTTPException(status_code=413, detail="附件总大小超过限制")
+            name = Path(upload.filename or "attachment").name
+            attachment_id = uuid.uuid4().hex
+            path = staging / f"{attachment_id}{Path(name).suffix[:12]}"
+            path.write_bytes(data)
+            extracted = await extract_document(
+                path,
+                name=name,
+                declared_mime=upload.content_type or "application/octet-stream",
+                attachment_id=attachment_id,
+            )
+            descriptors.append(extracted.descriptor)
+            if extracted.text:
+                extracted_texts.append(extracted.text)
+            if extracted.descriptor.warning:
+                warnings.append(f"{name}: {extracted.descriptor.warning}")
+        return append_intake_attachments(session_id, descriptors, extracted_texts, warnings)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+@router.post("/{session_id}/refine", response_model=CardRefinementRunResponse, status_code=202)
+async def start_intake_refinement(
+    session_id: str,
+    request: IntakeRefineRequest,
+) -> CardRefinementRunResponse:
+    try:
+        state = intake_repository.get(session_id)
+        card = next(
+            (item for item in state.get("cards", []) if item.get("id") == request.card_id),
+            None,
+        )
+        if card is None:
+            raise ValueError("selected card is not part of this intake")
+        return await refine_intake(
+            session_id,
+            CardRefinementStartPayload(
+                card=card,
+                options=request.options,
+                profile_context=request.profile_context,
+                instruction=request.instruction,
+            ),
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="intake session not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{session_id}/confirm", response_model=IntakeSessionResponse)
+def confirm_intake_session(
+    session_id: str,
+    request: IntakeConfirmRequest,
+) -> IntakeSessionResponse:
+    try:
+        return confirm_intake(session_id, request.revision, request.selected_card_ids)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="intake session not found") from error
     except ValueError as error:

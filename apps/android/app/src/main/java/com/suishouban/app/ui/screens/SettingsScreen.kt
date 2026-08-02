@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.SettingsSuggest
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
@@ -39,6 +40,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +61,12 @@ import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.mascot.MofeiMoodBanner
 import com.suishouban.app.notification.InstalledAppInfo
 import com.suishouban.app.data.repository.WorkflowUrlPolicy
+import com.suishouban.app.data.repository.ProviderEndpointPolicy
+import com.suishouban.app.data.model.AiConnectionMode
+import com.suishouban.app.data.model.AutoReactPolicy
+import com.suishouban.app.data.model.OcrEnhancementPolicy
+import com.suishouban.app.data.model.ReminderPreset
+import com.suishouban.app.data.model.WorkflowDepthPolicy
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
@@ -73,6 +81,8 @@ fun SettingsScreen(
     onUpdate: (AppSettings) -> Unit,
     onSync: () -> Unit,
     onTestConnection: () -> Unit,
+    onSaveProviderApiKey: (String) -> Unit,
+    onClearProviderApiKey: () -> Unit,
     onMascotOverlayToggle: (Boolean) -> Unit,
     notificationAccessGranted: Boolean,
     notificationApps: List<InstalledAppInfo>,
@@ -82,6 +92,11 @@ fun SettingsScreen(
     onResetUserProfile: () -> Unit,
 ) {
     var apiBaseUrl by remember(state.settings.apiBaseUrl) { mutableStateOf(state.settings.apiBaseUrl) }
+    var providerProfile by remember(state.settings.providerProfile) {
+        mutableStateOf(state.settings.providerProfile)
+    }
+    var apiKeyInput by rememberSaveable { mutableStateOf("") }
+    var confirmInsecureOcr by rememberSaveable { mutableStateOf(false) }
     var showMascotAdvanced by rememberSaveable { mutableStateOf(false) }
     val trimmedApiBaseUrl = apiBaseUrl.trim()
     val apiUrlAccepted = trimmedApiBaseUrl.isBlank() || WorkflowUrlPolicy.isAccepted(trimmedApiBaseUrl)
@@ -101,62 +116,158 @@ fun SettingsScreen(
         }
         item {
             ExpandableSettingsCard(
-                title = "AI 增强服务",
-                summary = if (
-                    state.settings.preferCloudModel &&
-                    state.settings.apiBaseUrl.isNotBlank() &&
-                    WorkflowUrlPolicy.isAccepted(state.settings.apiBaseUrl)
-                ) {
-                    "已配置 HTTPS 网关"
-                } else {
-                    "当前使用端侧能力"
+                title = "高级 AI 连接",
+                summary = when (state.settings.aiConnectionMode) {
+                    AiConnectionMode.LOCAL -> "本机模式"
+                    AiConnectionMode.WORKFLOW_GATEWAY -> "完整工作流"
+                    AiConnectionMode.DIRECT_API -> "直接增强"
                 },
                 icon = Icons.Outlined.CloudSync,
             ) {
                 Text(
-                    "手机只填写随手办 HTTPS 服务地址；vivo key 只放后端。留空时仍可用本机 OCR、规则、卡片和提醒。",
+                    "默认无需配置。网关提供完整 Agent 图；直接 API 只增强候选，仍由本机规则校验。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                CloudModeBanner(
-                    enabled = state.settings.preferCloudModel && state.settings.apiBaseUrl.isNotBlank(),
-                    url = state.settings.apiBaseUrl,
-                )
-                OutlinedTextField(
-                    value = apiBaseUrl,
-                    onValueChange = { apiBaseUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("服务地址，可留空") },
-                    placeholder = { Text("https://api.example.com/") },
-                    isError = !apiUrlAccepted,
-                    supportingText = {
-                        Text(modeLabel)
+                ChoiceRow(
+                    options = listOf(
+                        AiConnectionMode.LOCAL to "本机",
+                        AiConnectionMode.WORKFLOW_GATEWAY to "Workflow 网关",
+                        AiConnectionMode.DIRECT_API to "直接 API",
+                    ),
+                    selected = state.settings.aiConnectionMode,
+                    onSelected = { mode ->
+                        onUpdate(
+                            state.settings.copy(
+                                aiConnectionMode = mode,
+                                preferCloudModel = mode == AiConnectionMode.WORKFLOW_GATEWAY &&
+                                    WorkflowUrlPolicy.isAccepted(state.settings.apiBaseUrl),
+                            )
+                        )
                     },
-                    shape = RoundedCornerShape(16.dp),
                 )
+                CloudModeBanner(
+                    mode = state.settings.aiConnectionMode,
+                    url = when (state.settings.aiConnectionMode) {
+                        AiConnectionMode.WORKFLOW_GATEWAY -> state.settings.apiBaseUrl
+                        AiConnectionMode.DIRECT_API -> state.settings.providerProfile.chatUrl
+                        AiConnectionMode.LOCAL -> ""
+                    },
+                )
+                if (state.settings.aiConnectionMode == AiConnectionMode.WORKFLOW_GATEWAY) {
+                    OutlinedTextField(
+                        value = apiBaseUrl,
+                        onValueChange = { apiBaseUrl = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Workflow HTTPS 地址") },
+                        placeholder = { Text("https://workflow.example.com/") },
+                        isError = !apiUrlAccepted,
+                        supportingText = { Text(modeLabel) },
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    Button(
+                        onClick = {
+                            onUpdate(
+                                state.settings.copy(
+                                    apiBaseUrl = trimmedApiBaseUrl,
+                                    aiConnectionMode = AiConnectionMode.WORKFLOW_GATEWAY,
+                                    preferCloudModel = trimmedApiBaseUrl.isNotBlank() && apiUrlAccepted,
+                                )
+                            )
+                        },
+                        enabled = apiUrlAccepted && trimmedApiBaseUrl.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("保存网关") }
+                }
+                if (state.settings.aiConnectionMode == AiConnectionMode.DIRECT_API) {
+                    OutlinedTextField(
+                        value = providerProfile.chatUrl,
+                        onValueChange = { providerProfile = providerProfile.copy(chatUrl = it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("模型 HTTPS 地址") },
+                        isError = providerProfile.chatUrl.isNotBlank() &&
+                            ProviderEndpointPolicy.normalizeChat(providerProfile.chatUrl) == null,
+                    )
+                    OutlinedTextField(
+                        value = providerProfile.ocrUrl,
+                        onValueChange = { providerProfile = providerProfile.copy(ocrUrl = it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("OCR 地址") },
+                        isError = providerProfile.ocrUrl.isNotBlank() &&
+                            ProviderEndpointPolicy.normalizeOcr(
+                                providerProfile.ocrUrl,
+                                providerProfile.allowInsecureVivoOcr,
+                            ) == null,
+                    )
+                    SettingSwitch(
+                        title = "允许 vivo 非加密 OCR",
+                        checked = providerProfile.allowInsecureVivoOcr,
+                        onCheckedChange = {
+                            if (it) confirmInsecureOcr = true
+                            else providerProfile = providerProfile.copy(allowInsecureVivoOcr = false)
+                        },
+                    )
+                    if (providerProfile.allowInsecureVivoOcr) {
+                        Text(
+                            "风险：图片和 Bearer key 通过 HTTP 发送。仅允许官方固定地址，且禁止重定向。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    OutlinedTextField(
+                        value = providerProfile.modelName,
+                        onValueChange = { providerProfile = providerProfile.copy(modelName = it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("模型名称") },
+                    )
+                    OutlinedTextField(
+                        value = providerProfile.businessId,
+                        onValueChange = { providerProfile = providerProfile.copy(businessId = it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("OCR businessid") },
+                        supportingText = { Text("默认支持旋转图片；通常无需修改") },
+                    )
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(if (state.hasProviderApiKey) "替换 API key" else "API key") },
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    Button(
+                        onClick = {
+                            onUpdate(
+                                state.settings.copy(
+                                    aiConnectionMode = AiConnectionMode.DIRECT_API,
+                                    providerProfile = providerProfile,
+                                    preferCloudModel = false,
+                                )
+                            )
+                            if (apiKeyInput.isNotBlank()) {
+                                onSaveProviderApiKey(apiKeyInput)
+                                apiKeyInput = ""
+                            }
+                        },
+                        enabled = ProviderEndpointPolicy.normalizeChat(providerProfile.chatUrl) != null &&
+                            ProviderEndpointPolicy.normalizeOcr(
+                                providerProfile.ocrUrl,
+                                providerProfile.allowInsecureVivoOcr,
+                            ) != null && (state.hasProviderApiKey || apiKeyInput.isNotBlank()),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("保存直接连接") }
+                    if (state.hasProviderApiKey) {
+                        TextButton(onClick = onClearProviderApiKey) { Text("清除本机密钥") }
+                    }
+                }
                 Text(
                     state.connectionStatus.ifBlank { "未测试服务连接" },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(
-                    onClick = {
-                        onUpdate(
-                            state.settings.copy(
-                                apiBaseUrl = trimmedApiBaseUrl,
-                                preferCloudModel = trimmedApiBaseUrl.isNotBlank() && apiUrlAccepted,
-                            )
-                        )
-                    },
-                    enabled = apiUrlAccepted,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text("保存服务地址")
-                }
                 OutlinedButton(
                     onClick = onSync,
-                    enabled = state.settings.preferCloudModel && state.settings.apiBaseUrl.isNotBlank(),
+                    enabled = state.settings.aiConnectionMode == AiConnectionMode.WORKFLOW_GATEWAY &&
+                        state.settings.preferCloudModel,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
@@ -164,6 +275,9 @@ fun SettingsScreen(
                 }
                 OutlinedButton(
                     onClick = onTestConnection,
+                    enabled = state.settings.aiConnectionMode == AiConnectionMode.LOCAL ||
+                        state.settings.aiConnectionMode == AiConnectionMode.WORKFLOW_GATEWAY ||
+                        state.hasProviderApiKey,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                 ) {
@@ -184,8 +298,15 @@ fun SettingsScreen(
                 )
                 SettingSwitch(
                     title = "保留原始截图",
-                    checked = state.settings.keepOriginalScreenshot,
-                    onCheckedChange = { onUpdate(state.settings.copy(keepOriginalScreenshot = it)) },
+                    checked = state.settings.originalImageRetentionDays > 0,
+                    onCheckedChange = {
+                        onUpdate(
+                            state.settings.copy(
+                                keepOriginalScreenshot = it,
+                                originalImageRetentionDays = if (it) 1 else 0,
+                            )
+                        )
+                    },
                 )
             }
         }
@@ -198,17 +319,21 @@ fun SettingsScreen(
                 SettingSwitch(
                     title = "截图入口提示",
                     checked = state.settings.autoDetectScreenshots,
-                    onCheckedChange = { onUpdate(state.settings.copy(autoDetectScreenshots = it)) },
+                    onCheckedChange = {
+                        onUpdate(
+                            state.settings.copy(
+                                autoDetectScreenshots = it,
+                                importSources = state.settings.importSources.copy(
+                                    screenshots = state.settings.importSources.screenshots || it,
+                                ),
+                            )
+                        )
+                    },
                 )
                 Text(
                     "开启后监听新截图；只有命中明确行动证据才发低打扰提示。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SettingSwitch(
-                    title = "启用 AI 增强",
-                    checked = state.settings.preferCloudModel,
-                    onCheckedChange = { onUpdate(state.settings.copy(preferCloudModel = it)) },
                 )
                 SettingSwitch(
                     title = "日历同步",
@@ -267,6 +392,45 @@ fun SettingsScreen(
                     onCheckedChange = {
                         onUpdate(state.settings.copy(milestoneRemindersEnabled = it))
                     },
+                )
+                Text("规划深度", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                ChoiceRow(
+                    options = listOf(
+                        WorkflowDepthPolicy.FAST to "快速",
+                        WorkflowDepthPolicy.BALANCED to "均衡",
+                        WorkflowDepthPolicy.DEEP to "深度",
+                    ),
+                    selected = state.settings.workflowDepthPolicy,
+                    onSelected = { onUpdate(state.settings.copy(workflowDepthPolicy = it)) },
+                )
+                Text("自动 ReAct", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                ChoiceRow(
+                    options = listOf(
+                        AutoReactPolicy.OFF to "关闭",
+                        AutoReactPolicy.LOW_CONFIDENCE to "低置信",
+                        AutoReactPolicy.COMPLEX_TASKS to "复杂任务",
+                    ),
+                    selected = state.settings.autoReactPolicy,
+                    onSelected = { onUpdate(state.settings.copy(autoReactPolicy = it)) },
+                )
+                SettingSwitch(
+                    title = "历史重复检查",
+                    checked = state.settings.historyDuplicateCheckEnabled,
+                    onCheckedChange = {
+                        onUpdate(state.settings.copy(historyDuplicateCheckEnabled = it))
+                    },
+                )
+                SettingSwitch(
+                    title = "团队依赖检查",
+                    checked = state.settings.teamDependencyCheckEnabled,
+                    onCheckedChange = {
+                        onUpdate(state.settings.copy(teamDependencyCheckEnabled = it))
+                    },
+                )
+                SettingSwitch(
+                    title = "联网检索",
+                    checked = state.settings.webRetrievalEnabled,
+                    onCheckedChange = { onUpdate(state.settings.copy(webRetrievalEnabled = it)) },
                 )
                 Text("默认计划粒度", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Row(
@@ -443,37 +607,143 @@ fun SettingsScreen(
         }
         item {
             ExpandableSettingsCard(
-                title = "提醒策略说明",
-                summary = "按截止距离自动安排，不伪造时间",
+                title = "提醒策略",
+                summary = when (state.settings.reminderPreset) {
+                    ReminderPreset.LIGHT -> "轻量 · 最多 ${state.settings.maxSuggestedReminders} 个"
+                    ReminderPreset.STANDARD -> "标准 · 最多 ${state.settings.maxSuggestedReminders} 个"
+                    ReminderPreset.MULTI_STAGE -> "多节点 · 最多 ${state.settings.maxSuggestedReminders} 个"
+                },
                 icon = Icons.Outlined.Notifications,
             ) {
-                Text(
-                    "有截止时间：按距离自动安排 1 天、3 小时、30 分钟或尽快提醒。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                ChoiceRow(
+                    options = listOf(
+                        ReminderPreset.LIGHT to "轻量",
+                        ReminderPreset.STANDARD to "标准",
+                        ReminderPreset.MULTI_STAGE to "多节点",
+                    ),
+                    selected = state.settings.reminderPreset,
+                    onSelected = { onUpdate(state.settings.copy(reminderPreset = it)) },
                 )
-                Text(
-                    "无明确时间的候选只保存卡片，不伪造提醒。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text("最大自动建议数", style = MaterialTheme.typography.titleSmall)
+                ChoiceRow(
+                    options = (1..5).map { it to it.toString() },
+                    selected = state.settings.maxSuggestedReminders,
+                    onSelected = { onUpdate(state.settings.copy(maxSuggestedReminders = it)) },
                 )
             }
         }
         item {
             ExpandableSettingsCard(
-                title = "支持的导入来源",
-                summary = "截图、相册、拍照与文字",
+                title = "导入与 OCR",
+                summary = "${listOf(
+                    state.settings.importSources.screenshots,
+                    state.settings.importSources.galleryImages,
+                    state.settings.importSources.text,
+                    state.settings.importSources.documents,
+                ).count { it }} 个来源已开启",
                 icon = Icons.Outlined.PhotoLibrary,
             ) {
-                Text(
-                    "当前版本支持截图监听、相册、拍照和文字粘贴；不接收系统分享内容。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                SettingSwitch(
+                    title = "截图",
+                    checked = state.settings.importSources.screenshots,
+                    onCheckedChange = {
+                        onUpdate(
+                            state.settings.copy(
+                                importSources = state.settings.importSources.copy(screenshots = it),
+                                autoDetectScreenshots = state.settings.autoDetectScreenshots && it,
+                            )
+                        )
+                    },
+                )
+                SettingSwitch(
+                    title = "相册图片",
+                    checked = state.settings.importSources.galleryImages,
+                    onCheckedChange = {
+                        onUpdate(state.settings.copy(importSources = state.settings.importSources.copy(galleryImages = it)))
+                    },
+                )
+                SettingSwitch(
+                    title = "文字",
+                    checked = state.settings.importSources.text,
+                    onCheckedChange = {
+                        onUpdate(state.settings.copy(importSources = state.settings.importSources.copy(text = it)))
+                    },
+                )
+                SettingSwitch(
+                    title = "文档",
+                    checked = state.settings.importSources.documents,
+                    onCheckedChange = {
+                        onUpdate(state.settings.copy(importSources = state.settings.importSources.copy(documents = it)))
+                    },
+                )
+                Text("OCR 策略", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                ChoiceRow(
+                    options = listOf(
+                        OcrEnhancementPolicy.LOCAL_ONLY to "仅端侧",
+                        OcrEnhancementPolicy.LOW_QUALITY to "低质量增强",
+                        OcrEnhancementPolicy.ALWAYS_COMPARE to "双路比较",
+                    ),
+                    selected = state.settings.ocrEnhancementPolicy,
+                    onSelected = { onUpdate(state.settings.copy(ocrEnhancementPolicy = it)) },
+                )
+                Text("原图保留", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                ChoiceRow(
+                    options = listOf(0 to "不保留", 1 to "1 天", 7 to "7 天"),
+                    selected = state.settings.originalImageRetentionDays,
+                    onSelected = {
+                        onUpdate(
+                            state.settings.copy(
+                                originalImageRetentionDays = it,
+                                keepOriginalScreenshot = it > 0,
+                            )
+                        )
+                    },
                 )
             }
         }
         item {
             Spacer(Modifier.height(92.dp))
+        }
+    }
+
+    if (confirmInsecureOcr) {
+        AlertDialog(
+            onDismissRequest = { confirmInsecureOcr = false },
+            title = { Text("确认使用非加密 OCR？") },
+            text = {
+                Text("图片内容和 Bearer key 将通过 HTTP 传输。应用仅允许 vivo 官方固定地址，并禁止重定向，但网络链路仍不受 TLS 保护。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        providerProfile = providerProfile.copy(allowInsecureVivoOcr = true)
+                        confirmInsecureOcr = false
+                    }
+                ) { Text("了解风险并启用") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmInsecureOcr = false }) { Text("取消") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun <T> ChoiceRow(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelected: (T) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { (value, label) ->
+            FilterChip(
+                selected = value == selected,
+                onClick = { onSelected(value) },
+                label = { Text(label) },
+            )
         }
     }
 }
@@ -529,12 +799,15 @@ private fun HorizontalProfileSummary(
 }
 
 @Composable
-private fun CloudModeBanner(enabled: Boolean, url: String) {
-    val title = if (enabled) "AI 增强已准备" else "手机独立运行"
-    val subtitle = if (enabled) {
-        "手机将访问 HTTPS 网关，蓝心 key 仅在后端保存"
-    } else {
-        "不依赖开发主机，截图识别、卡片和提醒都可端侧完成"
+private fun CloudModeBanner(mode: AiConnectionMode, url: String) {
+    val enabled = mode != AiConnectionMode.LOCAL
+    val (title, subtitle) = when (mode) {
+        AiConnectionMode.LOCAL ->
+            "本机模式" to "截图识别、卡片和提醒均可端侧完成"
+        AiConnectionMode.WORKFLOW_GATEWAY ->
+            "完整工作流" to "通过 HTTPS 网关运行受控 Agent 图，手机不保存服务端密钥"
+        AiConnectionMode.DIRECT_API ->
+            "直接增强" to "密钥由 Android Keystore 保存；模型仅补充候选，不代替完整 Agent 图"
     }
     Row(
         modifier = Modifier

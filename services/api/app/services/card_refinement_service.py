@@ -27,6 +27,7 @@ from app.services.card_refinement_graph import (
 )
 from app.services.document_extractor import ExtractedDocument, extract_document
 from app.services.llm_client import structured_completion
+from app.services.prompt_envelope import compile_profile_policy, render_system_prompt
 from app.services.provider_runtime import provider_usage_delta, runtime
 
 repository = WorkflowRepository()
@@ -416,11 +417,20 @@ async def _refine_selected_items(
 ) -> CardRefinementPlan:
     if settings.has_fast_model_config:
         try:
+            card = payload_card(state)
+            profile = payload_profile(state)
+            envelope = compile_profile_policy(
+                "team_coordinator" if card.workspace_type == "team" else "personal_planner",
+                profile,
+            )
+            item_schema = PlanItem.model_json_schema()
+            item_schema["additionalProperties"] = False
             result = await structured_completion(
                 "fast_model",
                 system_prompt=(
-                    "只修改 selected_items。保持 id，不改父卡事实字段；可以新增 parent_id "
-                    "指向已选项目的 step。输出完整 selected_items 数组。"
+                    render_system_prompt(envelope)
+                    + "\n只修改 selected_items。保持 id，不改父卡事实字段；可以新增 parent_id "
+                    "指向已选项目的 step。只输出契约规定的完整 items 数组。"
                 ),
                 input_payload={
                     "instruction": instruction,
@@ -438,10 +448,7 @@ async def _refine_selected_items(
                     "properties": {
                         "items": {
                             "type": "array",
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": True,
-                            },
+                            "items": item_schema,
                         }
                     },
                     "required": ["items"],

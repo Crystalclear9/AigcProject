@@ -724,10 +724,21 @@ private fun PlanItemEditDialog(
     onSave: (PlanItem) -> Unit,
 ) {
     var draft by remember(item.id) { mutableStateOf(item) }
-    var showTimePicker by remember(item.id) { mutableStateOf(false) }
+    var timeField by remember(item.id) { mutableStateOf<String?>(null) }
+    val invalidWorkBlock = draft.kind == PlanItemKinds.WORK_BLOCK &&
+        draft.startTime != null && draft.deadline != null &&
+        runCatching {
+            !java.time.OffsetDateTime.parse(draft.deadline)
+                .isAfter(java.time.OffsetDateTime.parse(draft.startTime))
+        }.getOrDefault(true)
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onSave(draft.copy(needConfirm = emptyList())) }) { Text("保存") } },
+        confirmButton = {
+            TextButton(
+                enabled = !invalidWorkBlock,
+                onClick = { onSave(draft.copy(needConfirm = emptyList())) },
+            ) { Text("保存") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
         title = { Text("编辑计划项") },
         text = {
@@ -743,17 +754,19 @@ private fun PlanItemEditDialog(
                     label = { Text("执行说明") },
                     minLines = 3,
                 )
-                OutlinedTextField(
-                    value = formatSmartTime(draft.deadline ?: draft.startTime),
-                    onValueChange = {},
-                    readOnly = true,
-                    trailingIcon = {
-                        IconButton(onClick = { showTimePicker = true }) {
-                            Icon(Icons.Outlined.Schedule, contentDescription = "选择时间")
-                        }
-                    },
-                    label = { Text("时间") },
-                )
+                if (draft.kind == PlanItemKinds.WORK_BLOCK) {
+                    PlanTimeField("开始时间", draft.startTime) { timeField = "start" }
+                    PlanTimeField("结束时间", draft.deadline) { timeField = "end" }
+                    if (invalidWorkBlock) {
+                        Text(
+                            "结束时间必须晚于开始时间",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                } else {
+                    PlanTimeField("里程碑时间", draft.deadline) { timeField = "deadline" }
+                }
                 if (draft.kind == PlanItemKinds.MILESTONE) {
                     PreferenceSwitch("创建节点提醒", draft.reminderEnabled) {
                         draft = draft.copy(reminderEnabled = it)
@@ -763,25 +776,51 @@ private fun PlanItemEditDialog(
         },
         shape = RoundedCornerShape(24.dp),
     )
-    if (showTimePicker) {
+    timeField?.let { field ->
         DateTimeWheelPickerDialog(
-            initialValue = draft.deadline ?: draft.startTime,
-            title = if (draft.kind == PlanItemKinds.WORK_BLOCK) "选择时间块" else "选择里程碑时间",
-            onDismiss = { showTimePicker = false },
+            initialValue = if (field == "start") draft.startTime else draft.deadline,
+            title = when (field) {
+                "start" -> "选择开始时间"
+                "end" -> "选择结束时间"
+                else -> "选择里程碑时间"
+            },
+            onDismiss = { timeField = null },
             onClear = {
-                draft = draft.copy(deadline = null, startTime = null, reminderEnabled = false)
-                showTimePicker = false
+                draft = when (field) {
+                    "start" -> draft.copy(startTime = null)
+                    else -> draft.copy(deadline = null, reminderEnabled = false)
+                }
+                timeField = null
             },
             onConfirm = { value ->
-                draft = if (draft.kind == PlanItemKinds.WORK_BLOCK) {
+                draft = if (field == "start") {
                     draft.copy(startTime = value)
                 } else {
                     draft.copy(deadline = value)
                 }
-                showTimePicker = false
+                timeField = null
             },
         )
     }
+}
+
+@Composable
+private fun PlanTimeField(
+    label: String,
+    value: String?,
+    onClick: () -> Unit,
+) {
+    OutlinedTextField(
+        value = formatSmartTime(value),
+        onValueChange = {},
+        readOnly = true,
+        trailingIcon = {
+            IconButton(onClick = onClick) {
+                Icon(Icons.Outlined.Schedule, contentDescription = label)
+            }
+        },
+        label = { Text(label) },
+    )
 }
 
 private fun PlanItem.kindLabel(): String = when (kind) {

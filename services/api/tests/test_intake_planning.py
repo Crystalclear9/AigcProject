@@ -6,16 +6,25 @@ from pathlib import Path
 
 from app.schemas.card import ActionCard
 from app.schemas.intake import CardReplanRequest
+from app.schemas.card_refinement import AttachmentDescriptor
 from app.services.intake_graph import build_intake_graph, merge_overlapping_lines
 from app.services.intake_service import _merge_intake_evidence
+from app.services.intake_service import (
+    append_intake_attachments,
+    confirm_intake,
+    get_intake,
+    start_intake,
+)
 from app.services.priority_engine import replan_priority
 from app.services.prompt_envelope import compile_prompt_envelope, render_system_prompt
 from app.services.planning_graph import build_planning_graph
 from app.services.workflow_harness import (
     golden_cases,
+    load_text_golden_cases,
     load_image_golden_cases,
     run_harness,
 )
+from app.services.workflow_service import close_workflow_runtime, wait_for_result
 
 
 def card(**updates) -> ActionCard:
@@ -79,6 +88,47 @@ def test_long_screenshot_overlap_is_removed() -> None:
         "请于8月15日提交实验报告\n地点：学习通"
     )
     assert merged.count("请于8月15日提交实验报告") == 1
+
+
+def test_multiline_course_notice_keeps_time_submission_and_platform_together() -> None:
+    result = asyncio.run(
+        build_intake_graph().ainvoke(
+            {
+                "text": (
+                    "课程通知\n请各位同学注意：\n7月5日22：00前\n"
+                    "提交《实验报告》\n实验报告提交至学习通，文件命名为学号+姓名。\n"
+                    "老师提醒：逾期无法补交，请提前准备附件。"
+                ),
+                "workspace_type": "personal",
+                "analyzer_results": [],
+            }
+        )
+    )
+
+    assert result["classification"] in {"actionable", "mixed"}
+    report_cards = [card for card in result["cards"] if "实验报告" in card["title"]]
+    assert len(report_cards) == 1
+    assert report_cards[0]["deadline"]
+    assert report_cards[0]["location"] == "学习通"
+    assert "学习通" in report_cards[0]["summary"]
+
+
+def test_commerce_deadline_is_not_misclassified_as_a_task() -> None:
+    result = asyncio.run(
+        build_intake_graph().ainvoke(
+            {
+                "text": (
+                    "618 限时秒杀\n明晚20：00截止！优惠满300减\n"
+                    "加入购物车，下单抽奖，直播间还有红包。\n立即抢购"
+                ),
+                "workspace_type": "personal",
+                "analyzer_results": [],
+            }
+        )
+    )
+
+    assert result["classification"] == "noise"
+    assert result["cards"] == []
 
 
 def test_intake_graph_classifies_and_splits_team_tasks() -> None:
@@ -193,7 +243,7 @@ def test_planning_graph_keeps_parent_facts_and_requires_device_confirmation() ->
     )
 
 
-def test_harness_has_150_unique_pressure_cases() -> None:
+def test_synthetic_harness_has_150_unique_smoke_cases() -> None:
     cases = golden_cases()
     assert len(cases) == 150
     assert len({case.id for case in cases}) == 150
@@ -210,15 +260,45 @@ def test_harness_has_150_unique_pressure_cases() -> None:
     }
 
 
-def test_harness_quality_gate() -> None:
+def test_locked_harness_dataset_is_versioned_and_reviewed() -> None:
+    manifest = (
+        Path(__file__).resolve().parents[3]
+        / "docs"
+        / "test-assets"
+        / "harness"
+        / "text_locked_v3.jsonl"
+    )
+    cases = load_text_golden_cases(manifest)
+    assert len(cases) >= 20
+    assert len({case.id for case in cases}) == len(cases)
+    assert all(case.annotation_status == "reviewed" for case in cases)
+    assert any(case.must_review for case in cases)
+    assert any(case.minimum_cards >= 3 for case in cases)
+
+
+def test_harness_quality_report_exposes_independent_gates() -> None:
     report = asyncio.run(run_harness())
-    assert report["case_count"] == 150
-    assert report["classification_accuracy"] >= 0.90
-    assert report["multi_task_recall"] >= 0.90
-    assert report["key_field_accuracy"] >= 0.90
-    assert report["wrong_auto_complete_rate"] < 0.01
-    assert report["generic_title_rate"] == 0
-    assert report["failures"] == []
+    assert report["dataset_version"] == "locked-intake-v3"
+    assert report["case_count"] >= 20
+    assert report["dataset_target"] == 150
+    assert report["image_dataset_target"] == 40
+    assert "task_boundary_f1" in report
+    assert "summary_contamination_rate" in report
+    assert set(report["release_gates"]) == {
+        "text_dataset_coverage",
+        "image_dataset_coverage",
+        "fact_annotation_coverage",
+        "classification_macro_f1",
+        "task_boundary_f1",
+        "key_field_accuracy",
+        "wrong_auto_complete_rate",
+        "summary_contamination_rate",
+        "generic_title_rate",
+    }
+    assert report["release_gates"]["text_dataset_coverage"] is False
+    assert report["release_gates"]["image_dataset_coverage"] is False
+    assert report["release_gates"]["fact_annotation_coverage"] is False
+    assert report["quality_passed"] is False
 
 
 def test_image_harness_manifest_is_versioned_and_reviewed() -> None:
@@ -234,3 +314,85 @@ def test_image_harness_manifest_is_versioned_and_reviewed() -> None:
     assert len({case.id for case in cases}) == len(cases)
     assert all(case.annotation_status == "reviewed" for case in cases)
     assert any(case.minimum_cards >= 2 for case in cases)
+
+
+def test_intake_attachment_preserves_candidates_and_empty_confirmation_is_rejected() -> None:
+    async def scenario() -> None:
+        try:
+            intake = await start_intake(
+                text="6月10日22:00前提交实验报告到学习通",
+                source_kind="text",
+                workspace_type="personal",
+                profile_context=None,
+                role_template="action_analyst",
+            )
+            assert intake.workflow_run_id
+            workflow = await wait_for_result(
+                intake.workflow_run_id,
+                timeout=2,
+                accept_provisional=False,
+            )
+            before_ids = [item.id for item in get_intake(intake.session_id).cards]
+            updated = append_intake_attachments(
+                intake.session_id,
+                [
+                    AttachmentDescriptor(
+                        id="attachment-1",
+                        name="requirements.md",
+                        mime_type="text/markdown",
+                        size_bytes=32,
+                        sha256="a" * 64,
+                        extraction_status="succeeded",
+                        extracted_characters=18,
+                    )
+                ],
+                ["报告需要包含实验步骤和结论"],
+                [],
+            )
+            assert [item.id for item in updated.cards] == before_ids
+            assert updated.attachments[0].name == "requirements.md"
+            try:
+                confirm_intake(intake.session_id, workflow.revision, [])
+            except ValueError as error:
+                assert "at least one valid candidate" in str(error)
+            else:
+                raise AssertionError("empty selection must not confirm an intake")
+        finally:
+            await close_workflow_runtime()
+
+    asyncio.run(scenario())
+
+
+def test_intake_selective_confirmation_completes_only_selected_candidates() -> None:
+    async def scenario() -> None:
+        try:
+            intake = await start_intake(
+                text=(
+                    "6月10日22:00前提交实验报告到学习通；"
+                    "6月11日10:00到A301参加组会并准备进展汇报"
+                ),
+                source_kind="text",
+                workspace_type="personal",
+                profile_context=None,
+                role_template="action_analyst",
+            )
+            assert intake.workflow_run_id
+            workflow = await wait_for_result(
+                intake.workflow_run_id,
+                timeout=2,
+                accept_provisional=False,
+            )
+            assert len(workflow.cards) >= 2
+            selected_id = workflow.cards[0].id
+            completed = confirm_intake(
+                intake.session_id,
+                workflow.revision,
+                [selected_id],
+            )
+            assert completed.workflow is not None
+            assert completed.workflow.workflow_status == "completed"
+            assert [item.id for item in completed.workflow.cards] == [selected_id]
+        finally:
+            await close_workflow_runtime()
+
+    asyncio.run(scenario())

@@ -100,6 +100,8 @@ data class AnalyzeResult(
     val ocrReviewReasons: List<String> = emptyList(),
     val imageGenerationStatus: String = "not_configured",
     val reactSuggestions: List<String> = emptyList(),
+    val agentContractVersion: String = "agent-contract-v2",
+    val agentOutputs: List<Map<String, Any?>> = emptyList(),
 )
 
 data class OcrQualityReport(

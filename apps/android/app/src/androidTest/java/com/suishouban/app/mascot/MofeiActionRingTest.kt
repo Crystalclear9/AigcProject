@@ -7,6 +7,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import com.suishouban.app.mascot.action.MofeiAction
 import com.suishouban.app.mascot.action.MofeiActionAvailability
@@ -80,7 +81,7 @@ class MofeiActionRingTest {
         }
 
         compose.onNodeWithTag("mofei-action-dismiss")
-            .performSemanticsAction(SemanticsActions.OnClick)
+            .performClick()
         assertEquals(true, dismissed)
     }
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 import httpx
 
 from app.schemas.card import AnalyzeScreenshotTextRequest
+from app.core.config import Settings
 from app.services.analyzer import analyze_screenshot_text
 from app.services.demo_scenarios import evaluate_demo_scenarios
 from app.services.image_generation import generate_demo_image
@@ -42,6 +43,17 @@ class FakeAsyncPostClient:
 
 
 class VivoOcrTest(unittest.TestCase):
+    def test_documented_business_profiles_are_complete_business_ids(self) -> None:
+        rotation = Settings(vivo_ocr_business_profile="rotation")
+        upright = Settings(vivo_ocr_business_profile="upright_fast")
+        explicit = Settings(vivo_ocr_business_id_override="explicit-business")
+        app_id = Settings(vivo_ocr_app_id="sample-app")
+
+        self.assertEqual(rotation.vivo_ocr_business_id, "1990173156ceb8a09eee80c293135279")
+        self.assertEqual(upright.vivo_ocr_business_id, "8bf312e702043779ad0f2760b37a0806")
+        self.assertEqual(explicit.vivo_ocr_business_id, "explicit-business")
+        self.assertEqual(app_id.vivo_ocr_business_id, "aigcsample-app")
+
     def test_chat_completion_url_accepts_base_or_full_endpoint(self) -> None:
         self.assertEqual(
             _chat_completion_url("https://api-ai.vivo.com.cn/v1"),
@@ -164,7 +176,10 @@ class VivoOcrTest(unittest.TestCase):
 
         request = httpx.Request("POST", "http://example.test")
         response = httpx.Response(401, request=request, text="invalid key")
-        self.assertIn("invalid key", _format_http_error(httpx.HTTPStatusError("bad", request=request, response=response)))
+        self.assertEqual(
+            _format_http_error(httpx.HTTPStatusError("bad", request=request, response=response)),
+            "vivo OCR HTTP 401",
+        )
         self.assertIn("timed out", _format_request_error(httpx.ReadTimeout("timed out", request=request)))
 
 

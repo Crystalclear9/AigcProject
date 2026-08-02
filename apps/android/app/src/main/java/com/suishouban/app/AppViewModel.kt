@@ -8,6 +8,7 @@ import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.ActionCandidate
 import com.suishouban.app.data.model.ActionPlan
 import com.suishouban.app.data.model.AnalyzeResult
+import com.suishouban.app.data.model.AiConnectionMode
 import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.data.model.candidateIdentity
 import com.suishouban.app.data.model.UserProfile
@@ -18,6 +19,7 @@ import com.suishouban.app.data.repository.AppSettings
 import com.suishouban.app.data.repository.EngineLabels
 import com.suishouban.app.data.model.NodeTrace
 import com.suishouban.app.domain.ocr.OcrCandidate
+import com.suishouban.app.domain.ocr.OcrEvidenceBlock
 import com.suishouban.app.domain.workflow.ConfirmationCoordinator
 import com.suishouban.app.domain.workflow.OcrCoordinator
 import com.suishouban.app.domain.workflow.PriorityCoordinator
@@ -49,6 +51,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
+import com.suishouban.app.data.model.OcrEnhancementPolicy
+import com.suishouban.app.domain.TextIntegrity
+import com.suishouban.app.domain.EvidenceSummaryComposer
 
 data class AppUiState(
     val cards: List<ActionCard> = emptyList(),
@@ -82,6 +87,8 @@ data class AppUiState(
     val ocrReviewReasons: List<String> = emptyList(),
     val imageGenerationStatus: String = "not_configured",
     val reactSuggestions: List<String> = emptyList(),
+    val agentContractVersion: String = "agent-contract-v2",
+    val agentOutputs: List<Map<String, Any?>> = emptyList(),
     val aiRefinementStatus: String? = null,
     val screenshotGateReason: String? = null,
     val screenshotDeadlineHint: String? = null,
@@ -92,6 +99,7 @@ data class AppUiState(
     val screenshotWorkflowStage: ScreenshotWorkflowStage? = null,
     val ocrArbitrationReason: String? = null,
     val connectionStatus: String = "未检测",
+    val hasProviderApiKey: Boolean = false,
     val loading: Boolean = false,
     val error: String? = null,
     val settings: AppSettings = AppSettings(),
@@ -120,7 +128,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _mascotInteractions = MutableSharedFlow<MascotCompletionEvent>(extraBufferCapacity = 1)
     private var notificationDraftAssociation: NotificationDraftAssociation? = null
 
-    private val _uiState = MutableStateFlow(AppUiState(settings = settingsRepository.settings.value))
+    private val _uiState = MutableStateFlow(
+        AppUiState(
+            settings = settingsRepository.settings.value,
+            hasProviderApiKey = app.providerSecretStore.hasApiKey(),
+        )
+    )
     val uiState: StateFlow<AppUiState> = _uiState
     val notificationCandidates: StateFlow<List<NotificationCandidateUiModel>> =
         notificationCandidateRepository.observeActive()
@@ -268,6 +281,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         notifyWhenEmpty: Boolean = true,
         onDone: (Boolean) -> Unit = {},
     ) {
+        if (!_uiState.value.settings.importSources.galleryImages) {
+            _uiState.update { it.copy(error = "相册与图片导入已在设置中关闭") }
+            onDone(false)
+            return
+        }
         clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
@@ -275,6 +293,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     error = null,
+                    draftCards = emptyList(),
                     actionCandidates = emptyList(),
                     selectedDraftIds = emptySet(),
                     screenshotGateReason = null,
@@ -335,19 +354,37 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
             val localResults = localOcr.await()
-            if (localResults.isEmpty()) {
-                _uiState.update { it.copy(loading = false, error = "Image recognition failed") }
-                return@launch
-            }
-            val arbitration = OcrCoordinator.adjudicate(
-                localResults.mapIndexed { index, result ->
+            val localCandidates = localResults.mapIndexed { index, result ->
                     OcrCandidate(
                         engine = "mlkit:${result.variant}",
                         text = result.text,
                         blocks = result.blocks.size,
+                        evidenceBlocks = result.blocks.map { block ->
+                            OcrEvidenceBlock(
+                                text = block.text,
+                                left = block.left.toDouble(),
+                                top = block.top.toDouble(),
+                                right = block.right.toDouble(),
+                                bottom = block.bottom.toDouble(),
+                                readingOrder = block.readingOrder,
+                            )
+                        },
                         arrivedAtMs = index.toLong(),
                     )
-                },
+                }
+            val ocrPolicy = _uiState.value.settings.ocrEnhancementPolicy
+            val shouldUseDirectOcr = ocrPolicy == OcrEnhancementPolicy.ALWAYS_COMPARE ||
+                (ocrPolicy == OcrEnhancementPolicy.LOW_QUALITY &&
+                    localCandidates.maxOfOrNull { it.qualityScore }?.let { it < 0.72 } != false)
+            val directCandidate = if (shouldUseDirectOcr) {
+                repository.recognizeImageDirect(uri)
+            } else null
+            if (localCandidates.isEmpty() && directCandidate == null) {
+                _uiState.update { it.copy(loading = false, error = "图片识别失败，请重试或检查 OCR 设置") }
+                return@launch
+            }
+            val arbitration = OcrCoordinator.adjudicate(
+                localCandidates + listOfNotNull(directCandidate),
             ) ?: run {
                 _uiState.update { it.copy(loading = false, error = "Image recognition failed") }
                 return@launch
@@ -379,16 +416,43 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun analyzeText(text: String, onDone: (Boolean) -> Unit = {}) {
+        if (!_uiState.value.settings.importSources.text) {
+            _uiState.update { it.copy(error = "文字导入已在设置中关闭") }
+            onDone(false)
+            return
+        }
         clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
             val current = _uiState.value
             if (
                 current.workflowStatus == "awaiting_ocr_review" &&
-                current.traceId.isNotBlank() &&
                 text.isNotBlank()
             ) {
                 _uiState.update { it.copy(loading = true, error = null) }
+                if (
+                    current.settings.aiConnectionMode != AiConnectionMode.WORKFLOW_GATEWAY ||
+                    current.settings.apiBaseUrl.isBlank() ||
+                    current.traceId.isBlank()
+                ) {
+                    _uiState.update {
+                        it.copy(
+                            workflowStatus = "",
+                            pendingAction = null,
+                            draftCards = emptyList(),
+                            actionCandidates = emptyList(),
+                            selectedDraftIds = emptySet(),
+                        )
+                    }
+                    analyzeTextInternal(
+                        text = text,
+                        onDone = onDone,
+                        enginePrefix = "user-corrected",
+                        extraWarnings = listOf("已根据你修正的文字重新分析"),
+                        notifyWhenEmpty = true,
+                    )
+                    return@launch
+                }
                 runCatching {
                     repository.resolveOcr(current.traceId, text)
                 }.onSuccess { resumed ->
@@ -414,6 +478,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     error = null,
+                    draftCards = emptyList(),
                     actionCandidates = emptyList(),
                     selectedDraftIds = emptySet(),
                     screenshotGateReason = null,
@@ -555,6 +620,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     loading = true,
                     error = null,
+                    draftCards = emptyList(),
                     actionCandidates = emptyList(),
                     selectedDraftIds = emptySet(),
                     ocrText = ocrText,
@@ -754,6 +820,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 ocrReviewReasons = result.ocrReviewReasons,
                 imageGenerationStatus = result.imageGenerationStatus,
                 reactSuggestions = result.reactSuggestions,
+                agentContractVersion = result.agentContractVersion,
+                agentOutputs = result.agentOutputs,
                 aiRefinementStatus = when {
                     result.reactSuggestions.isNotEmpty() -> "AI 已完成一次受控 ReAct 完善，建议可逐项确认"
                     result.engine.contains("react", ignoreCase = true) -> "AI 已重新检查候选草稿"
@@ -788,7 +856,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun fillEmptyFields(local: ActionCard, incoming: ActionCard): ActionCard {
         return local.copy(
-            summary = local.summary.ifBlank { incoming.summary },
+            summary = TextIntegrity.chooseBetterSummary(local.summary, incoming.summary),
             deadline = local.deadline ?: incoming.deadline,
             startTime = local.startTime ?: incoming.startTime,
             endTime = local.endTime ?: incoming.endTime,
@@ -885,13 +953,21 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             .firstOrNull { it.isNotBlank() }
             ?: state.screenshotPromptSummary
             ?: "手动添加行动事项"
+        val manualTitle = state.screenshotPromptSummary
+            ?.substringBefore(" · ")
+            ?.takeIf { it.isNotBlank() }
+            ?: "手动补全行动事项"
         val card = ActionCard(
             cardType = CardTypes.TASK,
-            title = state.screenshotPromptSummary
-                ?.substringBefore(" · ")
-                ?.takeIf { it.isNotBlank() }
-                ?: "手动补全行动事项",
-            summary = evidence.take(120),
+            title = manualTitle,
+            summary = EvidenceSummaryComposer.compose(
+                title = manualTitle,
+                deadline = null,
+                startTime = null,
+                location = null,
+                materials = emptyList(),
+                submitMethod = null,
+            ),
             needConfirm = listOf("标题", "时间", "地点/平台"),
             sourceText = state.ocrText,
             evidenceSummary = listOf("用户从空结果恢复入口手动创建候选卡"),
@@ -1082,48 +1158,42 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 return@launch
             }
-            val selectedIds = drafts.map { it.id }.toSet()
-            val shouldConfirmRemoteWorkflowBeforeLocalSave =
-                state.traceId.isNotBlank() &&
-                    state.workflowStatus in setOf("queued", "running", "awaiting_review") &&
-                    state.settings.preferCloudModel
-            val cardsToSave = if (
-                shouldConfirmRemoteWorkflowBeforeLocalSave
-            ) {
-                _uiState.update { it.copy(loading = true, error = null) }
-                val resumed = runCatching {
-                    repository.reviewAndConfirm(
-                        state.traceId,
-                        state.revision,
-                        drafts,
-                        state.fieldVersions,
-                    )
-                }.getOrElse { error ->
-                    _uiState.update {
-                        it.copy(loading = false, error = "审核提交失败：${error.message ?: "未知错误"}")
-                    }
-                    return@launch
-                }
-                applyAnalyzeResult(resumed)
-                if (resumed.workflowStatus != "completed") {
-                    _uiState.update { it.copy(error = "仍有字段需要确认") }
-                    return@launch
-                }
-                resumed.cards.filter { it.id in selectedIds }.ifEmpty { drafts }
-            } else {
-                drafts
-            }
+            // The phone is authoritative after the user confirms. Persist the complete
+            // selection in one Room transaction, then schedule idempotent reminders.
+            // A startup reconciliation covers process death between these two steps.
+            val cardsToSave = repository.persistConfirmedBatch(drafts)
             val syncWarnings = mutableListOf<String>()
             val confirmationMessages = mutableListOf<String>()
-            cardsToSave.forEach { card ->
-                val saveResult = repository.saveConfirmed(card)
-                val saved = saveResult.card
-                saveResult.syncError?.let(syncWarnings::add)
+            cardsToSave.forEach { saved ->
                 val reminderResult = scheduler.schedule(saved)
                 if (reminderResult.scheduled) {
                     confirmationMessages += reminderResult.message
                 } else {
                     syncWarnings += reminderResult.message
+                }
+            }
+            val shouldConfirmRemoteWorkflowBeforeLocalSave =
+                state.traceId.isNotBlank() &&
+                    state.workflowStatus in setOf("queued", "running", "awaiting_review") &&
+                    state.settings.preferCloudModel
+            if (shouldConfirmRemoteWorkflowBeforeLocalSave) {
+                _uiState.update { it.copy(loading = true, error = null) }
+                val remoteConfirmation = runCatching {
+                    activeIntakeSessionId?.let { sessionId ->
+                        repository.confirmIntake(sessionId, state.revision, drafts.map(ActionCard::id))
+                    } ?: repository.reviewAndConfirm(
+                            state.traceId,
+                            state.revision,
+                            drafts,
+                            state.fieldVersions,
+                        )
+                }
+                remoteConfirmation.onFailure { error ->
+                    syncWarnings += "行动卡与提醒已保存在手机；云端审核同步失败：${error.message ?: "未知错误"}"
+                }.onSuccess { resumed ->
+                    if (resumed.workflowStatus != "completed") {
+                        syncWarnings += "行动卡与提醒已保存在手机；云端仍有字段待确认"
+                    }
                 }
             }
             // Consume only the candidate that produced at least one of the drafts actually saved.
@@ -1140,6 +1210,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             activeIntakeSessionId = null
+            repository.clearActiveWorkflow()
             _uiState.update {
                 it.copy(
                     draftCards = emptyList(),
@@ -1247,6 +1318,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun analyzeFiles(uris: List<Uri>, onDone: (Boolean) -> Unit = {}) {
         if (uris.isEmpty()) return
+        if (!_uiState.value.settings.importSources.documents) {
+            _uiState.update { it.copy(error = "文档导入已在设置中关闭") }
+            onDone(false)
+            return
+        }
         clearNotificationDraftAssociation()
         locallyEditedDraftIds.clear()
         viewModelScope.launch {
@@ -1312,6 +1388,27 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addMaterialsToActiveIntake(uris: List<Uri>) {
+        val sessionId = activeIntakeSessionId
+        if (sessionId == null) {
+            _uiState.update { it.copy(error = "当前候选不是可追加材料的云端 Intake，会保留现有草稿") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true, error = null) }
+            runCatching { repository.addIntakeAttachments(sessionId, uris) }
+                .onSuccess { result ->
+                    applyAnalyzeResult(result)
+                    _uiState.update { it.copy(loading = false, error = "材料已加入本次识别，可继续完善候选") }
+                }
+                .onFailure { error ->
+                    _uiState.update {
+                        it.copy(loading = false, error = "材料加入失败：${error.message ?: "未知错误"}")
+                    }
+                }
+        }
+    }
+
     private suspend fun planningProfileContext(): UserProfileContext? {
         if (!_uiState.value.settings.personalizedPlanningEnabled) return null
         return userProfileRepository.current().toContext()
@@ -1329,6 +1426,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch {
                 userProfileRepository.setLearningConsent(settings.profileLearningEnabled)
             }
+        }
+    }
+
+    fun saveProviderApiKey(apiKey: String) {
+        app.providerSecretStore.saveApiKey(apiKey)
+        _uiState.update {
+            it.copy(
+                hasProviderApiKey = app.providerSecretStore.hasApiKey(),
+                connectionStatus = "密钥已安全保存，请测试连接",
+            )
+        }
+    }
+
+    fun clearProviderApiKey() {
+        app.providerSecretStore.clear()
+        _uiState.update {
+            it.copy(hasProviderApiKey = false, connectionStatus = "本机密钥已清除")
         }
     }
 

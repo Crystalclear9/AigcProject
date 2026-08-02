@@ -2,11 +2,58 @@ package com.suishouban.app.domain
 
 import com.suishouban.app.data.model.CardTypes
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalActionExtractorTest {
+    @Test
+    fun userCorrectedTextCannotLoopBackIntoOcrReview() {
+        val result = LocalActionExtractor().extract(
+            text = "课程群公告 请在8月7日22:00前提交实验报告到学习通 消息 卡片",
+            screenshotTime = "2026-08-01T10:00:00+08:00",
+            trustedUserCorrection = true,
+        )
+
+        assertEquals("completed", result.workflowStatus)
+        assertEquals(1.0, result.ocrQualityReport?.qualityScore ?: 0.0, 0.0)
+        assertTrue(result.ocrQualityReport?.reasons?.contains("user_corrected") == true)
+        assertTrue(result.cards.any { "实验报告" in it.title })
+    }
+
+    @Test
+    fun flattenedBottomNavigationDoesNotKeepCorrectedOcrInReview() {
+        val result = LocalActionExtractor().extract(
+            "口课程通知口 请在8月7日22:01前提交实验报告至学习通 首页 消息",
+            "2026-08-01T10:00:00+08:00",
+        )
+
+        assertEquals("completed", result.workflowStatus)
+        assertTrue(result.ocrText.startsWith("课程通知"))
+        assertFalse(result.ocrText.endsWith("首页 消息"))
+    }
     private val extractor = LocalActionExtractor()
+
+    @Test
+    fun courseReminderKeepsAttachmentAsSupportingEvidence() {
+        val result = extractor.extract(
+            """
+            15:14 5G WiFi 电量62%
+            课程通知
+            7月5日22:00前提交实验报告
+            实验报告提交至学习通，文件命名为学号+姓名。
+            老师提醒：逾期无法补交，请提前准备附件。
+            首页 消息 日历 我的
+            """.trimIndent(),
+            "2026-06-07T10:00:00+08:00",
+        )
+
+        assertEquals(1, result.cards.count { "实验报告" in it.title })
+        assertTrue(result.cards.none { it.title == "准备附件" || it.title == "完成附件" })
+        assertTrue(result.overallConfidence > 0.0)
+        assertNotNull(result.ocrQualityReport)
+    }
 
     @Test
     fun nonActionTextReturnsNoCards() {

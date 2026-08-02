@@ -62,7 +62,7 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 真实手机验收的目标不是绑定开发主机，而是确认 App 在手机上能独立完成截图判定、候选预览、用户确认、保存和提醒。默认不填写 Workflow URL 时，App 不访问本机地址、局域网地址或 vivo 原始 provider endpoint。
 
-开发阶段可使用实体机、云真机或自动化脚本。当前脚本默认设备为 `val-vclinner-rt-contest.vivo.com.cn:37065`，但它只是测试环境；产品运行不依赖 ADB、`adb reverse` 或开发主机。vivo 安装器可能要求勾选风险提示并确认安装，部署脚本会尝试自动处理该页面。
+开发阶段可使用实体机、远程 Android 测试设备或自动化脚本。脚本默认选择 `adb devices` 中唯一在线的设备，多设备时通过 `-Device` 指定；产品运行不依赖 ADB、`adb reverse` 或开发主机。vivo 安装器可能要求勾选风险提示并确认安装，部署脚本会尝试自动处理该页面。
 
 部分测试设备虽然接受 `adb reverse`，但不会把流量转发到开发机。在线端到端测试应使用公网 HTTPS 后端网关，再在 App 设置页写入该地址并使用“测试服务连接”。临时隧道只能作为阻塞备选；临时 URL、截图、日志和隧道输出均不得提交。
 
@@ -70,7 +70,7 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 ## vivo 后端代理调试
 
-Android 不直连 vivo/蓝心，也不把 API key 写入 APK。真实密钥只放在后端或 HTTPS 网关环境变量中；debug APK 最多注入一个非敏感的默认网关 URL：
+默认模式不直连 vivo/蓝心，也不把 API key 写入 APK。完整工作流的真实密钥只放在后端或 HTTPS 网关环境变量中；高级 BYOK 使用 Android Keystore 保存用户密钥，只执行候选增强。debug APK 最多注入一个非敏感的默认网关 URL：
 
 ```powershell
 $env:DEFAULT_API_BASE_URL="https://your-temp-gateway.example.com/"

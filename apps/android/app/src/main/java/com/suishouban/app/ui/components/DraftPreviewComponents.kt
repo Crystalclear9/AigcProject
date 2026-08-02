@@ -36,6 +36,7 @@ import com.suishouban.app.data.model.mergeReminderLabels
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.visualForCardType
+import com.suishouban.app.ui.theme.visualForPriority
 
 @Composable
 fun PreviewActionsCard(
@@ -69,17 +70,21 @@ fun DraftEditor(
     modifier: Modifier = Modifier,
 ) {
     val visual = visualForCardType(card.cardType)
+    val priorityVisual = visualForPriority(card.priority)
     var pickerField by remember(card.id) { mutableStateOf<String?>(null) }
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.97f)),
-        border = BorderStroke(1.dp, Line),
+        colors = CardDefaults.cardColors(containerColor = priorityVisual.container),
+        border = BorderStroke(1.5.dp, priorityVisual.accent),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NeutralPill(text = visual.label, selected = true)
+                NeutralPill(
+                    text = if (card.priorityLocked) "${priorityVisual.label} · 已锁定" else priorityVisual.label,
+                )
                 if (card.needConfirm.isNotEmpty()) {
                     NeutralPill(text = "待确认 ${card.needConfirm.size}")
                 }

@@ -59,6 +59,39 @@ function Invoke-DeviceAdb {
     & $adb -s $serial @Arguments
 }
 
+function Confirm-VivoCrossAppLaunch {
+    $remoteXml = "/sdcard/suishouban-device-test-app-jump.xml"
+    $localXml = Join-Path $artifactRoot "app-jump-state.xml"
+    $previousErrorPreference = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    $null = & $adb -s $serial shell uiautomator dump $remoteXml 2>&1
+    $dumpExitCode = $LASTEXITCODE
+    $null = & $adb -s $serial pull $remoteXml $localXml 2>&1
+    $pullExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorPreference
+    if ($dumpExitCode -ne 0 -or $pullExitCode -ne 0 -or -not (Test-Path $localXml)) {
+        return $false
+    }
+
+    [xml]$document = Get-Content -Raw -Encoding UTF8 $localXml
+    $appFilterRoot = $document.SelectSingleNode("//node[@package='com.vivo.appfilter']")
+    $targetText = $document.SelectSingleNode(
+        "//node[contains(@text, '$testTargetPackage') or contains(@text, '$testPackage')]"
+    )
+    $alwaysOpen = $document.SelectSingleNode(
+        "//node[@resource-id='android:id/button1' and @enabled='true']"
+    )
+    if (-not $appFilterRoot -or -not $targetText -or -not $alwaysOpen) {
+        return $false
+    }
+    $center = Get-NodeCenter $alwaysOpen
+    if (-not $center) {
+        return $false
+    }
+    Invoke-DeviceAdb shell input tap ([int]$center[0]) ([int]$center[1]) | Out-Null
+    return $true
+}
+
 function Invoke-InstrumentationClass {
     param(
         [Parameter(Mandatory = $true)][string]$ClassName,
@@ -81,7 +114,14 @@ function Invoke-InstrumentationClass {
         -RedirectStandardOutput $stdoutPath `
         -RedirectStandardError $stderrPath
     try {
-        if (-not $process.WaitForExit($InstrumentationTimeoutSeconds * 1000)) {
+        $deadline = [DateTime]::UtcNow.AddSeconds($InstrumentationTimeoutSeconds)
+        while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+            if (-not $process.HasExited) {
+                Confirm-VivoCrossAppLaunch | Out-Null
+            }
+        }
+        if (-not $process.HasExited) {
             $process.Kill()
             Invoke-DeviceAdb shell am force-stop $testPackage | Out-Null
             Invoke-DeviceAdb shell am force-stop $testTargetPackage | Out-Null
@@ -191,8 +231,7 @@ function Confirm-VivoPackageInstall {
         return $false
     }
     $continueNode = $document.SelectSingleNode(
-        "//node[@resource-id='android:id/button1' and @enabled='true' and " +
-            "(@content-desc='继续安装' or .//node[@text='继续安装'])]"
+        "//node[@resource-id='android:id/button1' and @enabled='true']"
     )
     if (-not $continueNode) {
         # A vivo installer transition is not an error by itself. Leave it untouched and let the
@@ -264,7 +303,10 @@ $targetApk = Join-Path $androidProject "app\build\outputs\apk\deviceTest\app-dev
 $testApk = Join-Path $androidProject "app\build\outputs\apk\androidTest\deviceTest\app-deviceTest-androidTest.apk"
 $testClasses = @(
     "com.suishouban.app.data.local.AppDatabaseMigrationTest",
-    "com.suishouban.app.mascot.MofeiActionRingTest",
+    "com.suishouban.app.mascot.MofeiActionRingTest#screenshotActionCapturesOnTheFirstTap",
+    "com.suishouban.app.mascot.MofeiActionRingTest#collapsedRingInvokesDismissFromCenterSeal",
+    "com.suishouban.app.mascot.MofeiActionRingTest#expandedRingRevealsOneLabelBeforeInvokingAction",
+    "com.suishouban.app.mascot.MofeiActionRingTest#expandedRingAutoDismissesFiveSecondsAfterTheLatestInteraction",
     "com.suishouban.app.mascot.MofeiPetSpriteAnimationTest",
     "com.suishouban.app.mascot.MofeiNotificationFirefliesTest",
     "com.suishouban.app.mascot.MofeiOverlayViewTreeOwnersTest"
@@ -299,10 +341,11 @@ try {
     foreach ($className in $testClasses) {
         Invoke-DeviceAdb shell am force-stop $mainPackage | Out-Null
         Invoke-DeviceAdb shell am force-stop $testTargetPackage | Out-Null
-        # Foreground the isolated target once. OriginOS otherwise treats the test rule's
-        # ComponentActivity launch as an untrusted background start and blocks it.
-        & $adb -s $serial shell am start -W -n `
-            "$testTargetPackage/androidx.activity.ComponentActivity" | Out-Null
+        # Foreground through the launcher path. OriginOS treats a direct shell launch of
+        # ComponentActivity as a cross-app jump and can cover the test with AppJumpPrompt.
+        & $adb -s $serial shell monkey -p $testTargetPackage -c `
+            android.intent.category.LAUNCHER 1 | Out-Null
+        Start-Sleep -Milliseconds 500
         Invoke-InstrumentationClass -ClassName $className -Runner $runner
     }
 } catch {

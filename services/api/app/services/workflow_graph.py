@@ -31,6 +31,7 @@ from app.services.workflow_agents import (
     adjudicate,
     build_action_graph as create_action_graph,
 )
+from app.schemas.agent_contracts import AGENT_CONTRACT_VERSION
 
 repository = WorkflowRepository()
 
@@ -425,6 +426,10 @@ def dispatch_ready_tasks(state: WorkflowState) -> list[Send] | str:
             "agent_task_results",
             "started_at",
             "workflow_deadline_at",
+            "agent_plan",
+            "prompt_envelope",
+            "workspace_type",
+            "user_locked",
         )
     }
     return [
@@ -457,14 +462,34 @@ def _result_to_expert_output(result: AgentResult) -> dict[str, Any]:
                 "reliability": claim.confidence,
             }
         )
+    semantic_cards = []
+    if result.output_type == "semantic_decomposition":
+        semantic_cards = [
+            {
+                "action_id": action.get("action_id"),
+                "id": action.get("action_id"),
+                "card_type": action.get("card_type", "task"),
+                "title": action.get("title", ""),
+                "summary": action.get("summary", ""),
+                "source_text": action.get("evidence", {}).get("source_text", ""),
+            }
+            for action in result.validated_output.get("actions", [])
+        ]
     return {
         "agent": result.tool,
         "evidence": evidence,
-        "cards": result.cards,
+        "cards": semantic_cards,
         "findings": result.findings,
         "claims": [claim.model_dump(mode="json") for claim in result.claims],
         "risk_level": result.risk_level,
         "retrieval_sources": [source.model_dump(mode="json") for source in result.retrieval_sources],
+        "contract_version": result.contract_version,
+        "output_type": result.output_type,
+        "validated_output": result.validated_output,
+        "contract_errors": result.contract_errors,
+        "evidence_coverage": result.evidence_coverage,
+        "dependency_failures": result.dependency_failures,
+        "decision_summary": result.decision_summary,
     }
 
 
@@ -642,6 +667,22 @@ def verify_workflow(state: WorkflowState) -> dict[str, Any]:
         budget["exhausted"] = True
         budget["exhaustion_reason"] = "deadline"
     return {
+        "agent_contract_version": AGENT_CONTRACT_VERSION,
+        "agent_outputs": [
+            {
+                "task_id": result.get("task_id"),
+                "tool": result.get("tool"),
+                "status": result.get("status"),
+                "contract_version": result.get("contract_version"),
+                "output_type": result.get("output_type"),
+                "validated_output": result.get("validated_output", {}),
+                "contract_errors": result.get("contract_errors", []),
+                "evidence_coverage": result.get("evidence_coverage", 0),
+                "dependency_failures": result.get("dependency_failures", []),
+                "decision_summary": result.get("decision_summary", ""),
+            }
+            for result in state.get("agent_task_results", [])
+        ],
         "verification_summary": summary.model_dump(mode="json"),
         "unresolved_evidence": summary.unresolved_evidence,
         "review_requested": bool(

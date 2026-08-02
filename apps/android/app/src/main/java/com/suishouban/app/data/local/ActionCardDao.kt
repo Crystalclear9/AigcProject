@@ -12,6 +12,9 @@ interface ActionCardDao {
     @Query("SELECT * FROM cards ORDER BY created_at DESC")
     fun observeAll(): Flow<List<ActionCardEntity>>
 
+    @Query("SELECT * FROM cards")
+    suspend fun loadAll(): List<ActionCardEntity>
+
     @Query(
         """
         SELECT * FROM cards
@@ -40,6 +43,9 @@ interface ActionCardDao {
 
     @Query("UPDATE cards SET status = :status WHERE id = :id")
     suspend fun updateStatus(id: String, status: String)
+
+    @Query("UPDATE cards SET summary = :summary WHERE id = :id")
+    suspend fun updateSummary(id: String, summary: String)
 
     @Query("DELETE FROM cards WHERE id = :id")
     suspend fun delete(id: String)

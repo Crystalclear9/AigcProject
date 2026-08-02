@@ -20,6 +20,7 @@ class Settings:
         "./workflow_checkpoint.db",
     )
     workflow_input_directory: str = os.getenv("WORKFLOW_INPUT_DIRECTORY", "./workflow_inputs")
+    intake_sensitive_ttl_hours: int = int(os.getenv("INTAKE_SENSITIVE_TTL_HOURS", "24"))
     workflow_lease_seconds: int = int(os.getenv("WORKFLOW_LEASE_SECONDS", "30"))
     workflow_environment: str = os.getenv("WORKFLOW_ENVIRONMENT", "development")
     cors_origins: str = os.getenv("CORS_ORIGINS", "*")
@@ -51,12 +52,16 @@ class Settings:
     workflow_cache_ttl_seconds: int = int(os.getenv("WORKFLOW_CACHE_TTL_SECONDS", str(7 * 24 * 3600)))
     legacy_sync_wait_seconds: float = float(os.getenv("LEGACY_SYNC_WAIT_SECONDS", "1.5"))
     vivo_ocr_app_id: str = os.getenv("VIVO_OCR_APP_ID", "")
+    vivo_ocr_business_id_override: str = os.getenv("VIVO_OCR_BUSINESS_ID", "")
     vivo_ocr_app_key: str = os.getenv("VIVO_OCR_APP_KEY", "")
     vivo_ocr_url: str = os.getenv(
         "VIVO_OCR_URL",
         "http://api-ai.vivo.com.cn/ocr/general_recognition",
     )
-    vivo_ocr_business_profile: str = os.getenv("VIVO_OCR_BUSINESS_PROFILE", "rotatable")
+    vivo_ocr_business_profile: str = os.getenv(
+        "VIVO_OCR_PROFILE",
+        os.getenv("VIVO_OCR_BUSINESS_PROFILE", "rotation"),
+    )
     vivo_ocr_timeout_seconds: float = float(os.getenv("VIVO_OCR_TIMEOUT_SECONDS", "5"))
     vivo_image_generation_api_key: str = os.getenv(
         "VIVO_IMAGE_GENERATION_API_KEY",
@@ -177,15 +182,19 @@ class Settings:
 
     @property
     def vivo_ocr_business_id(self) -> str:
+        if self.vivo_ocr_business_id_override:
+            return self.vivo_ocr_business_id_override
         if self.vivo_ocr_app_id.startswith("aigc"):
             return self.vivo_ocr_app_id
         if self.vivo_ocr_app_id:
             return f"aigc{self.vivo_ocr_app_id}"
         defaults = {
-            "rotatable": "aigc1990173156ceb8a09eee80c293135279",
-            "upright": "aigc8bf312e702043779ad0f2760b37a0806",
+            "rotation": "1990173156ceb8a09eee80c293135279",
+            "rotatable": "1990173156ceb8a09eee80c293135279",
+            "upright_fast": "8bf312e702043779ad0f2760b37a0806",
+            "upright": "8bf312e702043779ad0f2760b37a0806",
         }
-        return defaults.get(self.vivo_ocr_business_profile, defaults["rotatable"])
+        return defaults.get(self.vivo_ocr_business_profile, defaults["rotation"])
 
     @property
     def cors_origin_list(self) -> list[str]:

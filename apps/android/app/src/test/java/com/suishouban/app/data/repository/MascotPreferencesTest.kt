@@ -97,7 +97,7 @@ class MascotPreferencesTest {
 }
 
 /** Minimal in-memory implementation used to exercise the real repository serialization. */
-private class InMemorySharedPreferences : SharedPreferences {
+internal class InMemorySharedPreferences : SharedPreferences {
     private val values = mutableMapOf<String, Any?>()
 
     override fun getAll(): MutableMap<String, *> = values.toMutableMap()

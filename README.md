@@ -2,7 +2,20 @@
 
 随手办是一款面向真实手机用户的多模态行动助理。它把截图、长截图、聊天记录、文字和常见办公文档整理为可确认的个人或团队行动图，并在卡片创建后持续提供优先级、里程碑、时间块、材料清单和日历建议。
 
-产品默认可以在手机侧独立运行。云端 AI 是可选增强，通过后端 Workflow 网关接入；Android 不直连 vivo/蓝心 provider，也不把 API key 写入 APK。
+产品默认可以在手机侧独立运行。云端 AI 是可选增强：推荐通过 HTTPS Workflow 网关接入完整 Agent 图；高级用户也可选择手机 BYOK 直连候选增强。API key 只进入 Android Keystore 或服务端密钥环境，不写入 APK、Room、README、日志或诊断导出。
+
+## 当前完成状态
+
+| 能力 | 状态 | 边界 |
+|---|---|---|
+| 端侧截图 OCR、质量复核、多候选确认、Room 与提醒 | 已闭环 | 低质量 OCR 会停在人工复核；启动时会幂等补注册已确认卡的提醒 |
+| HTTPS Workflow、Agent 合约、证据裁决与 ReAct | 可用 | 需要独立部署的公网 HTTPS 网关 |
+| 手机 BYOK | 高级实验能力 | 只做 OCR/候选增强，不等同完整 Agent 图 |
+| 多文件 Intake 与卡片深度规划 | 部分可用 | 已创建卡可细化；创建前附件 refinement 和 Office 深度解析尚未形成完整 Android 闭环 |
+| 本地团队规划 | 实验性 | 有本地字段和约束；尚无账号、邀请、同步和完整成员协作闭环 |
+| 工业级锁定评测集 | 建设中 | 当前 20 条人工文本、8 张独立原图；150/40 发布规模门禁尚未满足 |
+
+README 只描述可由当前代码和测试复现的能力。数据集规模、手机网络或 provider 配额未满足时，不应把 smoke 测试、主机探针或接口骨架写成生产验收通过。
 
 ## 目录
 
@@ -11,7 +24,7 @@
 - [后端 Workflow 网关](#后端-workflow-网关)
 - [Android 构建与运行](#android-构建与运行)
 - [APK 调试流程](#apk-调试流程)
-- [真实设备与云真机验收](#真实设备与云真机验收)
+- [真实 Android 设备验收](#真实-android-设备验收)
 - [核心代码位置](#核心代码位置)
 - [常见问题](#常见问题)
 
@@ -22,15 +35,16 @@
   -> 端侧 ML Kit OCR 与噪声清洗
   -> 行动证据判定
   -> 无明确行动：静默忽略
-  -> 有明确行动：低打扰“可能有待办”通知
-  -> 用户点击“查看”：顶部小窗展示候选，用户再决定是否生成草稿
+  -> 有明确行动：前台顶部小窗或墨斐悬浮微窗直接提示
+  -> 两类小窗均不可用时，使用紧凑“可能有待办”通知兜底
+  -> 用户在小窗中选择候选，再决定是否生成草稿或补充材料深度规划
   -> 本地规则先出草稿，云端 Workflow 可异步增强
   -> 用户选择、编辑、确认
   -> 保存 Room 行动卡并注册 WorkManager 截止提醒
   -> 用户可从卡片详情逐项确认系统日历事件
 ```
 
-确认前不会写入最终卡片、不会注册提醒、不会写日历。云端增强只补字段、追加建议或更新证据，不覆盖用户锁定字段。
+确认前不会写入最终卡片、不会注册提醒、不会写日历。确认后手机先以一个 Room 批量事务保存选中卡并幂等注册提醒；云端确认失败只显示同步警告，不会把本地卡片留在无提醒的半完成状态。云端增强只补字段、追加建议或更新证据，不覆盖用户锁定字段。
 
 ## 产品原则
 
@@ -38,7 +52,7 @@
 - **少打扰**：通知采用静默紧凑样式；同一截图被忽略后短时间内不重复提示。
 - **证据驱动**：候选卡展示标题、时间、地点/平台、材料/提交方式、证据摘要和置信度。
 - **用户确认优先**：候选阶段没有 Room、WorkManager 或日历副作用；系统日历始终通过 `ACTION_INSERT` 交给用户最终确认。
-- **云端可插拔**：vivo/蓝心 provider 只由后端代理调用，Android 只保存 Workflow HTTPS 网关 URL。
+- **云端可插拔**：默认本机模式；推荐由 HTTPS Workflow 网关代理完整 Agent 图；高级 BYOK 只提供 OCR/模型候选增强，不能冒充完整工作流。
 - **可降级**：无网、模型失败、OCR 失败时保留本地规则和手动补全入口。
 
 ## 个性化与卡片深度计划
@@ -78,7 +92,7 @@ flowchart LR
 - 图片与扫描 PDF 可调用 vivo OCR；多候选按完整度、布局、关键字段覆盖、乱码、重复块和界面噪声生成质量报告，再做块级对齐与裁决。质量低于 `0.72`、关键时间冲突或任务边界无法确认时会停在 OCR 复核，不会继续生成正式候选卡。
 - 内容分类为 `noise | informational | actionable | mixed | uncertain`；`uncertain` 只提供复核入口，避免把普通信息或残缺 OCR 强制变成待办。
 - 语义、时间、参与者和质量分析使用 LangGraph `Send` 并行执行；多事项不会按数组下标硬匹配。
-- 外部墨斐截图、通知入口和预览共享 `IntakeSession`，Activity 重建后仍能追踪来源；会话不保存完整 OCR。
+- 外部墨斐截图、通知入口和预览共享 `IntakeSession`，Activity 重建后仍能追踪来源。网关会话为恢复和裁决临时保存 OCR/附件提取文本，默认最长 24 小时，并在确认后立即清除正文，只保留脱敏元数据与证据摘要。
 
 ### PlanningGraph
 
@@ -133,7 +147,7 @@ Windows PowerShell 环境下建议准备：
 - Android Studio。
 - Android SDK Platform 35、Build-Tools 35、Platform-Tools。
 - JDK 17 或 Android Studio 自带 JDK。
-- 可选：一台开启 USB 调试的 Android 真机，或 vivo 云真机设备。
+- 可选：一台开启 USB 调试的 Android 真机。
 
 确认当前仓库在项目根目录：
 
@@ -159,7 +173,7 @@ git status --short --branch
 AI 增强 = 关闭
 ```
 
-此时 App 不访问 `127.0.0.1`、`10.0.2.2`、局域网 IP 或 `api-ai.vivo.com.cn` 原始 provider endpoint。截图识别、行动判断、候选卡、保存和提醒均走手机端闭环。
+此时 App 不访问 `127.0.0.1`、`10.0.2.2`、局域网 IP 或任何 provider endpoint。截图识别、行动判断、候选卡、保存和提醒均走手机端闭环。
 
 ### 3. 启用云端 AI 增强
 
@@ -170,6 +184,15 @@ https://your-workflow-gateway.example.com/
 ```
 
 本地开发机上的 `http://127.0.0.1:8000/` 只代表电脑本机。物理 Android 真机访问 `127.0.0.1` 时指向手机自身，不会自动访问电脑。
+
+### 4. 高级 BYOK
+
+设置页的“高级 AI 连接”默认折叠。选择“直接 API（BYOK）”后，可分别配置模型 URL、OCR URL、模型名、AppId/businessid 和 AppKey。该模式只把严格 Schema 的候选交给本地 OCR 质量门控与约束裁决，不运行服务端 LangGraph Agent DAG。
+
+- Chat URL 必须为公网 HTTPS，并拒绝本机、私网、`.local`、userinfo 和重定向。
+- 其他 OCR 服务必须使用 HTTPS。
+- vivo 官方 OCR 的 HTTP 地址是唯一例外，仅允许精确主机 `api-ai.vivo.com.cn` 与路径 `/ocr/general_recognition`；默认关闭且启用前会明确提示图片与 Bearer key 不受 TLS 保护。
+- 密钥由 Android Keystore AES-GCM 加密，应用设置状态只暴露 `hasApiKey`；备份、Intent 和日志均不包含密钥。
 
 ## 后端 Workflow 网关
 
@@ -218,9 +241,10 @@ EXPERT_MODEL_BASE_URL=https://api-ai.vivo.com.cn/v1
 EXPERT_MODEL_NAME=Doubao-Seed-2.0-pro
 
 VIVO_OCR_APP_ID=
+VIVO_OCR_BUSINESS_ID=
 VIVO_OCR_APP_KEY=
 VIVO_OCR_URL=http://api-ai.vivo.com.cn/ocr/general_recognition
-VIVO_OCR_BUSINESS_PROFILE=rotatable
+VIVO_OCR_PROFILE=rotation
 
 VIVO_IMAGE_GENERATION_API_KEY=
 VIVO_IMAGE_GENERATION_URL=https://api-ai.vivo.com.cn/api/v1/image_generation
@@ -228,6 +252,8 @@ VIVO_IMAGE_GENERATION_MODEL=Doubao-Seedream-4.5
 ENABLE_PROVIDER_PROBE=false
 ENABLE_WORKFLOW_HARNESS=false
 ```
+
+OCR `businessid` 按以下优先级解析：`VIVO_OCR_BUSINESS_ID` 完整值、`aigc<VIVO_OCR_APP_ID>`、最后才使用文档公开的 profile。`rotation` 默认选择支持旋转与复杂排版的业务标识，`upright_fast` 选择仅正向文字的低延迟标识；两者都不是密钥。
 
 安全边界：
 
@@ -283,10 +309,13 @@ DELETE /api/card-refinements/{run_id}
 POST /api/intakes
 GET  /api/intakes/{session_id}
 GET  /api/intakes/{session_id}/events
+POST /api/intakes/{session_id}/attachments
+POST /api/intakes/{session_id}/refine
+POST /api/intakes/{session_id}/confirm
 POST /api/cards/{card_id}/replan
 ```
 
-`POST /api/intakes` 使用 multipart，可同时发送文本和最多 8 个附件。旧截图接口仍兼容，但新 Android 客户端优先走 IntakeGraph，失败时才回退旧接口。
+`POST /api/intakes` 使用 multipart，可同时发送文本和最多 8 个附件。旧截图接口仍兼容，但新 Android 客户端优先走 IntakeGraph，失败时才回退旧接口。当前 Android 候选页可以上传附件并保持候选状态，但“上传后立即调用 `/refine`、展示逐文件解析状态和嵌套计划、再一次性确认”的创建前闭环仍在建设中。
 
 ### Workflow Harness
 
@@ -296,7 +325,7 @@ POST /api/cards/{card_id}/replan
 POST /api/harness/run?limit=150
 ```
 
-Harness 固定记录数据集版本、Prompt 版本、分类准确率、多任务召回率、泛化标题率、OCR 质量与编排延迟。当前包含 150 条互不重复的文本压力样例，以及 `docs/test-assets/screenshots/manifest.jsonl` 中已人工复核的复杂图片基线。图片模式会真实调用配置的 vivo OCR，再经过 OCR 质量裁决和 IntakeGraph；报告会明确显示当前图片数量与 200 张目标，不用图片变换或模板包装冒充人工样本。
+Harness 固定记录数据集、Prompt 与 Agent contract 版本，以及分类、多任务边界、字段级事实、摘要污染、OCR 质量和编排延迟。任务边界必须由标题或人工 source span 锚定，不能只凭卡片数量命中；关键字段支持单独标注 DDL/时间、地点、材料、提交方式和负责人。`docs/test-assets/harness/text_locked_v3.jsonl` 当前包含 20 条人工复核锁定文本；原来的 150 条模板变体仅作为 smoke/fault suite，不参与发布质量结论。图片基线当前为 8 张人工复核原图，目标为 40 张；报告通过 `dataset_complete` 明确显示是否达到规模目标，不用图片变换或模板包装冒充独立人工样本。
 
 真实图片基线：
 
@@ -304,7 +333,7 @@ Harness 固定记录数据集版本、Prompt 版本、分类准确率、多任�
 POST /api/harness/run?mode=image&limit=200
 ```
 
-CI 将分类准确率、多任务召回率和关键字段准确率的最低值设为 `0.90`，错误自动完成率必须低于 `1%`，泛化标题率必须为零。Harness 通过 OpenTelemetry 产生不含原始 OCR、附件正文和画像内容的 trace；设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 后可发送到 Phoenix 或其他 OTLP 后端：
+当前 20 条锁定文本集的分类、任务边界、已标注关键字段、错误自动完成、泛化标题与摘要污染门禁已可离线执行；最新字段标注覆盖率为 `0.95`，规模为 20/8，因此 `quality_passed=false`。只有补齐字段标注并达到 150 条独立文本、40 张独立原图后才允许作为发布质量证明。Harness 通过 OpenTelemetry 产生不含原始 OCR、附件正文和画像内容的 trace；设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 后可发送到 Phoenix 或其他 OTLP 后端：
 
 ```env
 OTEL_SERVICE_NAME=suishouban-workflow
@@ -467,63 +496,17 @@ adb logcat | Select-String -Pattern 'suishouban|SuiShouBan|AndroidRuntime|FATAL 
 adb logcat -d -v time > .\logs\android-logcat.txt
 ```
 
-### 5. 本地后端联调
+### 5. 手机与 Workflow 网关联调
 
-真机要访问开发机后端，有三种方式：
+真实手机只接受公网 HTTPS Workflow 网关。设置页会拒绝本机地址、私网地址、`.local` 域名和 vivo 原始 provider endpoint，避免把产品绑定到开发电脑。桌面端可以直接测试本地后端，但手机端联调应部署正式测试网关或使用临时 HTTPS 隧道；临时隧道只用于验收，不代表生产部署。
 
-1. **公网 HTTPS 网关**：推荐方式，最接近真实产品运行。
-2. **局域网 IP**：手机和电脑在同一网络，App 设置页填写 `http://电脑IPv4:8000/`。
-3. **adb reverse**：只适合 USB 本地调试，不能代表产品运行前提。
+高级 BYOK 是用户主动开启的第二选择：模型 endpoint 必须为 HTTPS；vivo 官方 HTTP OCR 是唯一的精确例外，启用前会显示明文传输风险确认。完整 Agent DAG 仍只在 Workflow 网关模式运行。
 
-局域网调试：
+## 真实 Android 设备验收
 
-```powershell
-ipconfig
-```
+### 1. 安装与启动
 
-找到电脑当前网卡 IPv4，例如：
-
-```text
-192.168.1.23
-```
-
-App 设置页填写：
-
-```text
-http://192.168.1.23:8000/
-```
-
-必须满足：
-
-- 后端使用 `--host 0.0.0.0` 启动。
-- 手机和电脑在同一局域网。
-- Windows 防火墙允许 Python 或 8000 端口入站。
-- 地址以 `/` 结尾。
-
-`adb reverse` 调试：
-
-```powershell
-adb reverse tcp:8000 tcp:8000
-adb reverse --list
-```
-
-然后 App 设置页可以填写：
-
-```text
-http://127.0.0.1:8000/
-```
-
-这只在 `reverse --list` 确认映射存在时成立。没有 reverse 时，真机上的 `127.0.0.1` 是手机自身。
-
-## 真实设备与云真机验收
-
-### 1. 默认云真机部署
-
-仓库脚本默认设备：
-
-```text
-val-vclinner-rt-contest.vivo.com.cn:37065
-```
+脚本默认自动选择 `adb devices` 中唯一处于 `device` 状态的设备；存在多个设备时必须显式传入 `-Device`。ADB 只是开发测试通道，不是产品运行依赖。
 
 安装 APK 并启动 App：
 
@@ -531,7 +514,7 @@ val-vclinner-rt-contest.vivo.com.cn:37065
 .\scripts\deploy_remote_android.ps1
 ```
 
-指定设备：
+指定 USB 或远程测试设备：
 
 ```powershell
 .\scripts\deploy_remote_android.ps1 -Device "host:port"
@@ -675,11 +658,11 @@ Android：
 
 按顺序检查：
 
-1. 后端是否使用 `--host 0.0.0.0`。
-2. 手机和电脑是否在同一局域网。
-3. App 设置页 URL 是否填写电脑局域网 IP，而不是 `127.0.0.1`。
-4. Windows 防火墙是否允许 Python 或 8000 端口入站。
-5. 如使用 `adb reverse`，确认 `adb reverse --list` 中存在 `tcp:8000 tcp:8000`。
+1. App 设置页是否填写公网 HTTPS Workflow URL。
+2. `/health` 与 `/ready` 是否可从普通移动网络访问。
+3. HTTPS 证书链、DNS 和网关访问令牌是否有效。
+4. `/api/providers/status` 是否显示 provider 已配置且近期调用成功。
+5. 不要填写本机、私网、`.local` 或 vivo 原始 provider endpoint；客户端会主动拒绝这些地址。
 
 ### OCR 显示 `mlkit+rules`
 
@@ -689,8 +672,8 @@ Android：
 2. 手机是否能访问该 URL。
 3. 后端 `/health`、`/ready` 是否正常。
 4. `services/api/.env` 是否配置 provider key，修改后是否重启后端。
-5. `adb reverse --list` 是否存在映射；没有映射时真机 `127.0.0.1` 不会访问电脑。
-6. 后端日志和 `workflow.db` 是否出现 OCR、workflow 或 provider 错误。
+5. 高级 BYOK 模式下分别执行模型与 OCR 连接测试，确认密钥已保存且 endpoint 策略通过。
+6. 后端日志和 `workflow.db` 是否出现 OCR、workflow 或 provider 错误；日志只用 request/run id 串联，不应含密钥或原始 OCR 全文。
 
 ### 安装后不是最新代码
 
@@ -700,16 +683,6 @@ Android：
 2. 安装的 APK 是否为 `apps/android/app/build/outputs/apk/debug/app-debug.apk`。
 3. 手机上包名是否为 `com.suishouban.app`。
 4. 是否连接了多个设备；多个设备时使用 `adb -s <device>` 指定。
-
-### 需要复赛提交材料
-
-当前已整理的复赛材料在：
-
-```text
-..\随手办_应用赛道复赛提交材料.zip
-```
-
-该压缩包只保留正式提交材料：PPT、海报、演示视频、APK、核心代码包、提交说明与运行手册。
 
 ## 更多文档
 

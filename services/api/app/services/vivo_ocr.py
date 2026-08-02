@@ -34,9 +34,7 @@ class VivoOcrError(RuntimeError):
 
 
 def _format_http_error(error: httpx.HTTPStatusError) -> str:
-    body = error.response.text.strip()
-    suffix = f": {body}" if body else ""
-    return f"vivo OCR HTTP {error.response.status_code}{suffix}"
+    return f"vivo OCR HTTP {error.response.status_code}"
 
 
 def _format_request_error(error: httpx.HTTPError) -> str:
@@ -75,14 +73,11 @@ class VivoOcrClient:
         try:
             async with runtime.semaphores["ocr"]:
                 telemetry_started = runtime.attempt("ocr")
-                response = await runtime.client_for_url(settings.vivo_ocr_url).post(
-                    settings.vivo_ocr_url,
-                    data=payload,
+                response = await self._post_with_bounded_retry(
+                    payload=payload,
                     params=params,
                     headers=headers,
-                    timeout=settings.vivo_ocr_timeout_seconds,
                 )
-                response.raise_for_status()
         except asyncio.CancelledError:
             runtime.failure("ocr", "CancelledError", telemetry_started)
             raise
@@ -100,6 +95,36 @@ class VivoOcrClient:
             raise
         runtime.success("ocr", telemetry_started)
         return lines
+
+    async def _post_with_bounded_retry(
+        self,
+        *,
+        payload: dict[str, Any],
+        params: dict[str, str],
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        last_error: httpx.HTTPError | None = None
+        for attempt in range(3):
+            try:
+                response = await runtime.client_for_url(settings.vivo_ocr_url).post(
+                    settings.vivo_ocr_url,
+                    data=payload,
+                    params=params,
+                    headers=headers,
+                    timeout=settings.vivo_ocr_timeout_seconds,
+                )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as error:
+                last_error = error
+                if error.response.status_code != 429 and error.response.status_code < 500:
+                    raise
+            except (httpx.TimeoutException, httpx.NetworkError) as error:
+                last_error = error
+            if attempt < 2:
+                await asyncio.sleep(0.2 * (2**attempt))
+        assert last_error is not None
+        raise last_error
 
 
 def parse_vivo_ocr_lines(body: dict[str, Any]) -> list[OcrLine]:
@@ -171,6 +196,8 @@ def _is_noise_line(line: OcrLine) -> bool:
     text = line.text.strip()
     compact = re.sub(r"\s+", "", text)
     if not compact:
+        return True
+    if compact in {"今日", "日历", "首页", "返回", "我的", "消息", "设置"}:
         return True
     # Position alone is never enough to discard content: long screenshots often
     # place a real deadline near the bottom edge.

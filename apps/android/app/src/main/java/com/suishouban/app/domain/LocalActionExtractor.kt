@@ -3,6 +3,7 @@ package com.suishouban.app.domain
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.AnalyzeResult
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.data.model.OcrQualityReport
 import com.suishouban.app.data.model.Priority
 import com.suishouban.app.domain.screenshot.OcrTextNormalizer
 import java.time.DayOfWeek
@@ -14,7 +15,11 @@ class LocalActionExtractor {
     private val textNormalizer = OcrTextNormalizer()
     private val extractionBaseTime = ThreadLocal.withInitial { OffsetDateTime.now(ZoneOffset.ofHours(8)) }
 
-    fun extract(text: String, screenshotTime: String? = null): AnalyzeResult {
+    fun extract(
+        text: String,
+        screenshotTime: String? = null,
+        trustedUserCorrection: Boolean = false,
+    ): AnalyzeResult {
         val baseTime = screenshotTime
             ?.let { runCatching { OffsetDateTime.parse(it) }.getOrNull() }
             ?: OffsetDateTime.now(ZoneOffset.ofHours(8))
@@ -27,13 +32,54 @@ class LocalActionExtractor {
         val rawCards = segments
             .flatMap { segment -> extractCardsFromSegment(segment, baseTime) }
             .ifEmpty { extractCardsFromSegment(normalized, baseTime) }
-        val cards = mergeSimilarCandidates(rawCards + extractEvidenceBackfillCards(normalized, rawCards, baseTime))
+        val cards = filterAdvisorySupportCards(
+            mergeSimilarCandidates(rawCards + extractEvidenceBackfillCards(normalized, rawCards, baseTime))
+        )
+        val integrity = TextIntegrity.evaluate(normalized)
+        // The user has already reviewed this text. Keep deterministic field validation, but do
+        // not send it back through the OCR gate because harmless residual UI words can otherwise
+        // create an impossible review loop.
+        val qualityScore = if (trustedUserCorrection) 1.0 else integrity.score.coerceIn(0.0, 1.0)
+        val requiresOcrReview = !trustedUserCorrection && qualityScore < 0.72
         return AnalyzeResult(
             ocrText = normalized,
             cards = cards,
             previewActions = previewActions(cards),
             engine = "local-rules",
+            workflowStatus = if (requiresOcrReview) "awaiting_ocr_review" else "completed",
+            pendingAction = if (requiresOcrReview) "resolve_ocr" else null,
+            resultStage = if (requiresOcrReview) "ocr_review" else "provisional",
+            overallConfidence = qualityScore,
+            ocrQualityReport = OcrQualityReport(
+                qualityScore = qualityScore,
+                garbledRatio = integrity.garbledRatio,
+                completenessScore = if (cards.isEmpty()) 0.45 else 0.82,
+                layoutScore = 0.72,
+                evidenceScore = if (cards.isEmpty()) 0.3 else 0.8,
+                agreementScore = 0.5,
+                noiseRatio = integrity.noiseRatio,
+                reasons = if (trustedUserCorrection) listOf("user_corrected") else integrity.reasons,
+            ),
+            ocrReviewReasons = if (requiresOcrReview) integrity.reasons.ifEmpty { listOf("low_ocr_quality") } else emptyList(),
+            warnings = if (requiresOcrReview) listOf("识别质量较低，请核对原文") else emptyList(),
         )
+    }
+
+    private fun filterAdvisorySupportCards(cards: List<ActionCard>): List<ActionCard> {
+        if (cards.size <= 1) return cards
+        return cards.filterNot { candidate ->
+            val advisory = candidate.sourceText.trim().startsWith("老师提醒") ||
+                candidate.sourceText.trim().startsWith("温馨提醒") ||
+                candidate.sourceText.trim().startsWith("注意")
+            val supportingTitle = listOf("附件", "材料", "文件").any { it in candidate.title }
+            val hasOwnSchedule = !candidate.deadline.isNullOrBlank() || !candidate.startTime.isNullOrBlank()
+            advisory && supportingTitle && !hasOwnSchedule && cards.any { other ->
+                other.id != candidate.id && (
+                    !other.deadline.isNullOrBlank() ||
+                        listOf("提交", "发送", "上传").any { it in other.title }
+                    )
+            }
+        }
     }
 
     private fun extractCardsFromSegment(segment: String, baseTime: OffsetDateTime): List<ActionCard> {
@@ -291,16 +337,25 @@ class LocalActionExtractor {
             ) add("地点")
             if ("表格" in text && "位置" !in text) add("表格位置")
         }
+        val resolvedTitle = title ?: inferTitle(text, cardType)
+        val materials = extractMaterials(text)
         return ActionCard(
             id = UUID.randomUUID().toString(),
             cardType = cardType,
-            title = title ?: inferTitle(text, cardType),
-            summary = text.take(120),
+            title = resolvedTitle,
+            summary = EvidenceSummaryComposer.compose(
+                title = resolvedTitle,
+                deadline = if (cardType == CardTypes.TASK || cardType == CardTypes.PROMISE) time.value else null,
+                startTime = if (cardType == CardTypes.EVENT) time.value else null,
+                location = location,
+                materials = materials,
+                submitMethod = submitMethod,
+            ),
             deadline = if (cardType == CardTypes.TASK || cardType == CardTypes.PROMISE) time.value else null,
             startTime = if (cardType == CardTypes.EVENT) time.value else null,
             endTime = null,
             location = location,
-            materials = extractMaterials(text),
+            materials = materials,
             submitMethod = submitMethod,
             priority = priority,
             tags = inferTags(text, cardType),
@@ -322,7 +377,7 @@ class LocalActionExtractor {
             location?.let { add("地点/平台：$it") }
             submitMethod?.let { add("方式：$it") }
             extractMaterials(text).takeIf { it.isNotEmpty() }?.let { add("材料：${it.joinToString("、")}") }
-            add("片段：${text.take(80)}")
+            TextIntegrity.sanitizeSummary(text).takeIf { it.isNotBlank() }?.let { add("片段：$it") }
         }.distinct().take(5)
     }
 

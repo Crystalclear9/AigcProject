@@ -65,7 +65,9 @@ import androidx.lifecycle.lifecycleScope
 import com.suishouban.app.data.local.AppDatabase
 import com.suishouban.app.data.local.IntakeSessionEntity
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
+import com.suishouban.app.domain.TextIntegrity
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.ui.components.DraftEditor
@@ -185,6 +187,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                     onToggleDraft = viewModel::toggleDraftSelection,
                     onSelectAll = viewModel::selectAllDrafts,
                     onRefineWithAi = viewModel::refineDraftWithAi,
+                    onResolveOcr = { corrected -> viewModel.analyzeText(corrected) },
                     onManualAdd = viewModel::addManualDraftFromCurrentText,
                     onConfirm = {
                         viewModel.confirmDrafts {
@@ -300,16 +303,21 @@ private fun ScreenshotFloatingPanel(
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
     onRefineWithAi: (String) -> Unit,
+    onResolveOcr: (String) -> Unit,
     onManualAdd: () -> Unit,
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
+    val isReviewing = state.draftCards.isNotEmpty()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp)
-            .heightIn(max = maxHeight)
+            .then(
+                if (isReviewing) Modifier.height(maxHeight)
+                else Modifier.heightIn(max = maxHeight)
+            )
             .semantics { contentDescription = "screenshot-action-panel" },
         color = ComposeColor.White.copy(alpha = 0.97f),
         shape = RoundedCornerShape(30.dp),
@@ -348,6 +356,7 @@ private fun ScreenshotFloatingPanel(
                     onToggleDraft = onToggleDraft,
                     onSelectAll = onSelectAll,
                     onRefineWithAi = onRefineWithAi,
+                    onResolveOcr = onResolveOcr,
                     onConfirm = onConfirm,
                 )
             }
@@ -466,19 +475,75 @@ private fun DraftPane(
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
     onRefineWithAi: (String) -> Unit,
+    onResolveOcr: (String) -> Unit,
     onConfirm: () -> Unit,
 ) {
     val selectedCount = state.selectedDraftIds.size
     val selectedCards = state.draftCards.filter { it.id in state.selectedDraftIds }
-    val canCreate = selectedCount > 0 && selectedCards.all { it.isReadyForCreation() }
+    val requiresOcrReview = state.workflowStatus == "awaiting_ocr_review"
+    val canCreate = selectedCount > 0 &&
+        !requiresOcrReview &&
+        selectedCards.all { it.isReadyForCreation() }
+    var correctedOcrText by remember(state.traceId) { mutableStateOf(state.ocrText) }
+    val suggestedOcrText = remember(state.ocrText) { TextIntegrity.suggestOcrCorrection(state.ocrText) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         LazyColumn(
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (requiresOcrReview) {
+                item {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.38f),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.24f)),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "识别文字需要复核",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "请修正错字或时间，再重新拆分事项。当前候选不会被保存。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedTextField(
+                                value = correctedOcrText,
+                                onValueChange = { correctedOcrText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 6,
+                                label = { Text("识别文字") },
+                            )
+                            if (suggestedOcrText != null && correctedOcrText != suggestedOcrText) {
+                                OutlinedButton(
+                                    onClick = { correctedOcrText = suggestedOcrText },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                ) {
+                                    Text("使用建议修正")
+                                }
+                            }
+                            Button(
+                                onClick = { onResolveOcr(correctedOcrText.trim()) },
+                                enabled = correctedOcrText.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Text("应用修正并重新分析")
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 EvidenceSummary(state = state)
             }
@@ -501,7 +566,13 @@ private fun DraftPane(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = selected, onCheckedChange = { onToggleDraft(card.id) })
+                            Checkbox(
+                                checked = selected,
+                                onCheckedChange = { onToggleDraft(card.id) },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "选择候选：${card.title}"
+                                },
+                            )
                             Column(Modifier.weight(1f)) {
                                 Text(card.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                 Text(
@@ -661,7 +732,11 @@ private fun DraftPane(
                         Spacer(Modifier.height(0.dp))
                         Text(
                             text = if (!canCreate) {
-                                if (selectedCount == 0 && state.draftCards.isNotEmpty()) "选择后创建" else "补全后继续"
+                                when {
+                                    requiresOcrReview -> "先修正识别文字"
+                                    selectedCount == 0 && state.draftCards.isNotEmpty() -> "选择后创建"
+                                    else -> "补全后继续"
+                                }
                             } else if (state.draftCards.size > 1) {
                                 if (selectedCount == state.draftCards.size) "全部创建" else "只创建 $selectedCount 个"
                             } else {
@@ -761,7 +836,7 @@ private fun AiRefinementCard(
 
 @Composable
 private fun EvidenceSummary(state: AppUiState) {
-    val scene = state.screenshotScenarioType?.let { scenarioLabel(it) }
+    val scene = (state.screenshotScenarioType ?: inferScenarioType(state.draftCards))?.let { scenarioLabel(it) }
     val confidence = state.screenshotConfidenceBand?.let { confidenceLabel(it) }
     val enhancementBadges = buildList {
         when (state.modelEnhancementStatus) {
@@ -837,6 +912,17 @@ private fun EvidenceSummary(state: AppUiState) {
                 )
             }
         }
+    }
+}
+
+private fun inferScenarioType(cards: List<ActionCard>): String? {
+    val text = cards.joinToString(" ") { "${it.title} ${it.sourceText} ${it.location.orEmpty()}" }
+    return when {
+        cards.any { it.cardType == CardTypes.PROMISE } -> "chat_promise"
+        listOf("学习通", "作业", "课程", "实验报告", "考试").any { it in text } -> "course_notice"
+        listOf("报名", "报名表", "参赛").any { it in text } -> "registration"
+        listOf("会议", "汇报", "组会", "答辩").any { it in text } -> "meeting"
+        else -> null
     }
 }
 

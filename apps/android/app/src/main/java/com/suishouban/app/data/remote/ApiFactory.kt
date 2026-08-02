@@ -6,6 +6,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import com.suishouban.app.data.repository.PublicOnlyDns
 
 object ApiFactory {
     private val logging = HttpLoggingInterceptor().apply {
@@ -16,6 +17,9 @@ object ApiFactory {
         .readTimeout(35, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .dns(PublicOnlyDns)
         .addInterceptor(logging)
         .build()
     private val cache = ConcurrentHashMap<String, SuiShouBanApi>()
