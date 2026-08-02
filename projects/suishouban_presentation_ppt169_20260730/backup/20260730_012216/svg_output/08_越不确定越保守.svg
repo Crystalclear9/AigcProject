@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 50 820 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">越不确定，越不会替用户决定</text>
+    <text x="64" y="136" font-size="24" fill="#182033">置信度越低，处理方式越保守。</text>
+  </g>
+  <g id="confidence-scale" data-pptx-bounds="94 250 1092 130">
+    <line x1="120" y1="320" x2="1160" y2="320" stroke="#D5DDEC" stroke-width="18" stroke-linecap="round"/>
+    <line x1="120" y1="320" x2="490" y2="320" stroke="#2F6BFF" stroke-width="18" stroke-linecap="round"/>
+    <line x1="490" y1="320" x2="840" y2="320" stroke="#FFB44F" stroke-width="18"/>
+    <line x1="840" y1="320" x2="1160" y2="320" stroke="#7A8190" stroke-width="18" stroke-linecap="round"/>
+    <text x="120" y="270" font-size="18" fill="#2F6BFF">高置信</text>
+    <text x="620" y="270" font-size="18" fill="#D48806">中置信</text>
+    <text x="1066" y="270" font-size="18" fill="#7A8190">低置信</text>
+  </g>
+  <g id="high-confidence" data-pptx-bounds="90 356 310 180">
+    <text x="120" y="410" font-size="42" font-weight="700" fill="#2F6BFF">0.91</text>
+    <text x="120" y="454" font-size="24" fill="#182033">周五 23:59</text>
+    <text x="120" y="500" font-size="18" font-weight="700" fill="#2F6BFF">直接生成</text>
+  </g>
+  <g id="medium-confidence" data-pptx-bounds="470 356 330 180">
+    <text x="520" y="410" font-size="42" font-weight="700" fill="#D48806">0.63</text>
+    <rect x="510" y="430" width="230" height="62" rx="10" fill="#FFF3DF" stroke="#FFB44F" stroke-width="3"/>
+    <text x="625" y="470" text-anchor="middle" font-size="24" fill="#182033">周末前</text>
+    <text x="520" y="530" font-size="18" font-weight="700" fill="#D48806">等待确认</text>
+  </g>
+  <g id="low-confidence" data-pptx-bounds="850 356 330 180">
+    <text x="900" y="410" font-size="42" font-weight="700" fill="#7A8190">0.34</text>
+    <text x="900" y="454" font-size="24" fill="#182033">下次有空再看</text>
+    <text x="900" y="500" font-size="18" font-weight="700" fill="#7A8190">暂存收藏</text>
+  </g>
+  <g id="mofei-question" data-pptx-bounds="532 170 220 176">
+    <image href="../images/mofei_question.png" x="532" y="170" width="220" height="176" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-due-soon" data-pptx-bounds="752 500 118 118">
+    <image href="../images/mofei_due_soon_f01.png" x="752" y="500" width="118" height="118" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">08</text></g>
+</svg>

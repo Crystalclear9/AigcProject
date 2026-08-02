@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 50 620 100">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">工具很多，但使用停在第一次</text>
+    <text x="64" y="134" font-size="24" fill="#182033">多一个入口，就多一次想起、打开和选择。</text>
+  </g>
+  <g id="apps-phone-shell" data-pptx-bounds="486 112 330 520">
+    <rect x="486" y="112" width="330" height="520" rx="48" fill="#182033"/>
+    <rect x="500" y="132" width="302" height="480" rx="34" fill="#FFFFFF"/>
+    <rect x="588" y="120" width="126" height="18" rx="9" fill="#182033"/>
+  </g>
+  <g id="apps-phone-screen" data-pptx-bounds="512 148 278 444">
+    <image href="../images/ai_screen_ai_apps.png" x="512" y="148" width="278" height="417" preserveAspectRatio="xMidYMid meet"/>
+    <rect x="520" y="552" width="262" height="40" fill="#FFFFFF"/>
+  </g>
+  <g id="usage-records" data-pptx-bounds="64 216 350 230">
+    <text x="64" y="252" font-size="18" fill="#6E7891">首次打开</text>
+    <text x="64" y="306" font-size="42" font-weight="700" fill="#2F6BFF">1 次</text>
+    <line x1="64" y1="330" x2="380" y2="330" stroke="#D5DDEC" stroke-width="2"/>
+    <text x="64" y="372" font-size="18" fill="#6E7891">最近使用</text>
+    <text x="64" y="426" font-size="42" font-weight="700" fill="#7A8190">28 天前</text>
+  </g>
+  <g id="usage-insight" data-pptx-bounds="846 198 336 170">
+    <rect x="846" y="198" width="8" height="156" fill="#FF8A3D"/>
+    <text x="878" y="246" font-size="32" font-weight="700" fill="#182033">后来连图标</text>
+    <text x="878" y="290" font-size="32" font-weight="700" fill="#182033">放在哪一页</text>
+    <text x="878" y="334" font-size="32" font-weight="700" fill="#182033">都忘了。</text>
+  </g>
+  <g id="mofei-peek" data-pptx-bounds="760 380 240 252">
+    <image href="../images/mofei_peek.png" x="760" y="380" width="240" height="252" preserveAspectRatio="xMidYMid meet"/>
+    <text x="930" y="492" font-size="32" font-weight="700" fill="#2F6BFF">【</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="64" y="669" font-size="18" fill="#7A8190">额外入口造成低复用</text>
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">03</text>
+  </g>
+</svg>

@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2F6BFF"/></marker></defs>
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 920 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">报名、交材料、比赛，分别成行动</text>
+    <text x="64" y="136" font-size="24" fill="#182033">独立拆分，同时保留顺序和上下文。</text>
+  </g>
+  <g id="poster-source" data-pptx-bounds="70 186 244 366">
+    <rect x="70" y="186" width="244" height="366" fill="#FFFFFF" stroke="#1748B8" stroke-width="3"/>
+    <image href="../images/ai_poster_debate.png" x="80" y="196" width="224" height="346" preserveAspectRatio="xMidYMid meet"/>
+    <rect x="96" y="246" width="192" height="52" rx="8" fill="#FFFFFF" opacity="0.94"/>
+    <text x="192" y="280" text-anchor="middle" font-size="24" font-weight="700" fill="#1748B8">校园辩论赛</text>
+  </g>
+  <g id="mofei-split" data-pptx-bounds="320 252 282 240">
+    <image href="../images/mofei_split.png" x="320" y="252" width="282" height="240" preserveAspectRatio="xMidYMid meet"/>
+    <text x="356" y="306" font-size="42" font-weight="700" fill="#2F6BFF">【</text>
+  </g>
+  <g id="action-register" data-pptx-bounds="620 180 530 112">
+    <rect x="620" y="180" width="530" height="92" rx="14" fill="#FFFFFF" stroke="#E95656" stroke-width="3"/>
+    <rect x="620" y="180" width="12" height="92" fill="#E95656"/>
+    <text x="654" y="220" font-size="32" font-weight="700" fill="#E95656">报名并缴费</text>
+    <text x="654" y="254" font-size="18" fill="#6E7891">周五截止</text>
+    <text x="910" y="254" font-size="18" fill="#182033">截止 · 费用 · 原图来源</text>
+  </g>
+  <g id="action-material" data-pptx-bounds="620 310 530 112">
+    <rect x="620" y="310" width="530" height="92" rx="14" fill="#FFFFFF" stroke="#2878FF" stroke-width="3"/>
+    <rect x="620" y="310" width="12" height="92" fill="#2878FF"/>
+    <text x="654" y="350" font-size="32" font-weight="700" fill="#2878FF">提交自我介绍</text>
+    <text x="654" y="384" font-size="18" fill="#6E7891">比赛前三天</text>
+    <text x="910" y="384" font-size="18" fill="#182033">时间 · 提交物 · 前后依赖</text>
+  </g>
+  <g id="action-match" data-pptx-bounds="620 440 530 132">
+    <rect x="620" y="440" width="530" height="112" rx="14" fill="#FFFFFF" stroke="#FF8A3D" stroke-width="3"/>
+    <rect x="620" y="440" width="12" height="112" fill="#FF8A3D"/>
+    <text x="654" y="480" font-size="32" font-weight="700" fill="#FF8A3D">参加辩论赛</text>
+    <text x="654" y="516" font-size="18" fill="#6E7891">周六 09:00 · 三教报告厅</text>
+    <text x="930" y="516" font-size="18" fill="#182033">时间 · 地点 · 日历事件</text>
+  </g>
+  <g id="dependency-links" data-pptx-bounds="576 216 88 286">
+    <line x1="576" y1="236" x2="620" y2="236" stroke="#2F6BFF" stroke-width="4" marker-end="url(#arrow)"/>
+    <line x1="576" y1="356" x2="620" y2="356" stroke="#2F6BFF" stroke-width="4" marker-end="url(#arrow)"/>
+    <line x1="576" y1="496" x2="620" y2="496" stroke="#2F6BFF" stroke-width="4" marker-end="url(#arrow)"/>
+    <line x1="1112" y1="272" x2="1112" y2="310" stroke="#B7C7E8" stroke-width="3"/>
+    <line x1="1112" y1="402" x2="1112" y2="440" stroke="#B7C7E8" stroke-width="3"/>
+  </g>
+  <g id="actiongraph-label" data-pptx-bounds="954 574 196 54">
+    <rect x="954" y="574" width="196" height="44" rx="22" fill="#EAF2FF"/>
+    <text x="1052" y="603" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">ActionGraph</text>
+  </g>
+  <g id="actiongraph-definition" data-pptx-bounds="620 574 320 54">
+    <text x="620" y="603" font-size="18" font-weight="700" fill="#1748B8">独立行动 + 顺序 + 上下文</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">10</text></g>
+</svg>

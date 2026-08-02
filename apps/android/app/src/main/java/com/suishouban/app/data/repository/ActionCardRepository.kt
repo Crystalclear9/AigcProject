@@ -683,10 +683,16 @@ class ActionCardRepository(
     }
 
     suspend fun syncFromServer() {
-        val cards = requireRemoteApi()
-            .listCards()
-            .map { it.toDomain().toEntity() }
-        dao.upsertAll(cards)
+        upsertServerCards(requireRemoteApi().listCards().map { it.toDomain() })
+    }
+
+    /**
+     * Shared server→Room upsert used by full card sync and team summary polling, so both paths go
+     * through the same DTO→domain→entity mapping.
+     */
+    suspend fun upsertServerCards(cards: List<ActionCard>) {
+        if (cards.isEmpty()) return
+        dao.upsertAll(cards.map(ActionCard::toEntity))
     }
 
     private fun workflowApiOrNull(): com.suishouban.app.data.remote.SuiShouBanApi? {

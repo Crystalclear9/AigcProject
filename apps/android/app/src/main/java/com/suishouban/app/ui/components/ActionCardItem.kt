@@ -1,6 +1,7 @@
 package com.suishouban.app.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,15 +34,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.DS
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.MistBlue
 import com.suishouban.app.ui.theme.Warning
 import com.suishouban.app.ui.theme.labelForPriority
 import com.suishouban.app.ui.theme.softCardShadow
@@ -57,6 +62,7 @@ fun ActionCardItem(
     onEdit: (() -> Unit)? = null,
     onPriorityClick: (() -> Unit)? = null,
     onComplete: (() -> Unit)? = null,
+    teamBadge: String? = null,
 ) {
     val visual = visualForCardType(card.cardType)
     val priorityVisual = visualForPriority(card.priority)
@@ -100,6 +106,20 @@ fun ActionCardItem(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // One quiet team badge: the team name's first character on a mist-blue chip.
+                if (teamBadge != null) {
+                    Text(
+                        text = teamBadge,
+                        color = BrandBlue,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(DS.RadiusChipBadge))
+                            .background(MistBlue)
+                            .padding(horizontal = 7.dp, vertical = 4.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 Pill(text = visual.label, color = visual.color, soft = visual.soft)
                 Spacer(Modifier.width(8.dp))
                 if (card.needConfirm.isNotEmpty()) {

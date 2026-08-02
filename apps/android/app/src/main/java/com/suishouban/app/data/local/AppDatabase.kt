@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TeamAssignmentEntity::class,
         IntakeSessionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(StringListConverter::class, ReminderNodeConverter::class)
@@ -51,6 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 )
                 .build()
                 .also { instance = it }
@@ -362,6 +363,29 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE cards ADD COLUMN reminder_nodes TEXT NOT NULL DEFAULT '[]'",
                 )
+            }
+        }
+
+        /** Team collaboration phase 1: server-backed workspaces, roles, and milestone linkage. */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN invite_code TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN my_role TEXT NOT NULL DEFAULT 'member'",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_members ADD COLUMN avatar_color TEXT NOT NULL DEFAULT 'blue'",
+                )
+                db.execSQL("ALTER TABLE cards ADD COLUMN milestone_id TEXT")
+                db.execSQL("ALTER TABLE cards ADD COLUMN updated_at TEXT")
             }
         }
     }

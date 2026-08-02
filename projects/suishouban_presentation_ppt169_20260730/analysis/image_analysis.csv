@@ -1,0 +1,40 @@
+No,Filename,Width,Height,AspectRatio,PixelAspectRatio,SourceDisplayRatio,RatioSource,Format,HasTransparentPixels,UsageCount,DisplayRatioVariants,AssetKind,SvgRenderable,PptxNativeSupported,SizeKB,Category,ImageArea_SxS,TextArea_SxS
+1,ai_poster_debate.png,1024,1536,0.67,0.67,,native,PNG,False,1,,bitmap,True,True,1254.4,Portrait,400x600,740x600
+2,ai_scene_future_ecosystem.png,1536,1024,1.50,1.50,,native,PNG,False,1,,bitmap,True,True,1571.6,Standard landscape,812x541,328x600
+3,ai_scene_gallery_dorm.png,1536,1024,1.50,1.50,,native,PNG,False,1,,bitmap,True,True,1438.4,Standard landscape,812x541,328x600
+4,ai_screen_ai_apps.png,1024,1536,0.67,0.67,,native,PNG,False,1,,bitmap,True,True,1074.8,Portrait,400x600,740x600
+5,ai_screen_groupchat.png,852,1846,0.46,0.46,,native,PNG,False,1,,bitmap,True,True,809.1,Portrait,277x600,863x600
+6,home-redesign-current.png,1080,2344,0.46,0.46,,native,PNG,False,1,,bitmap,True,True,751.0,Portrait,276x600,864x600
+7,mofei_action_ring_compact.png,768,768,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,331.5,Near square,600x600,540x600
+8,mofei_action_ring_full.png,1024,1024,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,672.5,Near square,600x600,540x600
+9,mofei_action_side_arc.png,368,552,0.67,0.67,,native,PNG,True,1,,bitmap,True,True,41.3,Portrait,400x600,740x600
+10,mofei_alarm.png,481,465,1.03,1.03,,native,PNG,True,1,,bitmap,True,True,360.0,Near square,621x600,519x600
+11,mofei_catch.png,553,373,1.48,1.48,,native,PNG,True,1,,bitmap,True,True,310.4,Standard landscape,812x548,328x600
+12,mofei_celebrate.png,459,492,0.93,0.93,,native,PNG,True,1,,bitmap,True,True,330.1,Near square,560x600,580x600
+13,mofei_complete_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,252.9,Near square,600x600,540x600
+14,mofei_complete_f02.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,250.0,Near square,600x600,540x600
+15,mofei_complete_f03.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,256.8,Near square,600x600,540x600
+16,mofei_confirm_burst.png,465,466,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,328.4,Near square,599x600,541x600
+17,mofei_due_soon_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,271.5,Near square,600x600,540x600
+18,mofei_guard.png,491,428,1.15,1.15,,native,PNG,True,1,,bitmap,True,True,317.8,Near square,688x600,452x600
+19,mofei_home_hero.png,1402,1122,1.25,1.25,,native,PNG,True,1,,bitmap,True,True,1016.4,Standard landscape,750x600,390x600
+20,mofei_in_app_confirm_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,255.8,Near square,600x600,540x600
+21,mofei_in_app_confirm_f02.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,256.4,Near square,600x600,540x600
+22,mofei_in_app_focus_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,256.9,Near square,600x600,540x600
+23,mofei_in_app_focus_f02.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,247.7,Near square,600x600,540x600
+24,mofei_in_app_idle_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,255.7,Near square,600x600,540x600
+25,mofei_in_app_idle_f02.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,271.1,Near square,600x600,540x600
+26,mofei_learn.png,451,406,1.11,1.11,,native,PNG,True,1,,bitmap,True,True,273.3,Near square,667x600,473x600
+27,mofei_offline.png,395,369,1.07,1.07,,native,PNG,True,1,,bitmap,True,True,211.4,Near square,642x600,498x600
+28,mofei_overwhelmed.png,535,492,1.09,1.09,,native,PNG,True,1,,bitmap,True,True,489.4,Near square,652x600,488x600
+29,mofei_peek.png,324,499,0.65,0.65,,native,PNG,True,1,,bitmap,True,True,218.9,Portrait,390x600,750x600
+30,mofei_pose_sheet_a.png,1254,1254,1.00,1.00,,native,PNG,False,1,,bitmap,True,True,1547.7,Near square,600x600,540x600
+31,mofei_pose_sheet_b.png,1254,1254,1.00,1.00,,native,PNG,False,1,,bitmap,True,True,1541.8,Near square,600x600,540x600
+32,mofei_pose_sheet_c.png,1254,1254,1.00,1.00,,native,PNG,False,1,,bitmap,True,True,1383.5,Near square,600x600,540x600
+33,mofei_question.png,473,492,0.96,0.96,,native,PNG,True,1,,bitmap,True,True,336.2,Near square,577x600,563x600
+34,mofei_reminder_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,268.8,Near square,600x600,540x600
+35,mofei_rest_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,253.7,Near square,600x600,540x600
+36,mofei_scan.png,550,408,1.35,1.35,,native,PNG,True,1,,bitmap,True,True,331.6,Standard landscape,809x600,331x600
+37,mofei_split.png,480,495,0.97,0.97,,native,PNG,True,1,,bitmap,True,True,370.2,Near square,582x600,558x600
+38,mofei_urgent_f01.png,512,512,1.00,1.00,,native,PNG,True,1,,bitmap,True,True,266.7,Near square,600x600,540x600
+39,suishouban-mofei-app-current.png,1080,2344,0.46,0.46,,native,PNG,False,1,,bitmap,True,True,440.8,Portrait,276x600,864x600

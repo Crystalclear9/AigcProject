@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 790 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">先分清它接下来要怎么处理</text>
+    <text x="64" y="136" font-size="24" fill="#182033">分类不是标签，而是后续动作的分岔口。</text>
+  </g>
+  <g id="type-axis" data-pptx-bounds="88 200 1104 128">
+    <line x1="112" y1="270" x2="1168" y2="270" stroke="#CBD6EA" stroke-width="4"/>
+    <circle cx="112" cy="270" r="16" fill="#1748B8"/>
+    <text x="112" y="224" text-anchor="middle" font-size="18" fill="#6E7891">截图</text>
+  </g>
+  <g id="type-task" data-pptx-bounds="108 302 188 250">
+    <rect x="108" y="302" width="188" height="12" fill="#E95656"/>
+    <circle cx="202" cy="270" r="14" fill="#E95656"/>
+    <text x="108" y="362" font-size="32" font-weight="700" fill="#E95656">任务</text>
+    <text x="108" y="408" font-size="24" fill="#182033">按时完成</text>
+    <path d="M112 456 L138 482 L184 432" fill="none" stroke="#E95656" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g id="type-event" data-pptx-bounds="326 302 188 250">
+    <rect x="326" y="302" width="188" height="12" fill="#2878FF"/>
+    <circle cx="420" cy="270" r="14" fill="#2878FF"/>
+    <text x="326" y="362" font-size="32" font-weight="700" fill="#2878FF">事件</text>
+    <text x="326" y="408" font-size="24" fill="#182033">进入日历</text>
+    <rect x="334" y="438" width="72" height="62" rx="8" fill="none" stroke="#2878FF" stroke-width="4"/>
+    <line x1="334" y1="456" x2="406" y2="456" stroke="#2878FF" stroke-width="4"/>
+  </g>
+  <g id="type-promise" data-pptx-bounds="544 302 188 250">
+    <rect x="544" y="302" width="188" height="12" fill="#FF8A3D"/>
+    <circle cx="638" cy="270" r="14" fill="#FF8A3D"/>
+    <text x="544" y="362" font-size="32" font-weight="700" fill="#FF8A3D">承诺</text>
+    <text x="544" y="408" font-size="24" fill="#182033">提醒兑现</text>
+    <circle cx="582" cy="470" r="28" fill="none" stroke="#FF8A3D" stroke-width="4"/>
+    <path d="M582 450 V472 L600 482" fill="none" stroke="#FF8A3D" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <g id="type-comparison" data-pptx-bounds="762 302 188 250">
+    <rect x="762" y="302" width="188" height="12" fill="#7A8190"/>
+    <circle cx="856" cy="270" r="14" fill="#7A8190"/>
+    <text x="762" y="362" font-size="32" font-weight="700" fill="#7A8190">对比</text>
+    <text x="762" y="408" font-size="24" fill="#182033">等待比较</text>
+    <rect x="770" y="444" width="42" height="52" rx="6" fill="#E3E8F1"/>
+    <rect x="822" y="432" width="42" height="64" rx="6" fill="#C7CEDD"/>
+  </g>
+  <g id="type-collection" data-pptx-bounds="980 302 188 250">
+    <rect x="980" y="302" width="188" height="12" fill="#D48806"/>
+    <circle cx="1074" cy="270" r="14" fill="#D48806"/>
+    <text x="980" y="362" font-size="32" font-weight="700" fill="#D48806">收藏</text>
+    <text x="980" y="408" font-size="24" fill="#182033">暂不行动</text>
+    <path d="M1000 438 H1056 V500 L1028 484 L1000 500 Z" fill="none" stroke="#D48806" stroke-width="4"/>
+  </g>
+  <g id="mofei-sweep" data-pptx-bounds="510 498 258 150">
+    <ellipse cx="639" cy="572" rx="120" ry="36" fill="none" stroke="#2F6BFF" stroke-width="4" stroke-dasharray="8 8"/>
+    <image href="../images/mofei_in_app_focus_f01.png" x="582" y="508" width="114" height="114" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-reminder" data-pptx-bounds="1082 510 110 110">
+    <image href="../images/mofei_reminder_f01.png" x="1082" y="510" width="110" height="110" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">07</text></g>
+</svg>

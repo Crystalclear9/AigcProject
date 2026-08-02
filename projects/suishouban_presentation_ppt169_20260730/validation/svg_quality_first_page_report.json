@@ -1,0 +1,115 @@
+{
+  "schema": "ppt-master.svg-quality-report.v1",
+  "stage": "first-page",
+  "target": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730",
+  "source_fingerprint": {
+    "algorithm": "sha256",
+    "digest": "8ddf6f4fa0435bb1580f82c727aa4940ab5c61eff7d58fbdd5d0d838a05706b1",
+    "file_count": 1,
+    "files": [
+      {
+        "file": "01_封面.svg",
+        "sha256": "8d3f52ea2c5f5360240aa3b47055ec37ac2bf561dab50db32f59081393a57ba8"
+      }
+    ]
+  },
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "warnings": 0,
+    "errors": 0
+  },
+  "issue_types": {},
+  "categories": {
+    "blocking": {
+      "count": 0,
+      "issues": []
+    },
+    "introduced": {
+      "count": 0,
+      "issues": []
+    },
+    "inherited": {
+      "count": 0,
+      "issues": []
+    },
+    "source-import": {
+      "count": 0,
+      "summary": {
+        "warning_count": 0,
+        "by_code": {}
+      }
+    }
+  },
+  "drift": {
+    "colors": {
+      "#99B7F8": [
+        "01_封面.svg"
+      ],
+      "#AFC5F6": [
+        "01_封面.svg"
+      ],
+      "#BFD1FF": [
+        "01_封面.svg"
+      ],
+      "#C3D3F3": [
+        "01_封面.svg"
+      ],
+      "#C9D4EA": [
+        "01_封面.svg"
+      ],
+      "#DCE5F5": [
+        "01_封面.svg"
+      ],
+      "#FFFFFF": [
+        "01_封面.svg"
+      ]
+    },
+    "fonts": {},
+    "sizes": {
+      "74": [
+        "01_封面.svg"
+      ]
+    }
+  },
+  "project_issues": {
+    "template": [],
+    "animation": [],
+    "illustration": [],
+    "communication_trace": [],
+    "pptx_structure": []
+  },
+  "files": [
+    {
+      "file": "01_封面.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\01_封面.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 5,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#99B7F8",
+            "#AFC5F6",
+            "#BFD1FF",
+            "#C3D3F3",
+            "#C9D4EA",
+            "#DCE5F5",
+            "#FFFFFF"
+          ]
+        },
+        "sparse_typography_sizes": {
+          "74": 1
+        }
+      },
+      "passed": true,
+      "source_sha256": "8d3f52ea2c5f5360240aa3b47055ec37ac2bf561dab50db32f59081393a57ba8"
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "canvas": "ppt169",
+  "audience": "产品评审、课程答辩或创新项目展示现场的教师、评委与潜在协作者；听众知道截图会被遗忘，但未必了解随手办的完整处理机制。",
+  "communication_intent": "先用日常截图堆积建立问题，再展示随手办如何通过截图识别、拆卡、确认、提醒和本地偏好形成完整闭环，最后说明产品的可信边界与差异化实现，和未来的具体拓展想法。",
+  "audience_outcome": "听众能够复述随手办从截图到行动的核心流程，理解莫斐在识别、确认和提醒中的角色，并能判断产品方案是否完整、可信且具有继续展示或评审价值，希望能够理解项目的AI创新、用户价值、场景应用和商业潜力",
+  "core_message": "随手办通过截图这一轻量化的、和个人习惯相一致的轻量化入口，能够自动化将具体的通知、人物等整理成可确认、可追溯、可提醒的行动、代办行动卡。",
+  "delivery_context": "主要用于有主讲人的 8–12 分钟现场演示；文件同时需要支持会后独立浏览，因此页面保持较强视觉叙事并保留必要说明。",
+  "artifact_afterlife": "作为项目答辩、产品演示和后续迭代讨论的可编辑母稿，可替换真实界面截图、调整莫斐动作并继续复用。",
+  "content_divergence": "保留原大纲的核心论证顺序与事实关系，新增封面并强化结尾；允许精简页面文案、重组局部版式和用当前项目实现校正表述。",
+  "primary_language": "zh-CN",
+  "stage": "stage2",
+  "mode": "narrative",
+  "visual_style": "custom",
+  "visual_style_behavior": "保留当前产品的 BrandBlue、MistBlue、Paper、Ink 与橙色状态色，以及莫斐自身的透明质感；页面结构保持平面，不使用玻璃拟态、渐变发光、悬浮卡片墙或装饰性阴影。手机、截图、字段、时间轴和莫斐直接落在清晰网格上，以大面积浅色底、局部品牌蓝色区、字号和细线关系建立层级；圆角只用于真实手机控件或必要的标签。",
+  "page_count": "18",
+  "delivery_purpose": "balanced",
+  "color": {
+    "name": "项目原生色",
+    "palette": {
+      "background": "#F7F9FE",
+      "secondary_bg": "#EAF2FF",
+      "primary": "#2F6BFF",
+      "accent": "#1748B8",
+      "secondary_accent": "#FF8A3D",
+      "body_text": "#182033"
+    }
+  },
+  "icons": "tabler-outline",
+  "typography": {
+    "name": "微软雅黑 + Segoe UI",
+    "heading": {
+      "css": "sans-serif",
+      "english": "Segoe UI",
+      "primary": "Microsoft YaHei",
+      "sample_primary": "",
+      "sample_english": ""
+    },
+    "body": {
+      "css": "sans-serif",
+      "english": "Segoe UI",
+      "primary": "Microsoft YaHei",
+      "sample_primary": "",
+      "sample_english": ""
+    },
+    "body_size": 24,
+    "sizes": {
+      "annotation": 18,
+      "subtitle": 32,
+      "title": 42
+    },
+    "note": "",
+    "body_size_unit": "px"
+  },
+  "image_usage": [
+    "provided"
+  ],
+  "image_notes": "优先使用当前项目中的莫斐透明 PNG、逐帧动作资源和现有应用界面截图。手机界面页将手机外壳、屏幕内容、状态栏、浮层、文字和莫斐拆成独立可编辑对象；截图类素材不裁切关键信息。第 13 页编辑率曲线明确标为示意数据。",
+  "status": "stage2-confirmed",
+  "confirmed_at": "2026-07-30T00:13:33"
+}

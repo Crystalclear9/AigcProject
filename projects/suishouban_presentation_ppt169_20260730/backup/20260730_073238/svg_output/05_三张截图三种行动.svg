@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2F6BFF"/></marker>
+  </defs>
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 820 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">同样是截图，后面是不同的事</text>
+    <text x="64" y="136" font-size="24" fill="#182033">内容类型不同，进入的后续处理路径也不同。</text>
+  </g>
+  <g id="route-axis" data-pptx-bounds="86 196 1100 352">
+    <line x1="170" y1="360" x2="1110" y2="360" stroke="#CAD5EA" stroke-width="4"/>
+    <circle cx="220" cy="360" r="12" fill="#E95656"/>
+    <circle cx="640" cy="360" r="12" fill="#2878FF"/>
+    <circle cx="1060" cy="360" r="12" fill="#FF8A3D"/>
+  </g>
+  <g id="course-path" data-pptx-bounds="86 182 308 404">
+    <g transform="translate(110 182) rotate(-5 100 70)">
+      <rect x="0" y="0" width="200" height="140" rx="12" fill="#FFFFFF" stroke="#D9E1EF" stroke-width="2"/>
+      <rect x="18" y="20" width="110" height="12" rx="6" fill="#1748B8"/>
+      <rect x="18" y="50" width="158" height="8" rx="4" fill="#D9E1EF"/>
+      <rect x="18" y="72" width="136" height="8" rx="4" fill="#D9E1EF"/>
+      <rect x="18" y="98" width="86" height="24" rx="8" fill="#FDEBEC"/>
+    </g>
+    <line x1="210" y1="328" x2="210" y2="348" stroke="#2F6BFF" stroke-width="4" marker-end="url(#arrow-blue)"/>
+    <text x="210" y="414" text-anchor="middle" font-size="32" font-weight="700" fill="#E95656">任务</text>
+    <text x="210" y="454" text-anchor="middle" font-size="24" fill="#182033">课程报告</text>
+    <text x="210" y="490" text-anchor="middle" font-size="18" fill="#6E7891">按时完成</text>
+    <text x="210" y="532" text-anchor="middle" font-size="18" fill="#182033">截止时间 + 提交物</text>
+  </g>
+  <g id="event-path" data-pptx-bounds="486 182 308 404">
+    <g transform="translate(540 182)">
+      <rect x="0" y="0" width="200" height="140" rx="12" fill="#EAF2FF" stroke="#B7CBF6" stroke-width="2"/>
+      <circle cx="100" cy="58" r="34" fill="#2878FF"/>
+      <path d="M83 62 H117 M100 45 V79" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round"/>
+      <rect x="40" y="106" width="120" height="8" rx="4" fill="#1748B8"/>
+    </g>
+    <line x1="640" y1="328" x2="640" y2="348" stroke="#2F6BFF" stroke-width="4" marker-end="url(#arrow-blue)"/>
+    <text x="640" y="414" text-anchor="middle" font-size="32" font-weight="700" fill="#2878FF">事件</text>
+    <text x="640" y="454" text-anchor="middle" font-size="24" fill="#182033">辩论赛宣讲</text>
+    <text x="640" y="490" text-anchor="middle" font-size="18" fill="#6E7891">进入日历</text>
+    <text x="640" y="532" text-anchor="middle" font-size="18" fill="#182033">时间 + 地点</text>
+  </g>
+  <g id="promise-path" data-pptx-bounds="886 182 308 404">
+    <g transform="translate(960 182) rotate(5 100 70)">
+      <rect x="0" y="0" width="200" height="140" rx="12" fill="#FFFFFF" stroke="#F3CBAF" stroke-width="2"/>
+      <circle cx="50" cy="48" r="20" fill="#FF8A3D"/>
+      <circle cx="148" cy="48" r="20" fill="#1748B8"/>
+      <rect x="38" y="82" width="126" height="10" rx="5" fill="#E3E8F1"/>
+      <rect x="52" y="106" width="96" height="8" rx="4" fill="#E3E8F1"/>
+    </g>
+    <line x1="1060" y1="328" x2="1060" y2="348" stroke="#2F6BFF" stroke-width="4" marker-end="url(#arrow-blue)"/>
+    <text x="1060" y="414" text-anchor="middle" font-size="32" font-weight="700" fill="#FF8A3D">承诺</text>
+    <text x="1060" y="454" text-anchor="middle" font-size="24" fill="#182033">和室友去图书馆</text>
+    <text x="1060" y="490" text-anchor="middle" font-size="18" fill="#6E7891">提醒兑现</text>
+    <text x="1060" y="532" text-anchor="middle" font-size="18" fill="#182033">人物 + 约定内容</text>
+  </g>
+  <g id="mofei-router" data-pptx-bounds="518 548 244 88">
+    <ellipse cx="640" cy="592" rx="112" ry="32" fill="none" stroke="#2F6BFF" stroke-width="4" stroke-dasharray="10 10"/>
+    <image href="../images/mofei_in_app_focus_f01.png" x="596" y="552" width="88" height="88" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">05</text>
+  </g>
+</svg>

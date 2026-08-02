@@ -11,6 +11,10 @@ data class TeamWorkspaceEntity(
     @PrimaryKey val id: String,
     val name: String,
     @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "invite_code") val inviteCode: String = "",
+    @ColumnInfo(name = "owner_id") val ownerId: String = "",
+    @ColumnInfo(name = "my_role") val myRole: String = "member",
+    @ColumnInfo(name = "updated_at") val updatedAt: String = "",
 )
 
 @Entity(
@@ -30,6 +34,7 @@ data class TeamMemberEntity(
     @ColumnInfo(name = "workspace_id") val workspaceId: String,
     @ColumnInfo(name = "display_name") val displayName: String,
     val role: String,
+    @ColumnInfo(name = "avatar_color") val avatarColor: String = "blue",
 )
 
 @Entity(

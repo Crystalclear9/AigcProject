@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <image id="dorm-scene" data-pptx-role="decoration" href="../images/ai_scene_gallery_dorm.png" x="470" y="96" width="746" height="498" preserveAspectRatio="xMidYMid slice" opacity="0.92"/>
+  <rect id="scene-scrim" data-pptx-role="decoration" x="470" y="96" width="746" height="498" fill="#F7F9FE" opacity="0.12"/>
+  <g id="page-title" data-pptx-bounds="64 50 760 98">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">重要信息，常常停在相册里</text>
+    <text x="64" y="134" font-size="24" fill="#182033">截图很快，但寻找、读取和记忆仍由用户承担。</text>
+  </g>
+  <g id="gallery-phone-shell" data-pptx-bounds="64 174 336 430">
+    <rect x="88" y="174" width="288" height="430" rx="42" fill="#182033"/>
+    <rect x="100" y="190" width="264" height="398" rx="30" fill="#FFFFFF"/>
+    <rect x="174" y="182" width="116" height="18" rx="9" fill="#182033"/>
+  </g>
+  <g id="gallery-screen-content" data-pptx-bounds="112 216 240 342">
+    <text x="120" y="246" font-size="24" font-weight="700" fill="#182033">最近项目</text>
+    <g transform="translate(120 270)">
+      <rect x="0" y="0" width="68" height="82" rx="8" fill="#EAF2FF"/>
+      <rect x="78" y="0" width="68" height="82" rx="8" fill="#DCE5F5"/>
+      <rect x="156" y="0" width="68" height="82" rx="8" fill="#EAF2FF"/>
+      <rect x="0" y="92" width="68" height="82" rx="8" fill="#DCE5F5"/>
+      <rect x="78" y="92" width="68" height="82" rx="8" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="3"/>
+      <rect x="156" y="92" width="68" height="82" rx="8" fill="#DCE5F5"/>
+      <rect x="0" y="184" width="68" height="82" rx="8" fill="#EAF2FF"/>
+      <rect x="78" y="184" width="68" height="82" rx="8" fill="#DCE5F5"/>
+      <rect x="156" y="184" width="68" height="82" rx="8" fill="#EAF2FF"/>
+      <circle cx="112" cy="133" r="24" fill="#2F6BFF" opacity="0.15"/>
+      <path d="M96 136 L108 148 L130 118" fill="none" stroke="#2F6BFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+  <g id="time-highlights" data-pptx-bounds="398 218 390 300">
+    <line x1="352" y1="332" x2="540" y2="258" stroke="#FF8A3D" stroke-width="3"/>
+    <rect x="520" y="224" width="178" height="54" rx="8" fill="#FF8A3D"/>
+    <text x="609" y="259" text-anchor="middle" font-size="24" font-weight="700" fill="#FFFFFF">周五 23:59</text>
+    <line x1="352" y1="424" x2="600" y2="380" stroke="#2F6BFF" stroke-width="3"/>
+    <rect x="578" y="350" width="174" height="54" rx="8" fill="#2F6BFF"/>
+    <text x="665" y="385" text-anchor="middle" font-size="24" font-weight="700" fill="#FFFFFF">周六 14:00</text>
+    <line x1="352" y1="516" x2="552" y2="502" stroke="#1748B8" stroke-width="3"/>
+    <rect x="530" y="474" width="190" height="54" rx="8" fill="#FFFFFF" stroke="#1748B8" stroke-width="2"/>
+    <text x="625" y="509" text-anchor="middle" font-size="24" font-weight="700" fill="#1748B8">周末上午</text>
+  </g>
+  <g id="mofei-overwhelmed" data-pptx-bounds="884 382 282 244">
+    <image href="../images/mofei_overwhelmed.png" x="884" y="382" width="282" height="244" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-idle-observer" data-pptx-bounds="374 462 112 112">
+    <image href="../images/mofei_in_app_idle_f01.png" x="374" y="462" width="112" height="112" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="problem-caption" data-pptx-bounds="472 584 724 66">
+    <rect x="472" y="584" width="390" height="4" fill="#2F6BFF"/>
+    <text x="472" y="626" font-size="24" fill="#182033">课程通知、活动海报、聊天约定，截图以后常常就留在相册里。</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">02</text>
+  </g>
+</svg>

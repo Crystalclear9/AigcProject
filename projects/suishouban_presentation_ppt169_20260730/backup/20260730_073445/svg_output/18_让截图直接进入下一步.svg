@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="ending" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2F6BFF"/></marker></defs>
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="closing-title" data-pptx-bounds="64 58 830 156">
+    <text x="64" y="114" font-size="42" font-weight="700" fill="#1748B8">让截图直接进入下一步</text>
+    <text x="64" y="166" font-size="24" fill="#182033">用户原来的操作没有增加，截图里的事情却能够继续往下走。</text>
+    <text x="64" y="202" font-size="18" font-weight="700" fill="#FF8A3D">从“先截图、后遗忘”转向“一截图、即执行”</text>
+  </g>
+  <g id="closing-phone-shell" data-pptx-bounds="92 230 240 318">
+    <rect x="92" y="230" width="240" height="318" rx="40" fill="#182033"/>
+    <rect x="104" y="246" width="216" height="286" rx="28" fill="#FFFFFF"/>
+    <rect x="160" y="238" width="104" height="16" rx="8" fill="#182033"/>
+  </g>
+  <g id="closing-phone-screen" data-pptx-bounds="120 274 184 212">
+    <rect x="120" y="274" width="184" height="212" rx="16" fill="#EAF2FF"/>
+    <rect x="140" y="302" width="144" height="20" rx="10" fill="#2F6BFF"/>
+    <rect x="140" y="344" width="118" height="12" rx="6" fill="#BFD0EE"/>
+    <rect x="140" y="374" width="136" height="12" rx="6" fill="#BFD0EE"/>
+    <rect x="140" y="412" width="92" height="42" rx="10" fill="#FF8A3D"/>
+  </g>
+  <g id="closing-transform-path" data-pptx-bounds="338 264 816 246">
+    <line x1="350" y1="390" x2="1120" y2="390" stroke="#2F6BFF" stroke-width="6" marker-end="url(#arrow)"/>
+    <circle cx="450" cy="390" r="62" fill="#FFFFFF" stroke="#E95656" stroke-width="4"/>
+    <path d="M420 364 H480 M420 388 H468 M420 412 H456" stroke="#E95656" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="665" cy="390" r="62" fill="#FFFFFF" stroke="#2878FF" stroke-width="4"/>
+    <rect x="632" y="356" width="66" height="72" rx="8" fill="none" stroke="#2878FF" stroke-width="4"/>
+    <line x1="632" y1="376" x2="698" y2="376" stroke="#2878FF" stroke-width="4"/>
+    <circle cx="880" cy="390" r="62" fill="#FFFFFF" stroke="#FF8A3D" stroke-width="4"/>
+    <path d="M880 354 C858 354 848 370 848 390 V402 L836 416 H924 L912 402 V390 C912 370 902 354 880 354 Z" fill="none" stroke="#FF8A3D" stroke-width="4"/>
+    <text x="450" y="490" text-anchor="middle" font-size="24" font-weight="700" fill="#E95656">行动</text>
+    <text x="665" y="490" text-anchor="middle" font-size="24" font-weight="700" fill="#2878FF">日历</text>
+    <text x="880" y="490" text-anchor="middle" font-size="24" font-weight="700" fill="#FF8A3D">提醒</text>
+  </g>
+  <g id="mofei-celebrate" data-pptx-bounds="936 178 282 330">
+    <image href="../images/mofei_celebrate.png" x="936" y="178" width="282" height="330" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="closing-brand" data-pptx-bounds="92 570 1088 74">
+    <text x="92" y="614" font-size="32" font-weight="700" fill="#2F6BFF">随手办</text>
+    <text x="260" y="614" font-size="24" fill="#6E7891">截图识别 · 自动拆卡 · 用户确认 · 本地优先</text>
+    <image href="../images/mofei_complete_f01.png" x="1080" y="552" width="100" height="100" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="closing-proof" data-pptx-bounds="352 510 610 68">
+    <text x="352" y="536" font-size="18" fill="#182033">截图统一入口 · 可编辑结果与动作预览 · 大学生高频场景<tspan x="352" dy="26">蓝心大模型适配 · 日历/提醒/待办/便签生态联动</tspan></text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="64" y="669" font-size="18" fill="#7A8190">2026 中国大学生计算机大赛 · AIGC 创新赛｜华中科技大学 · 给我干哪来了</text>
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">18</text>
+  </g>
+</svg>

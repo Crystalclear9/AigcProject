@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="cover" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="cover-route" data-pptx-bounds="676 56 540 610">
+    <path d="M710 600 C820 570 760 430 892 392 C1014 356 1018 238 1175 176" fill="none" stroke="#BFD1FF" stroke-width="8" stroke-linecap="round" stroke-dasharray="12 18"/>
+    <circle cx="714" cy="600" r="9" fill="#FF8A3D"/>
+    <circle cx="1175" cy="176" r="9" fill="#2F6BFF"/>
+  </g>
+  <g id="cover-title" data-pptx-bounds="64 150 570 290">
+    <text x="64" y="230" font-size="74" font-weight="700" fill="#1748B8">随手办</text>
+    <text x="64" y="308" font-size="32" font-weight="600" fill="#182033">让截图里的事，继续往下走。</text>
+    <text x="66" y="366" font-size="24" fill="#6E7891">截图识别 · 自动拆卡 · 用户确认 · 本地优先</text>
+    <rect x="64" y="400" width="196" height="8" rx="4" fill="#2F6BFF"/>
+    <rect x="270" y="400" width="62" height="8" rx="4" fill="#FF8A3D"/>
+  </g>
+  <g id="screenshot-inputs" data-pptx-bounds="672 92 242 238">
+    <g transform="translate(700 104) rotate(-8 84 58)">
+      <rect x="0" y="0" width="168" height="116" rx="16" fill="#FFFFFF" stroke="#C9D4EA" stroke-width="2"/>
+      <rect x="18" y="18" width="86" height="10" rx="5" fill="#1748B8"/>
+      <rect x="18" y="42" width="126" height="8" rx="4" fill="#DCE5F5"/>
+      <rect x="18" y="62" width="110" height="8" rx="4" fill="#DCE5F5"/>
+      <circle cx="132" cy="88" r="12" fill="#FF8A3D"/>
+    </g>
+    <g transform="translate(748 198) rotate(7 72 48)">
+      <rect x="0" y="0" width="144" height="96" rx="14" fill="#EAF2FF" stroke="#AFC5F6" stroke-width="2"/>
+      <circle cx="34" cy="34" r="15" fill="#2F6BFF"/>
+      <rect x="58" y="24" width="64" height="8" rx="4" fill="#1748B8"/>
+      <rect x="58" y="44" width="50" height="7" rx="3.5" fill="#99B7F8"/>
+      <rect x="20" y="70" width="98" height="7" rx="3.5" fill="#C3D3F3"/>
+    </g>
+  </g>
+  <g id="mofei-hero" data-pptx-bounds="798 198 400 390">
+    <image href="../images/mofei_home_hero.png" x="798" y="198" width="400" height="390" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="action-output" data-pptx-bounds="824 526 360 126">
+    <g transform="translate(824 548)">
+      <rect x="0" y="0" width="98" height="74" rx="18" fill="#FFFFFF" stroke="#E95656" stroke-width="3"/>
+      <path d="M24 25 H74 M24 40 H62 M24 55 H52" stroke="#E95656" stroke-width="6" stroke-linecap="round"/>
+    </g>
+    <g transform="translate(948 526)">
+      <rect x="0" y="0" width="98" height="96" rx="18" fill="#FFFFFF" stroke="#2878FF" stroke-width="3"/>
+      <rect x="0" y="0" width="98" height="25" rx="16" fill="#2878FF"/>
+      <circle cx="30" cy="55" r="7" fill="#2878FF"/>
+      <circle cx="68" cy="55" r="7" fill="#2878FF"/>
+      <circle cx="30" cy="76" r="7" fill="#99B7F8"/>
+      <circle cx="68" cy="76" r="7" fill="#99B7F8"/>
+    </g>
+    <g transform="translate(1070 548)">
+      <path d="M49 6 C30 6 18 21 18 40 V52 L8 64 H90 L80 52 V40 C80 21 68 6 49 6 Z" fill="#FFFFFF" stroke="#FF8A3D" stroke-width="3"/>
+      <circle cx="49" cy="68" r="8" fill="#FF8A3D"/>
+    </g>
+  </g>
+  <g id="cover-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="64" y="669" font-size="18" fill="#7A8190">SUISHOUBAN · PRODUCT STORY</text>
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">01</text>
+  </g>
+</svg>

@@ -1,0 +1,21 @@
+{
+  "stage": "stage3",
+  "lang": "zh",
+  "recommend": {
+    "image_ai_path": "host-native",
+    "formula_policy": "text-only",
+    "generation_mode": "continuous"
+  },
+  "proactive_speaker_notes": {
+    "value": true
+  },
+  "proactive_custom_animations": {
+    "value": true
+  },
+  "proactive_narration_audio": {
+    "value": false
+  },
+  "refine_spec": {
+    "value": false
+  }
+}

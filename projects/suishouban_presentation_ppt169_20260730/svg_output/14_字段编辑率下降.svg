@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 860 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">真正重要的是，还要改多少</text>
+    <text x="64" y="136" font-size="24" fill="#182033">字段编辑率下降，才表示结果更接近用户真实需求。</text>
+  </g>
+  <g id="edit-rate-chart" data-pptx-bounds="74 188 700 400" data-pptx-replace-with="chart">
+    <metadata type="application/json">{"x":74,"y":188,"width":700,"height":400,"type":"line","name":"p14-edit-rate-chart","categories":["第 1 周","第 2 周","第 3 周","第 4 周"],"series":[{"name":"字段编辑率","values":[0.42,0.30,0.21,0.12],"line_width":5}],"line_style":"lineMarker","data_labels":{"show_value":true,"position":"above","number_format":"0%","font_size":18,"font_family":"Microsoft YaHei","bold":true,"color":"#1748B8"},"axes":{"category":{"kind":"text","position":"bottom","visible":true},"value":{"kind":"value","position":"left","visible":true,"minimum":0,"maximum":0.5,"major_unit":0.1,"major_gridlines":true,"number_format":"0%"}},"style":{"colors":["#2F6BFF"],"font_family":"Microsoft YaHei","text_color":"#182033","axis_color":"#AAB6CC","grid_color":"#DCE3F0","chart_area_fill":"none","plot_area_fill":"none"}}</metadata>
+    <rect x="74" y="188" width="700" height="400" fill="#FFFFFF" stroke="#DCE3F0" stroke-width="2"/>
+    <g id="chartArea">
+      <line x1="148" y1="516" x2="730" y2="516" stroke="#AAB6CC" stroke-width="2"/>
+      <line x1="148" y1="230" x2="148" y2="516" stroke="#AAB6CC" stroke-width="2"/>
+      <line x1="148" y1="458.8" x2="730" y2="458.8" stroke="#DCE3F0" stroke-width="2"/>
+      <line x1="148" y1="401.6" x2="730" y2="401.6" stroke="#DCE3F0" stroke-width="2"/>
+      <line x1="148" y1="344.4" x2="730" y2="344.4" stroke="#DCE3F0" stroke-width="2"/>
+      <line x1="148" y1="287.2" x2="730" y2="287.2" stroke="#DCE3F0" stroke-width="2"/>
+      <line x1="148" y1="230" x2="730" y2="230" stroke="#DCE3F0" stroke-width="2"/>
+      <!-- chart-plot-area: 148,230,730,516 -->
+      <path d="M148 275.8 L342 344.4 L536 395.9 L730 447.4" fill="none" stroke="#2F6BFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="148" cy="275.8" r="9" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="4"/>
+      <circle cx="342" cy="344.4" r="9" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="4"/>
+      <circle cx="536" cy="395.9" r="9" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="4"/>
+      <circle cx="730" cy="447.4" r="12" fill="#FF8A3D" stroke="#FFFFFF" stroke-width="4"/>
+    </g>
+    <text x="148" y="252" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">42%</text>
+    <text x="342" y="322" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">30%</text>
+    <text x="536" y="374" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">21%</text>
+    <text x="730" y="424" text-anchor="middle" font-size="18" font-weight="700" fill="#FF8A3D">12%</text>
+    <text x="148" y="556" text-anchor="middle" font-size="18" fill="#182033">第 1 周</text>
+    <text x="342" y="556" text-anchor="middle" font-size="18" fill="#182033">第 2 周</text>
+    <text x="536" y="556" text-anchor="middle" font-size="18" fill="#182033">第 3 周</text>
+    <text x="730" y="556" text-anchor="middle" font-size="18" fill="#182033">第 4 周</text>
+  </g>
+  <g id="week-one-details" data-pptx-bounds="824 208 360 164">
+    <text x="824" y="244" font-size="18" fill="#6E7891">第一周 · 42%</text>
+    <text x="824" y="294" font-size="32" font-weight="700" fill="#182033">时间、地点、提醒方式</text>
+    <text x="824" y="338" font-size="24" fill="#E95656">都需要修改</text>
+  </g>
+  <g id="mofei-busy" data-pptx-bounds="742 206 92 92">
+    <image href="../images/mofei_urgent_f01.png" x="742" y="206" width="92" height="92" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="week-four-details" data-pptx-bounds="824 402 360 164">
+    <text x="824" y="438" font-size="18" fill="#6E7891">第四周 · 12%</text>
+    <text x="824" y="492" font-size="42" font-weight="700" fill="#2F6BFF">直接确认</text>
+    <text x="824" y="536" font-size="24" fill="#182033">修改负担明显减少</text>
+  </g>
+  <g id="mofei-relaxed" data-pptx-bounds="1080 474 110 110">
+    <image href="../images/mofei_complete_f01.png" x="1080" y="474" width="110" height="110" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="scenario-label" data-pptx-bounds="74 594 820 42">
+    <rect x="74" y="594" width="96" height="34" rx="17" fill="#FFF0E6"/>
+    <text x="122" y="617" text-anchor="middle" font-size="18" font-weight="700" fill="#FF8A3D">情景数据</text>
+    <text x="188" y="618" font-size="18" fill="#6E7891">示意数据，实际结果以测试为准。</text>
+    <text x="478" y="618" font-size="18" fill="#182033">字段编辑率 = 被修改字段数 ÷ 生成字段数</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">14</text></g>
+</svg>

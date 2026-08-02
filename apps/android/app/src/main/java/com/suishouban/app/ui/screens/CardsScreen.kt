@@ -71,6 +71,7 @@ fun CardsScreen(
     onArchive: (String) -> Unit,
     onImport: () -> Unit,
     highlightCardId: String? = null,
+    teamNames: Map<String, String> = emptyMap(),
 ) {
     var type by rememberSaveable { mutableStateOf("all") }
     var status by rememberSaveable { mutableStateOf("active") }
@@ -198,6 +199,11 @@ fun CardsScreen(
                         onEdit = { editing = card },
                         onPriorityClick = { priorityEditingId = card.id },
                         onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
+                        teamBadge = if (card.workspaceType == WorkspaceTypes.TEAM) {
+                            teamNames[card.workspaceId]?.firstOrNull()?.toString() ?: "团"
+                        } else {
+                            null
+                        },
                     )
                     if (card.status != CardStatus.ARCHIVED) {
                         // Archive is a low-emphasis action, so it's a quiet text button, not a

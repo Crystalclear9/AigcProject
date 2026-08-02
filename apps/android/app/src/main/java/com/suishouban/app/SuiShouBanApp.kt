@@ -8,6 +8,7 @@ import com.suishouban.app.data.repository.NotificationCandidateRepository
 import com.suishouban.app.data.repository.CardRefinementRepository
 import com.suishouban.app.data.repository.UserProfileRepository
 import com.suishouban.app.data.repository.ProviderSecretStore
+import com.suishouban.app.data.repository.TeamRepository
 import com.suishouban.app.data.local.AppDatabase
 import com.suishouban.app.data.local.toDomain
 import com.suishouban.app.data.model.CardStatus
@@ -45,6 +46,8 @@ class SuiShouBanApp : Application() {
         private set
     lateinit var providerSecretStore: ProviderSecretStore
         private set
+    lateinit var teamRepository: TeamRepository
+        private set
     val mascotStateStore = MascotStateStore(
         MascotState(
             mood = MascotMood.IDLE,
@@ -74,6 +77,11 @@ class SuiShouBanApp : Application() {
         notificationCandidateRepository = NotificationCandidateRepository(
             dao = AppDatabase.get(this).notificationCandidateDao(),
             policy = NotificationCandidatePolicy(packageName),
+        )
+        teamRepository = TeamRepository(
+            dao = AppDatabase.get(this).workflowDao(),
+            settingsRepository = settingsRepository,
+            cardRepository = cardRepository,
         )
         applicationScope.launch { cardRepository.repairLegacySummaries() }
         applicationScope.launch {

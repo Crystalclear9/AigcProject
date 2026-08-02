@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 790 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">不同问题，交给不同模块</text>
+    <text x="64" y="136" font-size="24" fill="#182033">不是一个模型读完整张图，而是多路证据并行汇合。</text>
+  </g>
+  <g id="source-screenshot" data-pptx-bounds="64 194 240 372">
+    <rect x="64" y="194" width="240" height="372" rx="18" fill="#FFFFFF" stroke="#1748B8" stroke-width="3"/>
+    <text x="88" y="238" font-size="18" font-weight="700" fill="#1748B8">原始截图</text>
+    <rect x="88" y="266" width="192" height="34" rx="8" fill="#EAF2FF"/>
+    <rect x="88" y="320" width="158" height="12" rx="6" fill="#CBD7EC"/>
+    <rect x="88" y="350" width="182" height="12" rx="6" fill="#CBD7EC"/>
+    <rect x="88" y="392" width="126" height="42" rx="8" fill="#FFF0E6"/>
+    <text x="100" y="420" font-size="18" fill="#FF8A3D">赛前三天</text>
+    <rect x="88" y="456" width="174" height="12" rx="6" fill="#CBD7EC"/>
+    <rect x="88" y="486" width="144" height="12" rx="6" fill="#CBD7EC"/>
+  </g>
+  <g id="module-classify" data-pptx-bounds="352 176 214 62"><text x="352" y="216" font-size="24" font-weight="700" fill="#2F6BFF">内容分类</text><line x1="472" y1="210" x2="556" y2="250" stroke="#2F6BFF" stroke-width="3"/></g>
+  <g id="module-time" data-pptx-bounds="352 256 214 62"><text x="352" y="296" font-size="24" font-weight="700" fill="#2F6BFF">时间解析</text><line x1="472" y1="290" x2="556" y2="310" stroke="#2F6BFF" stroke-width="3"/></g>
+  <g id="module-place" data-pptx-bounds="352 336 214 62"><text x="352" y="376" font-size="24" font-weight="700" fill="#2F6BFF">人物地点</text><line x1="472" y1="370" x2="556" y2="370" stroke="#2F6BFF" stroke-width="3"/></g>
+  <g id="module-money" data-pptx-bounds="352 416 214 62"><text x="352" y="456" font-size="24" font-weight="700" fill="#2F6BFF">金额链接</text><line x1="472" y1="450" x2="556" y2="430" stroke="#2F6BFF" stroke-width="3"/></g>
+  <g id="module-dedupe" data-pptx-bounds="352 496 214 62"><text x="352" y="536" font-size="24" font-weight="700" fill="#2F6BFF">重复检测</text><line x1="472" y1="530" x2="556" y2="490" stroke="#2F6BFF" stroke-width="3"/></g>
+  <g id="module-risk" data-pptx-bounds="544 548 224 64"><text x="544" y="590" font-size="24" font-weight="700" fill="#FF8A3D">风险检查</text><line x1="650" y1="556" x2="650" y2="522" stroke="#FF8A3D" stroke-width="3"/></g>
+  <g id="mofei-orchestrator" data-pptx-bounds="534 228 240 294">
+    <circle cx="654" cy="374" r="116" fill="#EAF2FF"/>
+    <image href="../images/mofei_scan.png" x="544" y="286" width="220" height="176" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="evidence-output" data-pptx-bounds="824 194 380 176">
+    <text x="824" y="228" font-size="18" font-weight="700" fill="#6E7891">并行证据</text>
+    <text x="824" y="274" font-size="24" fill="#182033">赛前三天 → 8 月 13 日</text>
+    <text x="824" y="316" font-size="24" fill="#182033">三教报告厅</text>
+    <text x="824" y="358" font-size="24" fill="#182033">报名费 30 元</text>
+  </g>
+  <g id="field-arbitration" data-pptx-bounds="824 408 380 166">
+    <rect x="824" y="408" width="380" height="166" rx="22" fill="#1748B8"/>
+    <text x="854" y="454" font-size="18" fill="#CFE0FF">字段仲裁</text>
+    <text x="854" y="506" font-size="32" font-weight="700" fill="#FFFFFF">任务 / ActionGraph</text>
+    <text x="854" y="548" font-size="18" fill="#FFFFFF">保留来源、置信度与依赖关系</text>
+  </g>
+  <g id="model-pipeline" data-pptx-bounds="64 588 1140 52">
+    <line x1="64" y1="596" x2="1204" y2="596" stroke="#BFD0EE" stroke-width="2"/>
+    <text x="64" y="628" font-size="18" font-weight="700" fill="#1748B8">原始截图</text>
+    <text x="168" y="628" font-size="18" fill="#6E7891">→ OCR 文本提取</text>
+    <text x="330" y="628" font-size="18" fill="#6E7891">→ 蓝心大模型语义理解</text>
+    <text x="558" y="628" font-size="18" fill="#6E7891">→ 结构化行动卡</text>
+    <text x="730" y="628" font-size="18" fill="#6E7891">→ 动作执行</text>
+    <text x="868" y="628" font-size="18" fill="#2F6BFF">语义理解 · 意图调度 · 多应用编排</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">11</text></g>
+</svg>
