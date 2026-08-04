@@ -2,6 +2,7 @@ package com.suishouban.app.data.remote
 
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.DELETE
 import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.Part
@@ -15,8 +16,46 @@ import retrofit2.http.Header
 import retrofit2.http.Streaming
 
 interface SuiShouBanApi {
+    @POST("api/onboarding/turn")
+    suspend fun onboardingTurn(@Body request: OnboardingTurnRequestDto): OnboardingTurnResponseDto
+
     @POST("api/workflows/screenshot-text")
     suspend fun startTextWorkflow(@Body request: AnalyzeScreenshotTextRequest): AnalyzeScreenshotTextResponse
+
+    @Multipart
+    @POST("api/intakes")
+    suspend fun startIntake(
+        @Part("text") text: RequestBody,
+        @Part("source_kind") sourceKind: RequestBody,
+        @Part("workspace_type") workspaceType: RequestBody,
+        @Part("role_template") roleTemplate: RequestBody,
+        @Part("profile_context") profileContext: RequestBody,
+        @Part files: List<MultipartBody.Part> = emptyList(),
+    ): IntakeSessionResponseDto
+
+    @GET("api/intakes/{session_id}")
+    suspend fun getIntake(
+        @Path("session_id") sessionId: String,
+    ): IntakeSessionResponseDto
+
+    @Multipart
+    @POST("api/intakes/{session_id}/attachments")
+    suspend fun addIntakeAttachments(
+        @Path("session_id") sessionId: String,
+        @Part files: List<MultipartBody.Part>,
+    ): IntakeSessionResponseDto
+
+    @POST("api/intakes/{session_id}/refine")
+    suspend fun refineIntake(
+        @Path("session_id") sessionId: String,
+        @Body request: IntakeRefineRequestDto,
+    ): CardRefinementRunResponseDto
+
+    @POST("api/intakes/{session_id}/confirm")
+    suspend fun confirmIntake(
+        @Path("session_id") sessionId: String,
+        @Body request: IntakeConfirmRequestDto,
+    ): IntakeSessionResponseDto
 
     @Multipart
     @POST("api/workflows/screenshot-image")
@@ -40,6 +79,12 @@ interface SuiShouBanApi {
         @Body request: OcrCandidateRequest,
     ): AnalyzeScreenshotTextResponse
 
+    @POST("api/workflows/{run_id}/resolve-ocr")
+    suspend fun resolveOcr(
+        @Path("run_id") runId: String,
+        @Body request: OcrCandidateRequest,
+    ): AnalyzeScreenshotTextResponse
+
     @PATCH("api/workflows/{run_id}/draft")
     suspend fun patchDraft(
         @Path("run_id") runId: String,
@@ -57,6 +102,38 @@ interface SuiShouBanApi {
         @Path("run_id") runId: String,
         @Body request: WorkflowReactRequest,
     ): AnalyzeScreenshotTextResponse
+
+    @Multipart
+    @POST("api/card-refinements")
+    suspend fun startCardRefinement(
+        @Part("card") card: RequestBody,
+        @Part("options") options: RequestBody,
+        @Part("profile_context") profileContext: RequestBody?,
+        @Part("instruction") instruction: RequestBody,
+        @Part files: List<MultipartBody.Part>,
+    ): CardRefinementRunResponseDto
+
+    @GET("api/card-refinements/{run_id}")
+    suspend fun getCardRefinement(
+        @Path("run_id") runId: String,
+    ): CardRefinementRunResponseDto
+
+    @POST("api/card-refinements/{run_id}/react")
+    suspend fun reactCardRefinement(
+        @Path("run_id") runId: String,
+        @Body request: CardRefinementReactRequestDto,
+    ): CardRefinementRunResponseDto
+
+    @POST("api/card-refinements/{run_id}/confirm")
+    suspend fun confirmCardRefinement(
+        @Path("run_id") runId: String,
+        @Body request: CardRefinementConfirmRequestDto,
+    ): CardRefinementRunResponseDto
+
+    @DELETE("api/card-refinements/{run_id}")
+    suspend fun cancelCardRefinement(
+        @Path("run_id") runId: String,
+    ): CardRefinementRunResponseDto
 
     @Streaming
     @GET("api/workflows/{run_id}/events")
@@ -92,8 +169,94 @@ interface SuiShouBanApi {
     suspend fun createCard(@Body card: ActionCardDto): ActionCardDto
 
     @PATCH("api/cards/{id}")
-    suspend fun updateCard(@Path("id") id: String, @Body card: ActionCardDto): ActionCardDto
+    suspend fun updateCard(
+        @Path("id") id: String,
+        @Body card: ActionCardDto,
+        @Header("X-User-Id") userId: String,
+    ): ActionCardDto
 
     @POST("api/cards/{id}/complete")
-    suspend fun completeCard(@Path("id") id: String): ActionCardDto
+    suspend fun completeCard(
+        @Path("id") id: String,
+        @Header("X-User-Id") userId: String,
+    ): ActionCardDto
+
+    @POST("api/cards/{id}/replan")
+    suspend fun replanCard(
+        @Path("id") id: String,
+        @Body request: CardReplanRequestDto,
+        @Header("X-User-Id") userId: String,
+    ): CardReplanResponseDto
+
+    @POST("api/users")
+    suspend fun registerUser(@Body request: UserRegisterRequestDto): UserDto
+
+    @POST("api/teams")
+    suspend fun createTeam(
+        @Header("X-User-Id") userId: String,
+        @Body request: TeamCreateRequestDto,
+    ): TeamDto
+
+    @POST("api/teams/join")
+    suspend fun joinTeam(
+        @Header("X-User-Id") userId: String,
+        @Body request: TeamJoinRequestDto,
+    ): TeamDto
+
+    @GET("api/teams")
+    suspend fun listTeams(@Header("X-User-Id") userId: String): List<TeamDto>
+
+    @GET("api/teams/{id}")
+    suspend fun getTeam(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+    ): TeamDto
+
+    @PATCH("api/teams/{id}")
+    suspend fun renameTeam(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Body request: TeamRenameRequestDto,
+    ): TeamDto
+
+    @DELETE("api/teams/{id}")
+    suspend fun deleteTeam(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+    )
+
+    @DELETE("api/teams/{id}/members/{uid}")
+    suspend fun removeTeamMember(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Path("uid") memberId: String,
+    )
+
+    @POST("api/teams/{id}/goals")
+    suspend fun createTeamGoal(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Body request: TeamGoalCreateRequestDto,
+    ): GoalDecompositionDto
+
+    @POST("api/teams/{id}/goals/{goal_id}/confirm")
+    suspend fun confirmTeamGoal(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Path("goal_id") goalId: String,
+        @Body request: GoalConfirmRequestDto,
+    ): GoalConfirmResponseDto
+
+    @GET("api/teams/{id}/goals")
+    suspend fun listTeamGoals(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+    ): List<TeamGoalDto>
+
+    @GET("api/teams/{id}/summary")
+    suspend fun teamSummary(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Query("since") since: String? = null,
+    ): TeamSummaryResponseDto
 }

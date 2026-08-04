@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.EventBusy
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,22 +42,36 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
+import com.suishouban.app.TeamMilestoneMark
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.ActionPlan
 import com.suishouban.app.data.model.CardStatus
+import com.suishouban.app.data.model.PlanItem
+import com.suishouban.app.data.model.PlanItemKinds
+import com.suishouban.app.data.model.WorkspaceTypes
 import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.SectionHeader
 import com.suishouban.app.ui.components.formatDay
+import com.suishouban.app.ui.components.formatSmartTime
+import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
 import com.suishouban.app.ui.theme.MistBlue
+import com.suishouban.app.ui.theme.Muted
+import com.suishouban.app.ui.theme.SoftCard
+import com.suishouban.app.ui.theme.softCardShadow
 import com.suishouban.app.ui.theme.Warning
 import com.suishouban.app.ui.theme.visualForCardType
+import com.suishouban.app.ui.theme.visualForPriority
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.OffsetDateTime
@@ -66,22 +82,42 @@ import java.util.Locale
 fun CalendarScreen(
     state: AppUiState,
     onComplete: (String) -> Unit,
+    teamNames: Map<String, String> = emptyMap(),
+    milestones: List<TeamMilestoneMark> = emptyList(),
 ) {
     val active = state.cards.filter { it.status != CardStatus.ARCHIVED }
     val today = LocalDate.now()
     val cardsByDate = active.groupByDate()
+    // Milestone due dates arrive as plain ISO dates from the Room mirror.
+    val milestonesByDate = milestones
+        .mapNotNull { mark -> mark.localDate()?.let { date -> date to mark } }
+        .groupBy({ it.first }, { it.second })
+    val workBlocks = state.actionPlans.flatMap { plan ->
+        plan.items
+            .filter { it.kind == PlanItemKinds.WORK_BLOCK && it.startTime != null }
+            .map { plan to it }
+    }
+    val workBlocksByDate = workBlocks.groupBy { (_, item) -> item.primaryLocalDate() }
+        .filterKeys { it != null }
+        .mapKeys { (key, _) -> requireNotNull(key) }
     var visibleMonth by remember { mutableStateOf(YearMonth.from(today)) }
     var selectedDate by remember { mutableStateOf(today) }
     val selectedCards = cardsByDate[selectedDate].orEmpty()
+    val selectedWorkBlocks = workBlocksByDate[selectedDate].orEmpty()
+    val selectedMilestones = milestonesByDate[selectedDate].orEmpty()
     val undatedCards = active.filter { it.primaryLocalDate() == null }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("日历视图", "${active.size} 项")
+            SectionHeader(
+                "日历视图",
+                "${active.size} 张卡 · ${workBlocks.size} 个时间块",
+                icon = Icons.Outlined.CalendarMonth,
+            )
         }
         item {
             MonthCalendarCard(
@@ -89,6 +125,8 @@ fun CalendarScreen(
                 selectedDate = selectedDate,
                 today = today,
                 cardsByDate = cardsByDate,
+                workBlocksByDate = workBlocksByDate,
+                milestonesByDate = milestonesByDate,
                 onPreviousMonth = {
                     visibleMonth = visibleMonth.minusMonths(1)
                     selectedDate = visibleMonth.atDay(1)
@@ -104,18 +142,31 @@ fun CalendarScreen(
             SelectedDaySection(
                 selectedDate = selectedDate,
                 cards = selectedCards,
+                workBlockCount = selectedWorkBlocks.size,
+                milestones = selectedMilestones,
+                teamNames = teamNames,
                 onComplete = onComplete,
             )
         }
+        if (selectedWorkBlocks.isNotEmpty()) {
+            item {
+                WorkBlockSection(
+                    selectedDate = selectedDate,
+                    workBlocks = selectedWorkBlocks,
+                    cards = state.cards,
+                )
+            }
+        }
         if (undatedCards.isNotEmpty()) {
             item {
-                Text("未定日期", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("未定日期", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
             }
             items(undatedCards, key = { it.id }) { card ->
                 ActionCardItem(
                     card = card,
                     compact = true,
                     onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
+                    teamBadge = card.teamBadgeOf(teamNames),
                 )
             }
         }
@@ -131,6 +182,8 @@ private fun MonthCalendarCard(
     selectedDate: LocalDate,
     today: LocalDate,
     cardsByDate: Map<LocalDate, List<ActionCard>>,
+    workBlocksByDate: Map<LocalDate, List<Pair<ActionPlan, PlanItem>>>,
+    milestonesByDate: Map<LocalDate, List<TeamMilestoneMark>>,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit,
@@ -139,14 +192,16 @@ private fun MonthCalendarCard(
     val days = remember(month) { month.visibleCalendarDays() }
 
     Card(
-        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().softCardShadow(),
+        shape = RoundedCornerShape(DS.RadiusCard),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Line),
+        border = BorderStroke(1.dp, Line.copy(alpha = 0.7f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onPreviousMonth) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "上个月")
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, contentDescription = "上个月", tint = BrandBlue)
                 }
                 Text(
                     text = month.format(monthFormatter),
@@ -154,9 +209,10 @@ private fun MonthCalendarCard(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
+                    color = Ink,
                 )
                 IconButton(onClick = onNextMonth) {
-                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "下个月")
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "下个月", tint = BrandBlue)
                 }
             }
 
@@ -177,6 +233,8 @@ private fun MonthCalendarCard(
                         selected = date == selectedDate,
                         isToday = date == today,
                         cards = cardsByDate[date].orEmpty(),
+                        workBlockCount = workBlocksByDate[date].orEmpty().size,
+                        hasMilestone = milestonesByDate.containsKey(date),
                         onClick = { onSelectDate(date) },
                     )
                 }
@@ -208,6 +266,8 @@ private fun CalendarDayCell(
     selected: Boolean,
     isToday: Boolean,
     cards: List<ActionCard>,
+    workBlockCount: Int,
+    hasMilestone: Boolean,
     onClick: () -> Unit,
 ) {
     val borderColor = when {
@@ -215,14 +275,25 @@ private fun CalendarDayCell(
         isToday -> BrandBlue.copy(alpha = 0.55f)
         else -> Line
     }
-    val background = if (selected) MistBlue else Color.White
+    // Selected day fills with the brand accent (white text) for a strong, unmistakable state;
+    // today gets a soft tint; others stay white.
+    val background = when {
+        selected -> BrandBlue
+        isToday -> MistBlue
+        else -> Color.White
+    }
+    val dayColor = when {
+        selected -> Color.White
+        !inCurrentMonth -> Muted.copy(alpha = 0.5f)
+        else -> Ink
+    }
 
     Card(
         modifier = Modifier
             .aspectRatio(0.9f)
             .defaultMinSize(minHeight = 48.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(DS.RadiusButton),
         border = BorderStroke(if (selected) 1.5.dp else 1.dp, borderColor),
         colors = CardDefaults.cardColors(containerColor = background),
     ) {
@@ -235,15 +306,15 @@ private fun CalendarDayCell(
                     text = date.dayOfMonth.toString(),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (selected || isToday) FontWeight.Bold else FontWeight.Medium,
-                    color = if (inCurrentMonth) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    color = dayColor,
                 )
                 Spacer(Modifier.weight(1f))
-                if (cards.isNotEmpty()) {
+                if (cards.isNotEmpty() || workBlockCount > 0) {
                     Text(
-                        text = cards.size.toString(),
+                        text = (cards.size + workBlockCount).toString(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = BrandBlue,
+                        color = if (selected) Color.White else BrandBlue,
                     )
                 }
             }
@@ -254,9 +325,78 @@ private fun CalendarDayCell(
                         Box(
                             Modifier
                                 .size(7.dp)
-                                .background(visualForCardType(card.cardType).color, CircleShape)
+                                .background(
+                                    if (selected) Color.White else visualForPriority(card.priority).accent,
+                                    CircleShape,
+                                )
                         )
                     }
+                }
+            }
+            if (workBlockCount > 0 || hasMilestone) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    if (workBlockCount > 0) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .background(
+                                    if (selected) Color.White else Color(0xFF805AD5),
+                                    CircleShape,
+                                ),
+                        )
+                    }
+                    // Quiet team milestone mark: one small brand-colored dot, no new hues.
+                    if (hasMilestone) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .background(
+                                    if (selected) Color.White else BrandBlue,
+                                    CircleShape,
+                                ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkBlockSection(
+    selectedDate: LocalDate,
+    workBlocks: List<Pair<ActionPlan, PlanItem>>,
+    cards: List<ActionCard>,
+) {
+    val label = remember(selectedDate) {
+        selectedDate.format(DateTimeFormatter.ofPattern("M 月 d 日", Locale.CHINA))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "$label 的计划时间块",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Ink,
+        )
+        workBlocks.forEach { (plan, item) ->
+            val parentTitle = cards.firstOrNull { it.id == plan.parentCardId }?.title ?: plan.objective
+            SoftCard {
+                Column(
+                    Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Text(item.title, fontWeight = FontWeight.Bold, color = Ink)
+                    Text(
+                        formatSmartTime(item.startTime),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = BrandBlue,
+                    )
+                    Text(
+                        "来自：$parentTitle" +
+                            item.estimatedMinutes?.let { " · 预计 $it 分钟" }.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Muted,
+                    )
                 }
             }
         }
@@ -267,6 +407,9 @@ private fun CalendarDayCell(
 private fun SelectedDaySection(
     selectedDate: LocalDate,
     cards: List<ActionCard>,
+    workBlockCount: Int,
+    milestones: List<TeamMilestoneMark>,
+    teamNames: Map<String, String>,
     onComplete: (String) -> Unit,
 ) {
     val selectedDateLabel = remember(selectedDate) {
@@ -279,35 +422,46 @@ private fun SelectedDaySection(
                 selectedDateLabel,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                color = Ink,
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "${cards.size} 项",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                "${cards.size + workBlockCount} 项",
+                style = MaterialTheme.typography.labelMedium,
+                color = Muted,
+                fontWeight = FontWeight.SemiBold,
             )
         }
-        if (cards.isEmpty()) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, Line),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-            ) {
-                Text(
-                    "当天暂无日程",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(18.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        // Milestone due dates read as quiet context lines, not tappable items.
+        milestones.forEach { mark ->
+            Text(
+                "里程碑 · ${mark.title}（${mark.teamName}）",
+                style = MaterialTheme.typography.labelMedium,
+                color = Muted,
+            )
+        }
+        if (cards.isEmpty() && workBlockCount == 0 && milestones.isEmpty()) {
+            SoftCard {
+                Row(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AccentIconChip(icon = Icons.Outlined.EventBusy, accent = BrandBlue, size = 40.dp)
+                    Text(
+                        "当天暂无日程",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Muted,
+                    )
+                }
             }
-        } else {
+        } else if (cards.isNotEmpty()) {
             cards.forEach { card ->
                 ActionCardItem(
                     card = card,
                     compact = true,
                     onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
+                    teamBadge = card.teamBadgeOf(teamNames),
                 )
             }
         }
@@ -323,12 +477,12 @@ private fun TimelineCalendarMode(
     val conflicts = active.groupBy { it.primaryTime() }.filter { (time, cards) -> time != null && cards.size > 1 }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("日历视图", "${active.size} 项")
+            SectionHeader("日历视图", "${active.size} 项", icon = Icons.Outlined.CalendarMonth)
         }
         item {
             Card(
@@ -366,7 +520,7 @@ private fun TimelineCalendarMode(
                 }
                 items(cards, key = { it.id }) { card ->
                     Row {
-                        TimelineMarker(color = visualForCardType(card.cardType).color)
+                        TimelineMarker(color = visualForPriority(card.priority).accent)
                         Spacer(Modifier.width(10.dp))
                         ActionCardItem(
                             card = card,
@@ -408,6 +562,22 @@ private fun List<ActionCard>.groupByDate(): Map<LocalDate, List<ActionCard>> =
 
 private fun ActionCard.primaryLocalDate(): LocalDate? {
     val value = primaryTime() ?: return null
+    return runCatching { OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
+}
+
+private fun ActionCard.teamBadgeOf(teamNames: Map<String, String>): String? =
+    if (workspaceType == WorkspaceTypes.TEAM) {
+        teamNames[workspaceId]?.firstOrNull()?.toString() ?: "团"
+    } else {
+        null
+    }
+
+private fun TeamMilestoneMark.localDate(): LocalDate? =
+    runCatching { LocalDate.parse(dueDate.take(10)) }.getOrNull()
+        ?: runCatching { OffsetDateTime.parse(dueDate).toLocalDate() }.getOrNull()
+
+private fun PlanItem.primaryLocalDate(): LocalDate? {
+    val value = startTime ?: deadline ?: return null
     return runCatching { OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
 }
 

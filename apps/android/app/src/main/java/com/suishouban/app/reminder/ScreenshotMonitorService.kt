@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.ActivityManager
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -29,7 +31,12 @@ import com.suishouban.app.domain.screenshot.ScreenshotActionGateResult
 import com.suishouban.app.domain.screenshot.ScreenshotCaptureSource
 import com.suishouban.app.domain.screenshot.ScreenshotFingerprintStore
 import com.suishouban.app.domain.screenshot.ScreenshotImageFingerprint
+import com.suishouban.app.domain.ocr.OcrCandidate
+import com.suishouban.app.domain.ocr.OcrEvidenceBlock
+import com.suishouban.app.domain.workflow.OcrCoordinator
 import com.suishouban.app.ocr.TextRecognitionService
+import com.suishouban.app.SuiShouBanApp
+import com.suishouban.app.data.model.OcrEnhancementPolicy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -99,6 +106,12 @@ class ScreenshotMonitorService : Service() {
         return START_STICKY
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "Screenshot monitor foreground timeout: type=$fgsType; stopping cleanly")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
+
     private fun registerObserver() {
         observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
@@ -114,6 +127,8 @@ class ScreenshotMonitorService : Service() {
     }
 
     private fun detectLatestScreenshot() {
+        val settings = (applicationContext as SuiShouBanApp).settingsRepository.settings.value
+        if (!settings.autoDetectScreenshots || !settings.importSources.screenshots) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -265,9 +280,38 @@ class ScreenshotMonitorService : Service() {
                 Log.i(TAG, "Screenshot image suppressed as a cross-source duplicate: id=$id")
                 return@launch
             }
-            val text = withContext(Dispatchers.IO) {
-                runCatching { ocr.recognize(this@ScreenshotMonitorService, uri) }.getOrNull()
-            }.orEmpty()
+            val candidates = withContext(Dispatchers.IO) {
+                runCatching { ocr.recognizeCandidates(this@ScreenshotMonitorService, uri) }
+                    .getOrDefault(emptyList())
+            }
+            val localCandidates = candidates.mapIndexed { index, result ->
+                    OcrCandidate(
+                        engine = "mlkit:${result.variant}",
+                        text = result.text,
+                        blocks = result.blocks.size,
+                        evidenceBlocks = result.blocks.map { block ->
+                            OcrEvidenceBlock(
+                                text = block.text,
+                                left = block.left.toDouble(),
+                                top = block.top.toDouble(),
+                                right = block.right.toDouble(),
+                                bottom = block.bottom.toDouble(),
+                                readingOrder = block.readingOrder,
+                            )
+                        },
+                        arrivedAtMs = index.toLong(),
+                    )
+                }
+            val app = application as SuiShouBanApp
+            val policy = app.settingsRepository.settings.value.ocrEnhancementPolicy
+            val shouldUseDirect = policy == OcrEnhancementPolicy.ALWAYS_COMPARE ||
+                (policy == OcrEnhancementPolicy.LOW_QUALITY &&
+                    localCandidates.maxOfOrNull { it.qualityScore }?.let { it < 0.72 } != false)
+            val directCandidate = if (shouldUseDirect) {
+                withContext(Dispatchers.IO) { app.cardRepository.recognizeImageDirect(uri) }
+            } else null
+            val arbitration = OcrCoordinator.adjudicate(localCandidates + listOfNotNull(directCandidate))
+            val text = arbitration?.selectedCandidate?.text.orEmpty()
             val gate = actionGate.evaluate(text, uri.toString(), System.currentTimeMillis())
             lastNotifiedId = maxOf(lastNotifiedId, id)
             Log.i(TAG, "Screenshot gate completed: id=$id prompt=${gate.shouldPrompt} confidence=${gate.confidence}")
@@ -278,6 +322,13 @@ class ScreenshotMonitorService : Service() {
                 } else {
                     Log.i(TAG, "Screenshot prompt suppressed by frequency policy")
                 }
+            } else if (arbitration?.requiresReview == true &&
+                "garbled_characters" in arbitration.reviewReasons
+            ) {
+                Log.w(
+                    TAG,
+                    "Screenshot OCR requires review; no action prompt emitted until intent is reliable",
+                )
             } else {
                 Log.i(TAG, "Screenshot ignored by action gate")
             }
@@ -290,11 +341,6 @@ class ScreenshotMonitorService : Service() {
         ocrText: String,
         gate: ScreenshotActionGateResult,
     ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
         val notificationId = SERVICE_NOTIFICATION_ID
         replacePendingPrompt()
         val ocrToken = cachePendingOcrText(ocrText)
@@ -303,6 +349,23 @@ class ScreenshotMonitorService : Service() {
         persistPendingPrompt(mediaId, uri, ocrToken, gate, notificationId, contentHash)
         val openPromptIntent = buildOpenPromptIntent(uri, ocrToken, gate).apply {
             putExtra(ScreenshotPreviewActivity.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        if (canPresentPromptDirectly()) {
+            runCatching {
+                startActivity(buildPreviewActivityIntent(openPromptIntent))
+                showMonitorNotification()
+                Log.i(TAG, "Screenshot prompt opened directly")
+            }.onSuccess {
+                return
+            }.onFailure { error ->
+                Log.w(TAG, "Direct screenshot prompt unavailable; using notification", error)
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "Screenshot prompt needs notification or overlay permission")
+            return
         }
         val generatePendingIntent = PendingIntent.getService(
             this,
@@ -337,6 +400,15 @@ class ScreenshotMonitorService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         startForeground(notificationId, notification)
+    }
+
+    private fun canPresentPromptDirectly(): Boolean {
+        if (Settings.canDrawOverlays(this)) return true
+        val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return manager.runningAppProcesses.orEmpty().any { process ->
+            process.processName == packageName &&
+                process.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        }
     }
 
     private fun replacePendingPrompt() {

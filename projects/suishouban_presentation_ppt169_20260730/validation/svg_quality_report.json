@@ -1,0 +1,689 @@
+{
+  "schema": "ppt-master.svg-quality-report.v1",
+  "stage": "final",
+  "target": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730",
+  "source_fingerprint": {
+    "algorithm": "sha256",
+    "digest": "5ad8f9df6d30d7fe795c1643c15de7a6a4de81ee38588614c5556a40e971c76b",
+    "file_count": 18,
+    "files": [
+      {
+        "file": "01_封面.svg",
+        "sha256": "a81002d5efd9659cc157216fdd7137f12412f088634061b1140b1e4d5806e2a6"
+      },
+      {
+        "file": "02_重要信息停在相册里.svg",
+        "sha256": "b2c5204025295aab2e046d6be02d073c6e5f89112ba18ba703b61fa12bc3a7c9"
+      },
+      {
+        "file": "03_工具很多使用停在第一次.svg",
+        "sha256": "f65de59e634f391c3728f5471c4cd51cdce66bd2d33952c31e97a05364383924"
+      },
+      {
+        "file": "04_截图之后继续发生.svg",
+        "sha256": "c1290c623de02a4b58b6b45ce98863fd8c77d39ac6c95f98722eddb28131e158"
+      },
+      {
+        "file": "05_三张截图三种行动.svg",
+        "sha256": "5755b81b55b559ec0f970f629438948f5e2dee70448bcf5b817b88909a44a6c6"
+      },
+      {
+        "file": "06_先有草稿再确认.svg",
+        "sha256": "1e9c42e062facc1287062264e3977c977a75da08f7109a82eb19b43e796d1113"
+      },
+      {
+        "file": "07_五类行动五种处理.svg",
+        "sha256": "24f957334a47ca3fac949afac82ca5e59adca5f81ee5ba2d877dcea5a2d6bd9b"
+      },
+      {
+        "file": "08_越不确定越保守.svg",
+        "sha256": "946d4cb0ca9d557cf2045394f1978e5444d1ae0931dabcb4e70f8a5671006bad"
+      },
+      {
+        "file": "09_一张海报三件事.svg",
+        "sha256": "f8f8fae1ea945366560633ddb7572c55257e15b60f83b644a7eae3adab97036b"
+      },
+      {
+        "file": "10_ActionGraph拆分.svg",
+        "sha256": "bd55aa18a9366b8b8bad01484658040d1e9ac7e19ad77c35c8aa30da4415f6c8"
+      },
+      {
+        "file": "11_多模块并行仲裁.svg",
+        "sha256": "3c9ae00247cc587b36944369bf95a78996f07034c57a9ff000441c256b90daaf"
+      },
+      {
+        "file": "12_修改一次少改一点.svg",
+        "sha256": "956230b0d032de3ba49d0c643f30f021766c739465be456851c7563222b57e81"
+      },
+      {
+        "file": "13_偏好只留在手机里.svg",
+        "sha256": "2a1afaa9cd7b096b63f16ba3f646cbb996857dab4dad0757e3adb5012932a822"
+      },
+      {
+        "file": "14_字段编辑率下降.svg",
+        "sha256": "f063825fc8f43474ef09ddbf6de88d16e0474dca2bf69020e4d79f2abb4ff43a"
+      },
+      {
+        "file": "15_确认后才执行.svg",
+        "sha256": "7ab6f7f52a49b8f0cdba00820a1d47729320b9f418dfd33c9e1e7655ed8565fe"
+      },
+      {
+        "file": "16_云端失联事情不消失.svg",
+        "sha256": "2621a45ce748784cca6fc57f7a03fbd9b38126c8ae01ed3f87a32caf4f5054ef"
+      },
+      {
+        "file": "17_更多行动入口.svg",
+        "sha256": "7749f020c8904f17f62fddeb8892cbe4af01046234ec68f88a6fb9c2f0808b0c"
+      },
+      {
+        "file": "18_让截图直接进入下一步.svg",
+        "sha256": "548af8bb488fb5a0254b1412bca59648f24d6828a683be5bf2dc36269c311b27"
+      }
+    ]
+  },
+  "summary": {
+    "total": 18,
+    "passed": 16,
+    "warnings": 2,
+    "errors": 0
+  },
+  "issue_types": {},
+  "categories": {
+    "blocking": {
+      "count": 0,
+      "issues": []
+    },
+    "introduced": {
+      "count": 2,
+      "issues": [
+        {
+          "file": "10_ActionGraph拆分.svg",
+          "message": "Image ../images/ai_poster_debate.png is 1024x1536 and renders at 0.22x scale in a 224x346 meet frame; the source is 1.2 MiB — file-size advisory only, not an aspect-ratio warning; consider a smaller source asset"
+        },
+        {
+          "file": "11_多模块并行仲裁.svg",
+          "message": "Detected 1 paragraph-like line run(s) split across sibling <text> elements (<g id=\"evidence-output\"> x=824.0, y=274.0..358.0, 3 lines). If each run is one prose paragraph, combine it into one <text>: keep its first line as direct text and use direct <tspan> children with the parent x and positive relative dy values for later lines. An all-<tspan> form may start with dy=\"0\". Keep semantically independent text frames separate."
+        }
+      ]
+    },
+    "inherited": {
+      "count": 0,
+      "issues": []
+    },
+    "source-import": {
+      "count": 0,
+      "summary": {
+        "warning_count": 0,
+        "by_code": {}
+      }
+    }
+  },
+  "drift": {
+    "colors": {
+      "#99B7F8": [
+        "01_封面.svg"
+      ],
+      "#AAB6CC": [
+        "14_字段编辑率下降.svg"
+      ],
+      "#AFC5F6": [
+        "01_封面.svg",
+        "16_云端失联事情不消失.svg"
+      ],
+      "#B7C7E8": [
+        "10_ActionGraph拆分.svg"
+      ],
+      "#B7CBF6": [
+        "05_三张截图三种行动.svg"
+      ],
+      "#BFD0EE": [
+        "11_多模块并行仲裁.svg",
+        "12_修改一次少改一点.svg",
+        "13_偏好只留在手机里.svg",
+        "16_云端失联事情不消失.svg",
+        "18_让截图直接进入下一步.svg"
+      ],
+      "#BFD1FF": [
+        "01_封面.svg",
+        "04_截图之后继续发生.svg"
+      ],
+      "#C3D3F3": [
+        "01_封面.svg"
+      ],
+      "#C7CEDD": [
+        "07_五类行动五种处理.svg"
+      ],
+      "#C7D5F2": [
+        "04_截图之后继续发生.svg"
+      ],
+      "#C9D4EA": [
+        "01_封面.svg"
+      ],
+      "#CAD5EA": [
+        "05_三张截图三种行动.svg"
+      ],
+      "#CBD6EA": [
+        "07_五类行动五种处理.svg"
+      ],
+      "#CBD7EC": [
+        "11_多模块并行仲裁.svg"
+      ],
+      "#CFE0FF": [
+        "11_多模块并行仲裁.svg",
+        "13_偏好只留在手机里.svg",
+        "16_云端失联事情不消失.svg"
+      ],
+      "#D5DDEC": [
+        "03_工具很多使用停在第一次.svg",
+        "08_越不确定越保守.svg"
+      ],
+      "#D8E0EE": [
+        "15_确认后才执行.svg"
+      ],
+      "#D9E1EF": [
+        "05_三张截图三种行动.svg"
+      ],
+      "#DCE3F0": [
+        "14_字段编辑率下降.svg"
+      ],
+      "#DCE5F5": [
+        "01_封面.svg",
+        "02_重要信息停在相册里.svg"
+      ],
+      "#E3E8F1": [
+        "05_三张截图三种行动.svg",
+        "07_五类行动五种处理.svg"
+      ],
+      "#F3CBAF": [
+        "05_三张截图三种行动.svg"
+      ],
+      "#FDEBEC": [
+        "05_三张截图三种行动.svg"
+      ],
+      "#FFB44F": [
+        "08_越不确定越保守.svg"
+      ],
+      "#FFF0E6": [
+        "11_多模块并行仲裁.svg",
+        "14_字段编辑率下降.svg",
+        "15_确认后才执行.svg"
+      ],
+      "#FFF3DF": [
+        "08_越不确定越保守.svg"
+      ],
+      "#FFFFFF": [
+        "01_封面.svg",
+        "02_重要信息停在相册里.svg",
+        "03_工具很多使用停在第一次.svg",
+        "04_截图之后继续发生.svg",
+        "05_三张截图三种行动.svg",
+        "06_先有草稿再确认.svg",
+        "09_一张海报三件事.svg",
+        "10_ActionGraph拆分.svg",
+        "11_多模块并行仲裁.svg",
+        "12_修改一次少改一点.svg",
+        "13_偏好只留在手机里.svg",
+        "14_字段编辑率下降.svg",
+        "15_确认后才执行.svg",
+        "16_云端失联事情不消失.svg",
+        "17_更多行动入口.svg",
+        "18_让截图直接进入下一步.svg"
+      ]
+    },
+    "fonts": {},
+    "sizes": {
+      "74": [
+        "01_封面.svg"
+      ]
+    }
+  },
+  "project_issues": {
+    "template": [],
+    "animation": [],
+    "illustration": [],
+    "communication_trace": [],
+    "pptx_structure": []
+  },
+  "files": [
+    {
+      "file": "01_封面.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\01_封面.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 7,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#99B7F8",
+            "#AFC5F6",
+            "#BFD1FF",
+            "#C3D3F3",
+            "#C9D4EA",
+            "#DCE5F5",
+            "#FFFFFF"
+          ]
+        },
+        "sparse_typography_sizes": {
+          "74": 1
+        }
+      },
+      "passed": true,
+      "source_sha256": "a81002d5efd9659cc157216fdd7137f12412f088634061b1140b1e4d5806e2a6"
+    },
+    {
+      "file": "02_重要信息停在相册里.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\02_重要信息停在相册里.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 13,
+        "tspan_elements": 1,
+        "contextual_values": {
+          "colors": [
+            "#DCE5F5",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "b2c5204025295aab2e046d6be02d073c6e5f89112ba18ba703b61fa12bc3a7c9"
+    },
+    {
+      "file": "03_工具很多使用停在第一次.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\03_工具很多使用停在第一次.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 20,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#D5DDEC",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "f65de59e634f391c3728f5471c4cd51cdce66bd2d33952c31e97a05364383924"
+    },
+    {
+      "file": "04_截图之后继续发生.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\04_截图之后继续发生.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 18,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#BFD1FF",
+            "#C7D5F2",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "c1290c623de02a4b58b6b45ce98863fd8c77d39ac6c95f98722eddb28131e158"
+    },
+    {
+      "file": "05_三张截图三种行动.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\05_三张截图三种行动.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 15,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#B7CBF6",
+            "#CAD5EA",
+            "#D9E1EF",
+            "#E3E8F1",
+            "#F3CBAF",
+            "#FDEBEC",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "5755b81b55b559ec0f970f629438948f5e2dee70448bcf5b817b88909a44a6c6"
+    },
+    {
+      "file": "06_先有草稿再确认.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\06_先有草稿再确认.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 15,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "1e9c42e062facc1287062264e3977c977a75da08f7109a82eb19b43e796d1113"
+    },
+    {
+      "file": "07_五类行动五种处理.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\07_五类行动五种处理.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 24,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#C7CEDD",
+            "#CBD6EA",
+            "#E3E8F1"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "24f957334a47ca3fac949afac82ca5e59adca5f81ee5ba2d877dcea5a2d6bd9b"
+    },
+    {
+      "file": "08_越不确定越保守.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\08_越不确定越保守.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 17,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#D5DDEC",
+            "#FFB44F",
+            "#FFF3DF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "946d4cb0ca9d557cf2045394f1978e5444d1ae0931dabcb4e70f8a5671006bad"
+    },
+    {
+      "file": "09_一张海报三件事.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\09_一张海报三件事.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 16,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "f8f8fae1ea945366560633ddb7572c55257e15b60f83b644a7eae3adab97036b"
+    },
+    {
+      "file": "10_ActionGraph拆分.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\10_ActionGraph拆分.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [
+        "Image ../images/ai_poster_debate.png is 1024x1536 and renders at 0.22x scale in a 224x346 meet frame; the source is 1.2 MiB — file-size advisory only, not an aspect-ratio warning; consider a smaller source asset"
+      ],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 16,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#B7C7E8",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "bd55aa18a9366b8b8bad01484658040d1e9ac7e19ad77c35c8aa30da4415f6c8"
+    },
+    {
+      "file": "11_多模块并行仲裁.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\11_多模块并行仲裁.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [
+        "Detected 1 paragraph-like line run(s) split across sibling <text> elements (<g id=\"evidence-output\"> x=824.0, y=274.0..358.0, 3 lines). If each run is one prose paragraph, combine it into one <text>: keep its first line as direct text and use direct <tspan> children with the parent x and positive relative dy values for later lines. An all-<tspan> form may start with dy=\"0\". Keep semantically independent text frames separate."
+      ],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 24,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#BFD0EE",
+            "#CBD7EC",
+            "#CFE0FF",
+            "#FFF0E6",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "3c9ae00247cc587b36944369bf95a78996f07034c57a9ff000441c256b90daaf"
+    },
+    {
+      "file": "12_修改一次少改一点.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\12_修改一次少改一点.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 18,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#BFD0EE",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "956230b0d032de3ba49d0c643f30f021766c739465be456851c7563222b57e81"
+    },
+    {
+      "file": "13_偏好只留在手机里.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\13_偏好只留在手机里.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 16,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#BFD0EE",
+            "#CFE0FF",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "2a1afaa9cd7b096b63f16ba3f646cbb996857dab4dad0757e3adb5012932a822"
+    },
+    {
+      "file": "14_字段编辑率下降.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\14_字段编辑率下降.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 20,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#AAB6CC",
+            "#DCE3F0",
+            "#FFF0E6",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "f063825fc8f43474ef09ddbf6de88d16e0474dca2bf69020e4d79f2abb4ff43a"
+    },
+    {
+      "file": "15_确认后才执行.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\15_确认后才执行.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 20,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#D8E0EE",
+            "#FFF0E6",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "7ab6f7f52a49b8f0cdba00820a1d47729320b9f418dfd33c9e1e7655ed8565fe"
+    },
+    {
+      "file": "16_云端失联事情不消失.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\16_云端失联事情不消失.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 20,
+        "tspan_elements": 0,
+        "contextual_values": {
+          "colors": [
+            "#AFC5F6",
+            "#BFD0EE",
+            "#CFE0FF",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "2621a45ce748784cca6fc57f7a03fbd9b38126c8ae01ed3f87a32caf4f5054ef"
+    },
+    {
+      "file": "17_更多行动入口.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\17_更多行动入口.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 21,
+        "tspan_elements": 1,
+        "contextual_values": {
+          "colors": [
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "7749f020c8904f17f62fddeb8892cbe4af01046234ec68f88a6fb9c2f0808b0c"
+    },
+    {
+      "file": "18_让截图直接进入下一步.svg",
+      "path": "E:\\aigc\\AigcProject\\projects\\suishouban_presentation_ppt169_20260730\\svg_output\\18_让截图直接进入下一步.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "fonts": [
+          "Microsoft YaHei, Segoe UI, Arial, sans-serif"
+        ],
+        "text_elements": 11,
+        "tspan_elements": 1,
+        "contextual_values": {
+          "colors": [
+            "#BFD0EE",
+            "#FFFFFF"
+          ]
+        }
+      },
+      "passed": true,
+      "source_sha256": "548af8bb488fb5a0254b1412bca59648f24d6828a683be5bf2dc36269c311b27"
+    }
+  ]
+}

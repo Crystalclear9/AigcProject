@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 820 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">修改一次，下一次少改一点</text>
+    <text x="64" y="136" font-size="24" fill="#182033">修改不是流程终点，而是本地预填习惯的来源。</text>
+  </g>
+  <g id="timeline-axis" data-pptx-bounds="112 228 1000 84">
+    <line x1="160" y1="270" x2="1060" y2="270" stroke="#BFD0EE" stroke-width="5"/>
+    <circle cx="220" cy="270" r="16" fill="#2F6BFF"/>
+    <circle cx="640" cy="270" r="16" fill="#2F6BFF"/>
+    <circle cx="1060" cy="270" r="16" fill="#2F6BFF"/>
+  </g>
+  <g id="edit-first" data-pptx-bounds="92 306 326 230">
+    <text x="112" y="344" font-size="18" fill="#6E7891">第一次</text>
+    <text x="112" y="398" font-size="32" font-weight="700" fill="#182033">周六 18:00</text>
+    <line x1="112" y1="374" x2="296" y2="414" stroke="#E95656" stroke-width="5"/>
+    <text x="112" y="458" font-size="32" font-weight="700" fill="#2F6BFF">周日 23:59</text>
+    <text x="112" y="508" font-size="18" fill="#6E7891">用户手动修改</text>
+  </g>
+  <g id="edit-second" data-pptx-bounds="512 306 326 230">
+    <text x="532" y="344" font-size="18" fill="#6E7891">第二次</text>
+    <text x="532" y="398" font-size="32" font-weight="700" fill="#182033">周日 18:00</text>
+    <line x1="532" y1="374" x2="716" y2="414" stroke="#E95656" stroke-width="5"/>
+    <text x="532" y="458" font-size="32" font-weight="700" fill="#2F6BFF">周日 23:59</text>
+    <text x="532" y="508" font-size="18" fill="#6E7891">同类场景再次修改</text>
+  </g>
+  <g id="edit-third" data-pptx-bounds="912 306 300 230">
+    <text x="932" y="344" font-size="18" fill="#6E7891">第三次</text>
+    <text x="932" y="408" font-size="32" font-weight="700" fill="#2F6BFF">周日 23:59</text>
+    <rect x="932" y="438" width="206" height="56" rx="14" fill="#2F6BFF"/>
+    <text x="1035" y="475" text-anchor="middle" font-size="24" font-weight="700" fill="#FFFFFF">直接确认</text>
+  </g>
+  <g id="mofei-learn" data-pptx-bounds="724 446 230 176">
+    <image href="../images/mofei_learn.png" x="724" y="446" width="230" height="176" preserveAspectRatio="xMidYMid meet"/>
+    <text x="754" y="496" font-size="42" font-weight="700" fill="#2F6BFF">【</text>
+  </g>
+  <g id="learning-note" data-pptx-bounds="106 558 564 68">
+    <rect x="106" y="558" width="564" height="4" fill="#FF8A3D"/>
+    <text x="106" y="602" font-size="24" fill="#182033">同类场景的修改，逐步变成可控的本地预填。</text>
+  </g>
+  <g id="reusable-templates" data-pptx-bounds="930 548 270 82">
+    <text x="930" y="576" font-size="18" font-weight="700" fill="#1748B8">可复用标签模板</text>
+    <text x="930" y="610" font-size="18" fill="#182033">课程 · 社团 · 比赛 · 考试</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">12</text></g>
+</svg>

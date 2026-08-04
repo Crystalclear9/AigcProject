@@ -1,7 +1,9 @@
 package com.suishouban.app.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,28 +16,52 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.effectiveReminderNodes
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.data.model.Priority
+import com.suishouban.app.data.model.PriorityModes
+import com.suishouban.app.data.model.WorkspaceTypes
+import com.suishouban.app.data.model.mergeReminderLabels
 import com.suishouban.app.ui.components.ActionCardItem
+import com.suishouban.app.ui.components.DateTimeWheelPickerDialog
+import com.suishouban.app.ui.components.ReminderNodesEditor
+import com.suishouban.app.ui.components.PriorityPickerDialog
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
+import com.suishouban.app.ui.theme.AccentIconChip
+import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
+import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.Muted
+import com.suishouban.app.ui.theme.SoftCard
+import java.time.OffsetDateTime
 
 @Composable
 fun CardsScreen(
@@ -45,14 +71,19 @@ fun CardsScreen(
     onArchive: (String) -> Unit,
     onImport: () -> Unit,
     highlightCardId: String? = null,
+    teamNames: Map<String, String> = emptyMap(),
 ) {
     var type by rememberSaveable { mutableStateOf("all") }
     var status by rememberSaveable { mutableStateOf("active") }
+    var workspace by rememberSaveable { mutableStateOf("all") }
     var keyword by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<ActionCard?>(null) }
+    var selectedCardId by rememberSaveable { mutableStateOf<String?>(null) }
+    var priorityEditingId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val filtered = state.cards.filter { card ->
         (type == "all" || card.cardType == type) &&
+            (workspace == "all" || card.workspaceType == workspace) &&
             when (status) {
                 "active" -> card.status != CardStatus.DONE && card.status != CardStatus.ARCHIVED
                 "done" -> card.status == CardStatus.DONE
@@ -63,49 +94,72 @@ fun CardsScreen(
     }.sortedBy { card -> if (card.id == highlightCardId) 0 else 1 }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("卡片中心", "${filtered.size} 张")
+            SectionHeader("卡片中心", "${filtered.size} 张", icon = Icons.Outlined.Style)
         }
+        // Search + filters grouped into one toolbar card so the controls read as a unit.
         item {
-            OutlinedTextField(
-                value = keyword,
-                onValueChange = { keyword = it },
-                modifier = Modifier.fillMaxWidth(),
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                placeholder = { Text("搜索标题、摘要、原始截图文字") },
-                shape = RoundedCornerShape(18.dp),
-            )
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    listOf(
-                        "all" to "全部",
-                        CardTypes.TASK to "任务",
-                        CardTypes.EVENT to "事件",
-                        CardTypes.PROMISE to "承诺",
-                    ).forEach { (value, label) ->
-                        NeutralPill(text = label, selected = type == value, onClick = { type = value })
+            SoftCard {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = keyword,
+                        onValueChange = { keyword = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = BrandBlue) },
+                        placeholder = { Text("搜索标题、摘要、原始截图文字") },
+                        shape = RoundedCornerShape(DS.RadiusTile),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DS.TileNeutral,
+                            unfocusedContainerColor = DS.TileNeutral,
+                            focusedIndicatorColor = BrandBlue,
+                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                        ),
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(
+                            "all" to "全部空间",
+                            WorkspaceTypes.PERSONAL to "个人",
+                            WorkspaceTypes.TEAM to "团队",
+                        ).forEach { (value, label) ->
+                            NeutralPill(
+                                text = label,
+                                selected = workspace == value,
+                                onClick = { workspace = value },
+                            )
+                        }
                     }
-                }
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    listOf(
-                        "active" to "进行中",
-                        "done" to "已完成",
-                        "archived" to "归档",
-                        "all" to "全部状态",
-                    ).forEach { (value, label) ->
-                        NeutralPill(text = label, selected = status == value, onClick = { status = value })
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(
+                            "all" to "全部",
+                            CardTypes.TASK to "任务",
+                            CardTypes.EVENT to "事件",
+                            CardTypes.PROMISE to "承诺",
+                        ).forEach { (value, label) ->
+                            NeutralPill(text = label, selected = type == value, onClick = { type = value })
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        listOf(
+                            "active" to "进行中",
+                            "done" to "已完成",
+                            "archived" to "归档",
+                            "all" to "全部状态",
+                        ).forEach { (value, label) ->
+                            NeutralPill(text = label, selected = status == value, onClick = { status = value })
+                        }
                     }
                 }
             }
@@ -113,11 +167,26 @@ fun CardsScreen(
 
         if (filtered.isEmpty()) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("暂无匹配卡片", style = MaterialTheme.typography.titleLarge)
-                    Text("换个筛选条件，或从截图重新生成候选卡。", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onImport, shape = RoundedCornerShape(16.dp)) {
-                        Text("导入截图生成卡片")
+                SoftCard {
+                    Column(
+                        Modifier.fillMaxWidth().padding(28.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AccentIconChip(icon = Icons.Outlined.TravelExplore, accent = BrandBlue, size = 52.dp)
+                        Text("暂无匹配卡片", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                        Text(
+                            "换个筛选条件，或从截图重新生成候选卡。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Muted,
+                        )
+                        Button(
+                            onClick = onImport,
+                            shape = RoundedCornerShape(DS.RadiusButton),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                        ) {
+                            Text("导入截图生成卡片", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
@@ -126,16 +195,24 @@ fun CardsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     ActionCardItem(
                         card = card,
+                        onOpen = { selectedCardId = card.id },
                         onEdit = { editing = card },
+                        onPriorityClick = { priorityEditingId = card.id },
                         onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
+                        teamBadge = if (card.workspaceType == WorkspaceTypes.TEAM) {
+                            teamNames[card.workspaceId]?.firstOrNull()?.toString() ?: "团"
+                        } else {
+                            null
+                        },
                     )
                     if (card.status != CardStatus.ARCHIVED) {
-                        Button(
+                        // Archive is a low-emphasis action, so it's a quiet text button, not a
+                        // full solid bar competing with the card's own primary action.
+                        TextButton(
                             onClick = { onArchive(card.id) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.align(Alignment.End),
                         ) {
-                            Text("归档")
+                            Text("归档", color = Muted, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -157,6 +234,35 @@ fun CardsScreen(
             },
         )
     }
+
+    selectedCardId?.let { cardId ->
+        val card = state.cards.firstOrNull { it.id == cardId }
+        if (card != null) {
+            CardDetailSheet(
+                card = card,
+                settings = state.settings,
+                onDismiss = { selectedCardId = null },
+                onEditParent = {
+                    selectedCardId = null
+                    editing = it
+                },
+                onUpdateParent = onUpdate,
+            )
+        }
+    }
+    priorityEditingId?.let { cardId ->
+        val card = state.cards.firstOrNull { it.id == cardId }
+        if (card != null) {
+            PriorityPickerDialog(
+                card = card,
+                onDismiss = { priorityEditingId = null },
+                onChange = {
+                    onUpdate(it)
+                    priorityEditingId = null
+                },
+            )
+        }
+    }
 }
 
 @Composable
@@ -166,10 +272,15 @@ private fun EditCardDialog(
     onSave: (ActionCard) -> Unit,
 ) {
     var draft by remember(card.id) { mutableStateOf(card) }
+    var pickerField by remember(card.id) { mutableStateOf<String?>(null) }
+    var timeError by remember(card.id) { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onSave(draft) }) {
+            TextButton(
+                onClick = { onSave(draft) },
+                enabled = timeError == null,
+            ) {
                 Text("保存")
             }
         },
@@ -193,23 +304,224 @@ private fun EditCardDialog(
                     label = { Text("摘要") },
                     shape = RoundedCornerShape(14.dp),
                 )
-                OutlinedTextField(
-                    value = draft.deadline ?: draft.startTime ?: "",
-                    onValueChange = {
-                        draft = if (draft.cardType == CardTypes.EVENT) draft.copy(startTime = it.ifBlank { null })
-                        else draft.copy(deadline = it.ifBlank { null })
-                    },
-                    label = { Text("时间") },
-                    shape = RoundedCornerShape(14.dp),
-                )
+                if (draft.cardType == CardTypes.EVENT) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        EditTimeField(
+                            value = draft.startTime,
+                            label = "开始时间",
+                            onClick = { pickerField = "start" },
+                            modifier = Modifier.weight(1f),
+                        )
+                        EditTimeField(
+                            value = draft.endTime,
+                            label = "结束时间",
+                            onClick = { pickerField = "end" },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    EditTimeField(
+                        value = draft.deadline,
+                        label = if (draft.deadline.isNullOrBlank()) "截止时间 · 待确认" else "截止时间",
+                        onClick = { pickerField = "deadline" },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                timeError?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 OutlinedTextField(
                     value = draft.location.orEmpty(),
                     onValueChange = { draft = draft.copy(location = it.ifBlank { null }) },
                     label = { Text("地点/平台") },
                     shape = RoundedCornerShape(14.dp),
                 )
+                Text("任务空间", style = MaterialTheme.typography.labelLarge, color = Muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        WorkspaceTypes.PERSONAL to "个人",
+                        WorkspaceTypes.TEAM to "团队",
+                    ).forEach { (value, label) ->
+                        NeutralPill(
+                            text = label,
+                            selected = draft.workspaceType == value,
+                            onClick = {
+                                draft = draft.copy(
+                                    workspaceType = value,
+                                    workspaceId = if (value == WorkspaceTypes.PERSONAL) {
+                                        WorkspaceTypes.PERSONAL
+                                    } else {
+                                        draft.workspaceId.takeUnless { it == WorkspaceTypes.PERSONAL }
+                                            ?: "local-team"
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+                if (draft.workspaceType == WorkspaceTypes.TEAM) {
+                    OutlinedTextField(
+                        value = draft.assigneeId.orEmpty(),
+                        onValueChange = { draft = draft.copy(assigneeId = it.ifBlank { null }) },
+                        label = { Text("负责人") },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    OutlinedTextField(
+                        value = draft.participantIds.joinToString("，"),
+                        onValueChange = { draft = draft.copy(participantIds = splitTeamValues(it)) },
+                        label = { Text("参与者") },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    OutlinedTextField(
+                        value = draft.deliverables.joinToString("，"),
+                        onValueChange = { draft = draft.copy(deliverables = splitTeamValues(it)) },
+                        label = { Text("交付物") },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                    OutlinedTextField(
+                        value = draft.dependencies.joinToString("，"),
+                        onValueChange = { draft = draft.copy(dependencies = splitTeamValues(it)) },
+                        label = { Text("前置任务 / 交接") },
+                        shape = RoundedCornerShape(14.dp),
+                    )
+                }
+                Text("优先级方式", style = MaterialTheme.typography.labelLarge, color = Muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    NeutralPill(
+                        text = "自动调整",
+                        selected = draft.priorityMode == PriorityModes.ADAPTIVE,
+                        onClick = {
+                            draft = draft.copy(
+                                priorityMode = PriorityModes.ADAPTIVE,
+                                priorityLocked = false,
+                            )
+                        },
+                    )
+                    NeutralPill(
+                        text = "手动",
+                        selected = draft.priorityMode == PriorityModes.MANUAL,
+                        onClick = {
+                            draft = draft.copy(
+                                priorityMode = PriorityModes.MANUAL,
+                                priorityLocked = true,
+                            )
+                        },
+                    )
+                }
+                if (draft.priorityMode == PriorityModes.MANUAL) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            Priority.LOW to "低",
+                            Priority.NORMAL to "普通",
+                            Priority.HIGH to "高",
+                        ).forEach { (value, label) ->
+                            NeutralPill(
+                                text = label,
+                                selected = draft.priority == value,
+                                onClick = {
+                                    draft = draft.copy(
+                                        priority = value,
+                                        priorityLocked = true,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                } else if (draft.priorityReason.isNotBlank()) {
+                    Text(
+                        "当前依据：${draft.priorityReason}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Muted,
+                    )
+                }
+                ReminderNodesEditor(
+                    nodes = draft.effectiveReminderNodes(),
+                    deadline = draft.deadline,
+                    onChange = { nodes ->
+                        draft = draft.copy(
+                            reminders = nodes.map { it.displayLabel() },
+                            reminderNodes = nodes,
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         shape = RoundedCornerShape(24.dp),
     )
+    pickerField?.let { field ->
+        DateTimeWheelPickerDialog(
+            initialValue = when (field) {
+                "start" -> draft.startTime
+                "end" -> draft.endTime
+                else -> draft.deadline
+            },
+            title = when (field) {
+                "start" -> "选择开始时间"
+                "end" -> "选择结束时间"
+                else -> "选择截止时间"
+            },
+            onDismiss = { pickerField = null },
+            onClear = {
+                draft = when (field) {
+                    "start" -> draft.copy(startTime = null)
+                    "end" -> draft.copy(endTime = null)
+                    else -> draft.copy(deadline = null)
+                }
+                timeError = null
+                pickerField = null
+            },
+            onConfirm = { value ->
+                val invalidEnd = field == "end" &&
+                    draft.startTime?.let { start ->
+                        runCatching {
+                            OffsetDateTime.parse(value) <= OffsetDateTime.parse(start)
+                        }.getOrDefault(false)
+                    } == true
+                if (invalidEnd) {
+                    timeError = "结束时间必须晚于开始时间"
+                } else {
+                    draft = when (field) {
+                        "start" -> draft.copy(startTime = value)
+                        "end" -> draft.copy(endTime = value)
+                        else -> draft.copy(deadline = value)
+                    }
+                    timeError = null
+                    pickerField = null
+                }
+            },
+        )
+    }
 }
+
+@Composable
+private fun EditTimeField(
+    value: String?,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value.orEmpty(),
+        onValueChange = {},
+        readOnly = true,
+        trailingIcon = {
+            IconButton(onClick = onClick) {
+                Icon(Icons.Outlined.Schedule, contentDescription = label)
+            }
+        },
+        label = { Text(label) },
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+    )
+}
+
+private fun splitTeamValues(value: String): List<String> =
+    value.split(',', '，', ';', '；', '\n')
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .distinct()

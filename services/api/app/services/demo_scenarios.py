@@ -129,6 +129,16 @@ DEMO_SCENARIOS = [
         expected_types=["task"],
         expected_keywords=["商业计划书", "团队信息表"],
     ),
+    DemoScenario(
+        id="team_duty_roster",
+        name="群聊分工公告拆分",
+        text="各位同学，期末大作业分工如下：小李负责数据整理，小王负责PPT制作，小张负责答辩讲稿，6月18日前完成。",
+        expected_types=["task", "task", "task"],
+        expected_keywords=["数据整理", "PPT制作", "答辩讲稿"],
+        expected_titles=["数据整理", "PPT制作", "答辩讲稿"],
+        expected_card_count=3,
+        expected_time_fields=["deadline"],
+    ),
 ]
 
 

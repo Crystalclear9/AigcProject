@@ -31,6 +31,7 @@ from app.services.workflow_service import (
     initialize_workflow_runtime,
     patch_draft,
     refine_workflow_with_react,
+    resolve_ocr_text,
     resume_workflow,
     start_image_workflow,
     start_text_workflow,
@@ -90,6 +91,56 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
             completed = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
         self.assertEqual(completed.workflow_status, "awaiting_review")
         self.assertTrue(completed.engine.startswith("mlkit+"))
+
+    async def test_user_corrected_ocr_resumes_same_run_through_validation(self) -> None:
+        async def failing_ocr(*args, **kwargs):
+            raise VivoOcrError("offline")
+
+        with patch("app.services.workflow_graph.VivoOcrClient.recognize", failing_ocr):
+            started = await start_image_workflow(b"image")
+            submit_ocr_candidate(
+                started.run_id,
+                OcrCandidateRequest(
+                    text="锟斤拷锟斤拷 6??10 22::00 ???",
+                    engine="mlkit",
+                    confidence=0.95,
+                ),
+            )
+            review = await wait_for_result(
+                started.run_id,
+                timeout=2,
+                accept_provisional=False,
+            )
+
+        self.assertEqual(review.workflow_status, "awaiting_ocr_review")
+        self.assertEqual(review.pending_action, "resolve_ocr")
+
+        resumed = await resolve_ocr_text(
+            started.run_id,
+            OcrCandidateRequest(
+                text="请在6月10日22:00前提交实验报告，提交至学习通。",
+                engine="user-corrected",
+                confidence=1.0,
+            ),
+        )
+        self.assertEqual(resumed.run_id, started.run_id)
+        self.assertIsNotNone(resumed.ocr_quality_report)
+        self.assertEqual(resumed.ocr_quality_report.quality_score, 1.0)
+        completed = await wait_for_result(
+            started.run_id,
+            timeout=2,
+            accept_provisional=False,
+        )
+        self.assertEqual(completed.workflow_status, "awaiting_review")
+        self.assertTrue(completed.cards)
+        self.assertGreaterEqual(completed.ocr_quality_report.quality_score, 0.72)
+        persisted = WorkflowRepository().get_state(started.run_id)
+        self.assertEqual(persisted["ocr_engine"], "user-corrected")
+        self.assertEqual(persisted["ocr_candidates"][0]["engine"], "user-corrected")
+        self.assertEqual(
+            persisted["ocr_candidates"][0]["quality_report"]["quality_score"],
+            1.0,
+        )
 
     async def test_user_locked_draft_cannot_be_overwritten(self) -> None:
         started = await start_text_workflow(

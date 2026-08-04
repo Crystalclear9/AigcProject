@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardTypes
+import com.suishouban.app.data.model.reminderNodeFromLegacy
 
 @Entity(tableName = "cards")
 data class ActionCardEntity(
@@ -22,12 +23,27 @@ data class ActionCardEntity(
     val materials: List<String>,
     @ColumnInfo(name = "submit_method") val submitMethod: String?,
     val priority: String,
+    @ColumnInfo(name = "priority_mode") val priorityMode: String,
+    @ColumnInfo(name = "priority_score") val priorityScore: Double,
+    @ColumnInfo(name = "priority_reason") val priorityReason: String,
+    @ColumnInfo(name = "priority_updated_at") val priorityUpdatedAt: String?,
+    @ColumnInfo(name = "priority_locked") val priorityLocked: Boolean,
+    @ColumnInfo(name = "workspace_type") val workspaceType: String,
+    @ColumnInfo(name = "workspace_id") val workspaceId: String,
+    @ColumnInfo(name = "assignee_id") val assigneeId: String?,
+    @ColumnInfo(name = "participant_ids") val participantIds: List<String>,
+    val deliverables: List<String>,
+    @ColumnInfo(name = "source_session_id") val sourceSessionId: String?,
     val tags: List<String>,
     val reminders: List<String>,
+    @ColumnInfo(name = "reminder_nodes") val reminderNodes: List<com.suishouban.app.data.model.ReminderNode>,
     @ColumnInfo(name = "need_confirm") val needConfirm: List<String>,
     val status: String,
     @ColumnInfo(name = "source_text") val sourceText: String,
     @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "goal_id") val goalId: String? = null,
+    @ColumnInfo(name = "milestone_id") val milestoneId: String? = null,
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
 )
 
 fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
@@ -45,12 +61,29 @@ fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
     materials = materials,
     submitMethod = submitMethod,
     priority = priority,
+    priorityMode = priorityMode,
+    priorityScore = priorityScore,
+    priorityReason = priorityReason,
+    priorityUpdatedAt = priorityUpdatedAt,
+    priorityLocked = priorityLocked,
+    workspaceType = workspaceType,
+    workspaceId = workspaceId,
+    assigneeId = assigneeId,
+    participantIds = participantIds,
+    deliverables = deliverables,
+    sourceSessionId = sourceSessionId,
     tags = tags,
     reminders = reminders,
+    reminderNodes = reminderNodes.ifEmpty {
+        reminders.map(::reminderNodeFromLegacy)
+    },
     needConfirm = needConfirm,
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
+    milestoneId = milestoneId,
+    updatedAt = updatedAt,
 )
 
 fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
@@ -68,12 +101,27 @@ fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
     materials = materials,
     submitMethod = submitMethod,
     priority = priority,
+    priorityMode = priorityMode,
+    priorityScore = priorityScore,
+    priorityReason = priorityReason,
+    priorityUpdatedAt = priorityUpdatedAt,
+    priorityLocked = priorityLocked,
+    workspaceType = workspaceType,
+    workspaceId = workspaceId,
+    assigneeId = assigneeId,
+    participantIds = participantIds,
+    deliverables = deliverables,
+    sourceSessionId = sourceSessionId,
     tags = tags,
     reminders = reminders,
+    reminderNodes = reminderNodes,
     needConfirm = needConfirm,
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
+    milestoneId = milestoneId,
+    updatedAt = updatedAt,
 )
 
 // Older prototype builds stored fallback cards as "note"; keep them readable after the 5-type migration.

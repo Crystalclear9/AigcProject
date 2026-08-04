@@ -9,7 +9,16 @@ from typing import Any
 from app.db.connection import connect
 from app.schemas.card import ActionCard, ActionCardCreate, ActionCardUpdate
 
-ARRAY_FIELDS = {"materials", "tags", "reminders", "need_confirm"}
+ARRAY_FIELDS = {
+    "dependencies",
+    "evidence_summary",
+    "materials",
+    "tags",
+    "reminders",
+    "need_confirm",
+    "participant_ids",
+    "deliverables",
+}
 
 
 def utc_now() -> datetime:
@@ -31,6 +40,10 @@ def _row_to_card(row: sqlite3.Row) -> ActionCard:
         data[field] = json.loads(raw)
     data["card_type"] = _normalize_card_type(data["card_type"])
     data["created_at"] = datetime.fromisoformat(data["created_at"])
+    if data.get("updated_at"):
+        data["updated_at"] = datetime.fromisoformat(data["updated_at"])
+    else:
+        data["updated_at"] = data["created_at"]
     return ActionCard(**data)
 
 
@@ -46,10 +59,14 @@ class CardRepository:
         payload = card.model_dump()
         payload["id"] = card_id
         payload["created_at"] = created_at.isoformat()
+        payload["updated_at"] = created_at.isoformat()
         payload["card_type"] = _normalize_card_type(payload["card_type"])
 
         fields = [
             "id",
+            "action_id",
+            "dependencies",
+            "evidence_summary",
             "card_type",
             "title",
             "summary",
@@ -60,12 +77,26 @@ class CardRepository:
             "materials",
             "submit_method",
             "priority",
+            "priority_mode",
+            "priority_score",
+            "priority_reason",
+            "priority_updated_at",
+            "priority_locked",
+            "workspace_type",
+            "workspace_id",
+            "assignee_id",
+            "participant_ids",
+            "deliverables",
+            "goal_id",
+            "milestone_id",
+            "source_session_id",
             "tags",
             "reminders",
             "need_confirm",
             "status",
             "source_text",
             "created_at",
+            "updated_at",
         ]
         values = [_encode(payload.get(field), field) for field in fields]
         placeholders = ", ".join("?" for _ in fields)
@@ -115,6 +146,7 @@ class CardRepository:
             return self.get(card_id)
         if "card_type" in values and values["card_type"] is not None:
             values["card_type"] = _normalize_card_type(values["card_type"])
+        values["updated_at"] = utc_now().isoformat()
         assignments = ", ".join(f"{field} = ?" for field in values)
         encoded = [_encode(value, field) for field, value in values.items()]
         encoded.append(card_id)
@@ -123,6 +155,22 @@ class CardRepository:
         if cursor.rowcount == 0:
             raise KeyError(card_id)
         return self.get(card_id)
+
+    def list_for_workspace(
+        self, workspace_id: str, since: str | None = None
+    ) -> list[ActionCard]:
+        clauses = ["workspace_id = ?"]
+        values: list[Any] = [workspace_id]
+        if since:
+            clauses.append("updated_at > ?")
+            values.append(since)
+        with connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM cards WHERE {' AND '.join(clauses)} "
+                "ORDER BY created_at DESC",
+                values,
+            ).fetchall()
+        return [_row_to_card(row) for row in rows]
 
     def complete(self, card_id: str) -> ActionCard:
         return self.update(card_id, ActionCardUpdate(status="done"))

@@ -55,6 +55,27 @@ class MascotOverlayControllerTest {
     }
 
     @Test
+    fun doubleTapArbiterDefersSingleAndOpensAppOnSecondTap() {
+        val arbiter = OverlayTapArbiter(doubleTapTimeoutMillis = 280)
+
+        assertEquals(OverlayTapDisposition.DeferSingle, arbiter.registerTap(1_000))
+        assertFalse(arbiter.consumeSingle(1_200))
+        assertEquals(OverlayTapDisposition.OpenApp, arbiter.registerTap(1_220))
+        assertFalse(arbiter.consumeSingle(1_600))
+    }
+
+    @Test
+    fun doubleTapArbiterConsumesSingleAfterTimeoutAndCancelsForDrag() {
+        val arbiter = OverlayTapArbiter(doubleTapTimeoutMillis = 280)
+
+        arbiter.registerTap(2_000)
+        assertTrue(arbiter.consumeSingle(2_281))
+        arbiter.registerTap(3_000)
+        arbiter.cancel()
+        assertFalse(arbiter.consumeSingle(3_500))
+    }
+
+    @Test
     fun rootDragLayerClaimsTheCollapsedWindowAndOnlyExpandedMofeiBody() {
         assertTrue(
             controller.shouldCaptureRootGesture(

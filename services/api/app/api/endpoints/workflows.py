@@ -6,6 +6,7 @@ import json
 from fastapi import APIRouter, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.responses import StreamingResponse
 
+from app.api.uploads import read_limited_upload
 from app.core.config import settings
 from app.schemas.workflow import (
     WorkflowResumeRequest,
@@ -25,15 +26,25 @@ from app.services.workflow_service import (
     start_image_workflow,
     start_text_workflow,
     submit_ocr_candidate,
+    resolve_ocr_text,
 )
 from app.repositories.workflows import WorkflowRepository
+from app.services.prompt_envelope import compile_prompt_envelope
 
 router = APIRouter()
 
 
 @router.post("/screenshot-text", response_model=WorkflowRunResponse, status_code=202)
 async def start_text(request: WorkflowStartTextRequest, response: Response) -> WorkflowRunResponse:
-    result = await start_text_workflow(request.text, request.screenshot_time)
+    envelope = compile_prompt_envelope(request.role_template, request.profile_context)
+    result = await start_text_workflow(
+        request.text,
+        request.screenshot_time,
+        {
+            "workspace_type": request.workspace_type,
+            "prompt_envelope": envelope.model_dump(),
+        },
+    )
     response.headers["Location"] = f"/api/workflows/{result.run_id}"
     return result
 
@@ -47,11 +58,10 @@ async def start_image(
     content_type = (image.content_type or "").lower()
     if content_type and content_type not in {"image/jpeg", "image/jpg", "image/png", "image/bmp"}:
         raise HTTPException(status_code=415, detail="只支持 jpg、png、bmp 图片")
-    image_bytes = await image.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="图片为空")
-    if len(image_bytes) > settings.max_upload_image_bytes:
-        raise HTTPException(status_code=413, detail="图片超过上传大小限制")
+    image_bytes = await read_limited_upload(
+        image,
+        max_bytes=settings.max_upload_image_bytes,
+    )
     result = await start_image_workflow(image_bytes, screenshot_time)
     response.headers["Location"] = f"/api/workflows/{result.run_id}"
     return result
@@ -82,7 +92,7 @@ async def stream_events(
                     f"data: {json.dumps(event.data, ensure_ascii=False, default=str)}\n\n"
                 )
             state = repo.get_state(run_id)
-            if state.get("workflow_status") in {"awaiting_review", "completed", "failed", "cancelled"} and not events:
+            if state.get("workflow_status") in {"awaiting_ocr_review", "awaiting_review", "completed", "failed", "cancelled"} and not events:
                 break
             now = asyncio.get_running_loop().time()
             if now - heartbeat_at >= 15:
@@ -101,6 +111,16 @@ async def stream_events(
 def add_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowRunResponse:
     try:
         return submit_ocr_candidate(run_id, request)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="workflow not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{run_id}/resolve-ocr", response_model=WorkflowRunResponse)
+async def resolve_ocr(run_id: str, request: OcrCandidateRequest) -> WorkflowRunResponse:
+    try:
+        return await resolve_ocr_text(run_id, request)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="workflow not found") from error
     except ValueError as error:

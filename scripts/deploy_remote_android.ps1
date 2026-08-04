@@ -1,11 +1,11 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:37065",
+    [string]$Device = "",
     [string]$WorkflowUrl = "",
     [string]$BackendUrl = "",
     [string]$ApkPath = "",
     [int]$AdbWaitSeconds = 300,
     [switch]$SkipBackendCheck,
-    [switch]$UseAdbReverse
+    [switch]$CleanInstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +22,16 @@ if (-not $sdk) {
 }
 
 $adb = Join-Path $sdk "platform-tools\adb.exe"
+
+if (-not $Device) {
+    $online = @(& $adb devices | Select-Object -Skip 1 | ForEach-Object {
+        if ($_ -match '^([^\s]+)\s+device$') { $Matches[1] }
+    })
+    if ($online.Count -ne 1) {
+        throw "Expected exactly one online ADB device; found $($online.Count). Pass -Device explicitly."
+    }
+    $Device = $online[0]
+}
 
 function Initialize-AdbKeyEnvironment {
     $androidDir = Join-Path $env:USERPROFILE ".android"
@@ -62,14 +72,19 @@ function Wait-AdbDevice {
     $attempt = 0
     while ([DateTimeOffset]::Now -lt $deadline) {
         $attempt++
-        $connectOutput = & $adb connect $Device 2>&1
-        if ($connectOutput) { $connectOutput | Out-Host }
+        if ($Device -match ':') {
+            $connectOutput = & $adb connect $Device 2>&1
+            if ($connectOutput) { $connectOutput | Out-Host }
+        }
         Start-Sleep -Seconds 2
         $state = (& $adb -s $Device get-state 2>&1) -join ""
         Write-Host "ADB wait attempt $attempt state=[$state]"
         if ($state.Trim() -eq "device") { return }
         $devices = (& $adb devices 2>&1) -join "`n"
         if ($state -match "unauthorized" -or $devices -match ([regex]::Escape($Device) + "\s+unauthorized")) {
+            if ($Device -notmatch ':') {
+                throw "USB device $Device is unauthorized. Approve this computer on the phone; local ADB keys were not deleted."
+            }
             if ($attempt -eq 3 -or $attempt -eq 8 -or $attempt % 20 -eq 0) {
                 Reset-AdbAuthorization
             } else {
@@ -87,7 +102,7 @@ function Wait-AdbDevice {
     throw "Remote device did not reach the device state. get-state=[$finalState] adb devices=[$finalDevices]"
 }
 
-function Confirm-VivoInstaller {
+function Confirm-VivoInstallerLegacy {
     Wait-AdbDevice
     for ($attempt = 1; $attempt -le 10; $attempt++) {
         $installed = (& $adb -s $Device shell pm path com.suishouban.app 2>$null) -join ""
@@ -95,9 +110,9 @@ function Confirm-VivoInstaller {
         & $adb -s $Device shell uiautomator dump /sdcard/suishouban-install.xml | Out-Null
         $ui = (& $adb -s $Device shell cat /sdcard/suishouban-install.xml 2>$null) -join ""
         if ($ui -match "继续安装") {
-            & $adb -s $Device shell input tap 630 2450
+            throw "Legacy installer flow is disabled because it cannot identify controls safely."
             Start-Sleep -Seconds 1
-            & $adb -s $Device shell input tap 630 2620
+            throw "Legacy installer flow is disabled because it cannot identify controls safely."
             Start-Sleep -Seconds 10
             Wait-AdbDevice
             return
@@ -105,6 +120,62 @@ function Confirm-VivoInstaller {
         Start-Sleep -Seconds 2
     }
 }
+
+function Get-InstallerNodeCenter {
+    param([string]$Xml, [string]$ResourceId)
+    $escaped = [regex]::Escape($ResourceId)
+    $node = [regex]::Match(
+        $Xml,
+        "<node[^>]*resource-id=`"$escaped`"[^>]*bounds=`"\[(\d+),(\d+)\]\[(\d+),(\d+)\]`"[^>]*/?>"
+    )
+    if (-not $node.Success) { return $null }
+    return @{
+        X = [int](([int]$node.Groups[1].Value + [int]$node.Groups[3].Value) / 2)
+        Y = [int](([int]$node.Groups[2].Value + [int]$node.Groups[4].Value) / 2)
+    }
+}
+
+function Get-AppUpdateTime {
+    $match = (& $adb -s $Device shell dumpsys package com.suishouban.app 2>$null) |
+        Select-String -Pattern 'lastUpdateTime=' | Select-Object -First 1
+    if ($match) { return $match.ToString().Trim() }
+    return ""
+}
+
+function Confirm-VivoInstaller {
+    param([string]$PreviousUpdateTime = "")
+    Wait-AdbDevice
+    for ($attempt = 1; $attempt -le 10; $attempt++) {
+        $installed = (& $adb -s $Device shell pm path com.suishouban.app 2>$null) -join ""
+        $currentUpdateTime = Get-AppUpdateTime
+        if ($installed -match "package:" -and
+            ([string]::IsNullOrWhiteSpace($PreviousUpdateTime) -or $currentUpdateTime -ne $PreviousUpdateTime)) {
+            return
+        }
+        & $adb -s $Device shell uiautomator dump /sdcard/suishouban-install.xml | Out-Null
+        $ui = (& $adb -s $Device shell cat /sdcard/suishouban-install.xml 2>$null) -join ""
+        if ($ui -match 'package="com\.android\.systemui"' -and $ui -match 'USB') {
+            & $adb -s $Device shell input keyevent BACK | Out-Null
+            Start-Sleep -Seconds 1
+            continue
+        }
+        $checkbox = Get-InstallerNodeCenter $ui "com.android.packageinstaller:id/deleted_file_state_cb"
+        $button = Get-InstallerNodeCenter $ui "android:id/button1"
+        if ($button) {
+            if ($checkbox) {
+                & $adb -s $Device shell input tap $checkbox.X $checkbox.Y | Out-Null
+                Start-Sleep -Seconds 1
+            }
+            & $adb -s $Device shell input tap $button.X $button.Y | Out-Null
+            Start-Sleep -Seconds 10
+            Wait-AdbDevice
+            continue
+        }
+        Start-Sleep -Seconds 2
+    }
+    throw "Vivo installer could not be completed without a uniquely identified confirmation control."
+}
+
 if (-not $ApkPath) {
     $ApkPath = Join-Path $root "apps\android\app\build\outputs\apk\debug\app-debug.apk"
 }
@@ -131,17 +202,14 @@ if (-not $SkipBackendCheck -and -not [string]::IsNullOrWhiteSpace($WorkflowUrl))
 
 Wait-AdbDevice
 
-if ($UseAdbReverse) {
-    & $adb -s $Device reverse tcp:8000 tcp:8000
-    if ($LASTEXITCODE -ne 0) {
-        throw "ADB reverse failed."
-    }
-}
-
 $installedPath = (& $adb -s $Device shell pm path com.suishouban.app 2>$null)
-if ($installedPath) {
+$previousUpdateTime = Get-AppUpdateTime
+if ($installedPath -and $CleanInstall) {
+    Write-Warning "CleanInstall explicitly requested: app data and the installed package will be removed."
     & $adb -s $Device shell pm clear com.suishouban.app | Out-Host
     & $adb -s $Device uninstall com.suishouban.app | Out-Host
+} elseif ($installedPath) {
+    Write-Host "Existing app detected. Performing an in-place upgrade and preserving user data."
 }
 
 $remoteApk = "/data/local/tmp/suishouban-debug.apk"
@@ -159,8 +227,17 @@ $sessionId = $Matches[1]
 if ($LASTEXITCODE -ne 0) {
     throw "Could not stream APK into install session $sessionId."
 }
-& $adb -s $Device shell cmd package install-commit $sessionId | Out-Host
-Confirm-VivoInstaller
+$commitProcess = Start-Process -FilePath $adb -ArgumentList @(
+    "-s", $Device, "shell", "cmd", "package", "install-commit", $sessionId
+) -PassThru -WindowStyle Hidden
+Confirm-VivoInstaller -PreviousUpdateTime $previousUpdateTime
+if (-not $commitProcess.WaitForExit(30000)) {
+    $commitProcess.Kill()
+    throw "Package install commit did not finish after installer confirmation."
+}
+if ($commitProcess.ExitCode -ne 0) {
+    throw "Package install commit failed with exit code $($commitProcess.ExitCode)."
+}
 $installedPath = (& $adb -s $Device shell pm path com.suishouban.app 2>$null) -join "`n"
 if ($LASTEXITCODE -ne 0 -or $installedPath -notmatch "package:") {
     throw "APK installation failed for session $sessionId."
@@ -183,12 +260,7 @@ Write-Host ""
 Write-Host "Installed package:"
 $packageInfo | Select-String -Pattern "versionCode|versionName|firstInstallTime|lastUpdateTime|targetSdk"
 Write-Host ""
-if ($UseAdbReverse) {
-    Write-Host "Reverse mappings:"
-    & $adb -s $Device reverse --list
-} else {
-    Write-Host "ADB reverse was not enabled. Phone is not coupled to a development host."
-}
+Write-Host "No ADB reverse mapping is used; the installed product is independent of the development host."
 Write-Host ""
 if ($fatalLogs) {
     Write-Warning "Potential runtime failures were found:"

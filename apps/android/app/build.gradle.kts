@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "com.suishouban.app"
     compileSdk = 35
+    testBuildType = "deviceTest"
 
     defaultConfig {
         applicationId = "com.suishouban.app"
@@ -23,9 +24,20 @@ android {
             ?: System.getenv("WORKFLOW_API_URL")
             ?: ""
         buildConfigField("String", "DEFAULT_API_BASE_URL", "\"${escapeBuildConfig(defaultApiBaseUrl)}\"")
+        val allowLocalWorkflowGateway =
+            System.getenv("ALLOW_LOCAL_WORKFLOW_GATEWAY")
+                ?.equals("true", ignoreCase = true)
+                ?: false
+        buildConfigField("boolean", "ALLOW_LOCAL_WORKFLOW_GATEWAY", allowLocalWorkflowGateway.toString())
     }
 
     buildTypes {
+        create("deviceTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".devicetest"
+            versionNameSuffix = "-device-test"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -73,6 +85,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    add("deviceTestImplementation", "androidx.compose.ui:ui-tooling")
+    add("deviceTestImplementation", "androidx.compose.ui:ui-test-manifest")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

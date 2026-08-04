@@ -24,6 +24,16 @@ object Priority {
     const val HIGH = "high"
 }
 
+object PriorityModes {
+    const val MANUAL = "manual"
+    const val ADAPTIVE = "adaptive"
+}
+
+object WorkspaceTypes {
+    const val PERSONAL = "personal"
+    const val TEAM = "team"
+}
+
 data class ActionCard(
     val id: String = UUID.randomUUID().toString(),
     val actionId: String? = null,
@@ -39,12 +49,27 @@ data class ActionCard(
     val materials: List<String> = emptyList(),
     val submitMethod: String? = null,
     val priority: String = Priority.NORMAL,
+    val priorityMode: String = PriorityModes.ADAPTIVE,
+    val priorityScore: Double = 50.0,
+    val priorityReason: String = "",
+    val priorityUpdatedAt: String? = null,
+    val priorityLocked: Boolean = false,
+    val workspaceType: String = WorkspaceTypes.PERSONAL,
+    val workspaceId: String = WorkspaceTypes.PERSONAL,
+    val assigneeId: String? = null,
+    val participantIds: List<String> = emptyList(),
+    val deliverables: List<String> = emptyList(),
+    val sourceSessionId: String? = null,
     val tags: List<String> = emptyList(),
     val reminders: List<String> = emptyList(),
+    val reminderNodes: List<ReminderNode> = emptyList(),
     val needConfirm: List<String> = emptyList(),
     val status: String = CardStatus.DRAFT,
     val sourceText: String = "",
     val createdAt: String = OffsetDateTime.now().toString(),
+    val goalId: String? = null,
+    val milestoneId: String? = null,
+    val updatedAt: String? = null,
 )
 
 data class AnalyzeResult(
@@ -74,8 +99,24 @@ data class AnalyzeResult(
     val providerUsage: Map<String, ProviderUsage> = emptyMap(),
     val modelEnhancementStatus: String = "not_configured",
     val ocrEnhancementStatus: String = "not_configured",
+    val ocrQualityReport: OcrQualityReport? = null,
+    val ocrReviewReasons: List<String> = emptyList(),
     val imageGenerationStatus: String = "not_configured",
     val reactSuggestions: List<String> = emptyList(),
+    val agentContractVersion: String = "agent-contract-v2",
+    val agentOutputs: List<Map<String, Any?>> = emptyList(),
+)
+
+data class OcrQualityReport(
+    val qualityScore: Double = 0.0,
+    val garbledRatio: Double = 0.0,
+    val completenessScore: Double = 0.0,
+    val layoutScore: Double = 0.0,
+    val evidenceScore: Double = 0.0,
+    val agreementScore: Double = 0.0,
+    val duplicateRatio: Double = 0.0,
+    val noiseRatio: Double = 0.0,
+    val reasons: List<String> = emptyList(),
 )
 
 data class ProviderUsage(
@@ -106,5 +147,25 @@ data class NodeTrace(
 )
 
 fun ActionCard.isTimed(): Boolean = deadline != null || startTime != null
+
+/**
+ * Stable identity used while a draft is progressively enhanced.
+ *
+ * Provider transport ids may change between revisions. Selection therefore follows the
+ * action's source and facts instead of the temporary id.
+ */
+fun ActionCard.candidateIdentity(): String {
+    fun String.normalized(): String = lowercase()
+        .replace(Regex("""[\s\p{Punct}\p{S}]+"""), "")
+        .take(96)
+
+    return listOf(
+        cardType,
+        title.normalized(),
+        (deadline ?: startTime).orEmpty().take(19),
+        location.orEmpty().normalized(),
+        sourceText.normalized().take(64),
+    ).joinToString("|")
+}
 
 fun ActionCard.primaryTime(): String? = startTime ?: deadline

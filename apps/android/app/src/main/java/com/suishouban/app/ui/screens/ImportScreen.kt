@@ -17,16 +17,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.ImageSearch
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,13 +42,18 @@ import com.suishouban.app.AppUiState
 import com.suishouban.app.mascot.MascotState
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.SectionHeader
+import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.SoftCard
 
 @Composable
 fun ImportScreen(
     state: AppUiState,
     onPickImage: (Uri) -> Unit,
+    onPickFiles: (List<Uri>) -> Unit,
     onAnalyzeText: (String) -> Unit,
     onPreview: () -> Unit,
     mascotState: MascotState,
@@ -56,14 +62,19 @@ fun ImportScreen(
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) onPickImage(uri)
     }
+    val multiFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) onPickFiles(uris.take(8))
+    }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("截图导入", "先识别，再确认")
+            SectionHeader("截图导入", "先识别，再确认", icon = Icons.Outlined.PhotoCamera)
         }
 
         if (state.loading) {
@@ -77,14 +88,13 @@ fun ImportScreen(
         }
 
         item {
-            Card(
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Line),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-            ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("选择截图", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            SoftCard {
+                Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AccentIconChip(icon = Icons.Outlined.ImageSearch, accent = BrandBlue, size = 30.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("选择截图", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                    }
                     if (state.engine.isNotBlank()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             NeutralPill(text = "识别方式 ${displayEngineLabel(state.engine)}", selected = true)
@@ -101,25 +111,45 @@ fun ImportScreen(
                         Button(
                             onClick = { launcher.launch("image/*") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(DS.RadiusButton),
+                            colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                         ) {
                             Icon(Icons.Outlined.ImageSearch, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("相册")
+                            Text("相册", fontWeight = FontWeight.SemiBold)
                         }
                         OutlinedButton(
                             onClick = { text = sampleTexts.first().second },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(DS.RadiusButton),
                         ) {
                             Icon(Icons.Outlined.TextFields, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
                             Text("示例")
                         }
                     }
+                    OutlinedButton(
+                        onClick = {
+                            multiFileLauncher.launch(
+                                arrayOf(
+                                    "image/*",
+                                    "text/plain",
+                                    "text/markdown",
+                                    "application/pdf",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(DS.RadiusButton),
+                    ) {
+                        Text("导入长截图、聊天记录或文档")
+                    }
                     if (state.loading) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.width(22.dp).height(22.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.width(22.dp).height(22.dp), strokeWidth = 2.dp, color = BrandBlue)
                             Spacer(Modifier.width(10.dp))
                             Text("正在提取候选事项", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -129,13 +159,13 @@ fun ImportScreen(
         }
 
         item {
-            Card(
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.96f)),
-                border = BorderStroke(1.dp, Line),
-            ) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("文字识别结果", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            SoftCard {
+                Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AccentIconChip(icon = Icons.Outlined.TextFields, accent = BrandBlue, size = 30.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("文字识别结果", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Ink)
+                    }
                     OutlinedTextField(
                         value = text.ifBlank { state.ocrText },
                         onValueChange = { text = it },
@@ -143,27 +173,33 @@ fun ImportScreen(
                             .fillMaxWidth()
                             .height(168.dp),
                         minLines = 6,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(DS.RadiusTile),
                         placeholder = { Text("粘贴通知、海报或聊天文字") },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = DS.TileNeutral,
+                            unfocusedContainerColor = DS.TileNeutral,
+                            focusedIndicatorColor = BrandBlue,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
                     )
                     Button(
                         onClick = { onAnalyzeText(text.ifBlank { state.ocrText }) },
                         enabled = !state.loading,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(DS.RadiusButton),
+                        colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
                     ) {
                         Icon(Icons.Outlined.AutoFixHigh, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("生成候选卡")
+                        Text("生成候选卡", fontWeight = FontWeight.SemiBold)
                     }
                     if (state.draftCards.isNotEmpty()) {
-                        Button(
+                        OutlinedButton(
                             onClick = onPreview,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = BrandBlue),
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = RoundedCornerShape(DS.RadiusButton),
                         ) {
-                            Text("查看候选卡")
+                            Text("查看候选卡", color = BrandBlue, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -171,7 +207,8 @@ fun ImportScreen(
         }
 
         item {
-            SectionHeader("样例")
+            SectionHeader("样例", icon = Icons.Outlined.AutoFixHigh)
+            Spacer(Modifier.height(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 sampleTexts.chunked(2).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

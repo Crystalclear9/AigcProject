@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 700 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">照常截图，后面的事继续发生</text>
+    <text x="64" y="136" font-size="24" fill="#182033">原来的操作不变，系统只在发现行动信息时提示。</text>
+  </g>
+  <g id="chat-phone-shell" data-pptx-bounds="92 172 330 456">
+    <rect x="92" y="172" width="330" height="456" rx="48" fill="#182033"/>
+    <rect x="106" y="190" width="302" height="420" rx="34" fill="#FFFFFF"/>
+    <rect x="192" y="180" width="130" height="18" rx="9" fill="#182033"/>
+  </g>
+  <g id="chat-screen-art" data-pptx-bounds="118 208 278 338">
+    <image href="../images/ai_screen_groupchat.png" x="118" y="208" width="278" height="338" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="chat-editable-message" data-pptx-bounds="138 326 298 104">
+    <rect x="138" y="326" width="238" height="104" rx="18" fill="#FFFFFF" opacity="0.96" stroke="#BFD1FF" stroke-width="2"/>
+    <text x="156" y="362" font-size="18" fill="#6E7891">课程群通知</text>
+    <text x="156" y="398" font-size="24" font-weight="700" fill="#182033">课程报告，本周五截止</text>
+  </g>
+  <g id="screenshot-flash" data-pptx-bounds="64 238 84 84">
+    <circle cx="106" cy="280" r="38" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="4"/>
+    <path d="M84 280 H128 M106 258 V302" stroke="#2F6BFF" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g id="detection-banner" data-pptx-bounds="120 512 274 80">
+    <rect x="120" y="512" width="274" height="80" rx="18" fill="#2F6BFF"/>
+    <text x="138" y="544" font-size="18" font-weight="700" fill="#FFFFFF">识别到 1 项课程任务</text>
+    <text x="138" y="574" font-size="18" fill="#FFFFFF">查看　/　忽略</text>
+  </g>
+  <g id="mofei-catch" data-pptx-bounds="448 200 376 274">
+    <image href="../images/mofei_catch.png" x="448" y="200" width="376" height="274" preserveAspectRatio="xMidYMid meet"/>
+    <text x="484" y="250" font-size="42" font-weight="700" fill="#2F6BFF">【</text>
+  </g>
+  <g id="task-draft" data-pptx-bounds="800 228 384 280">
+    <rect x="800" y="228" width="384" height="280" rx="26" fill="#EAF2FF" stroke="#2F6BFF" stroke-width="3"/>
+    <rect x="800" y="228" width="16" height="280" fill="#E95656"/>
+    <text x="844" y="278" font-size="18" font-weight="700" fill="#E95656">任务草稿</text>
+    <text x="844" y="326" font-size="32" font-weight="700" fill="#182033">完成课程报告</text>
+    <text x="844" y="380" font-size="24" fill="#6E7891">周五 23:59 截止</text>
+    <line x1="844" y1="408" x2="1132" y2="408" stroke="#C7D5F2" stroke-width="2"/>
+    <text x="844" y="456" font-size="24" font-weight="700" fill="#2F6BFF">随手办</text>
+  </g>
+  <g id="product-overview" data-pptx-bounds="800 526 404 104">
+    <text x="800" y="550" font-size="18" font-weight="700" fill="#1748B8">统一入口</text>
+    <text x="900" y="550" font-size="18" fill="#182033">截图</text>
+    <text x="800" y="582" font-size="18" font-weight="700" fill="#1748B8">结构化字段</text>
+    <text x="900" y="582" font-size="18" fill="#182033">时间 · 地点 · 截止 · 提交物 · 类别</text>
+    <text x="800" y="614" font-size="18" font-weight="700" fill="#1748B8">执行联动</text>
+    <text x="900" y="614" font-size="18" fill="#182033">日历 · 提醒 · 任务清单</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">04</text>
+  </g>
+</svg>

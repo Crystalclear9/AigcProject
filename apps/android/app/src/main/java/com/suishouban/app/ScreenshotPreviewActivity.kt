@@ -38,6 +38,8 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,28 +63,42 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.suishouban.app.data.local.AppDatabase
+import com.suishouban.app.data.local.IntakeSessionEntity
 import com.suishouban.app.data.model.ActionCard
+import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
+import com.suishouban.app.domain.team.TeamMemberOption
+import com.suishouban.app.domain.team.TeamWorkspacePolicy
+import com.suishouban.app.domain.TextIntegrity
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.ui.components.DraftEditor
+import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.PreviewActionsCard
+import com.suishouban.app.ui.components.formatSmartTime
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.Muted
+import com.suishouban.app.ui.theme.visualForPriority
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import androidx.compose.ui.graphics.Color as ComposeColor
+import java.time.OffsetDateTime
+import java.util.UUID
+import kotlinx.coroutines.launch
 
 class ScreenshotPreviewActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private var privateCaptureUri: Uri? = null
     private var restoreOverlayAfterCapture = false
+    private var intakeSessionId: String? = null
+    private var sessionFinished = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         configureFloatingWindow()
-        viewModel.beginFreshScreenshotPrompt()
-
         val incomingIntent = intent
         val fromPrivateCapture = isTrustedPrivateCapture(incomingIntent)
         if (fromPrivateCapture) privateCaptureUri = incomingIntent.data
@@ -100,6 +116,25 @@ class ScreenshotPreviewActivity : ComponentActivity() {
             return
         }
         val screenshotUri = sourceIntent.data
+        val intakeSessionId = sourceIntent.getStringExtra(EXTRA_INTAKE_SESSION_ID)
+            ?: UUID.randomUUID().toString()
+        this.intakeSessionId = intakeSessionId
+        viewModel.beginFreshScreenshotPrompt(intakeSessionId)
+        lifecycleScope.launch {
+            val now = OffsetDateTime.now().toString()
+            AppDatabase.get(this@ScreenshotPreviewActivity).workflowDao().upsertIntake(
+                IntakeSessionEntity(
+                    id = intakeSessionId,
+                    sourceKind = if (fromPrivateCapture) "external_mofei_screenshot" else "screenshot",
+                    sourceUri = screenshotUri?.toString(),
+                    workspaceType = "personal",
+                    status = "reviewing",
+                    workflowRunId = null,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+        }
         val ocrText = sourceIntent.getStringExtra(EXTRA_OCR_TEXT)
             ?: ScreenshotMonitorService.consumePendingOcrText(sourceIntent.getStringExtra(EXTRA_OCR_TOKEN))
             ?: sourceIntent.getStringExtra(EXTRA_OCR_TEXT_BASE64)?.let(::decodeUtf8Base64)
@@ -114,6 +149,8 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                val teamState by viewModel.teamUiState.collectAsStateWithLifecycle()
+                val teamMembers by viewModel.teamMemberOptions.collectAsStateWithLifecycle()
 
                 LaunchedEffect(screenshotUri, ocrText) {
                     if (screenshotUri == null) {
@@ -158,9 +195,24 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                     onToggleDraft = viewModel::toggleDraftSelection,
                     onSelectAll = viewModel::selectAllDrafts,
                     onRefineWithAi = viewModel::refineDraftWithAi,
+                    onResolveOcr = { corrected -> viewModel.analyzeText(corrected) },
                     onManualAdd = viewModel::addManualDraftFromCurrentText,
-                    onConfirm = { viewModel.confirmDrafts { finish() } },
-                    onIgnore = { viewModel.ignoreScreenshotWorkflow { finish() } },
+                    teams = teamState.teams,
+                    teamMembers = teamMembers,
+                    onSelectWorkspace = viewModel::setDraftWorkspace,
+                    onConfirm = {
+                        viewModel.confirmDrafts {
+                            sessionFinished = true
+                            finish()
+                        }
+                    },
+                    onIgnore = {
+                        viewModel.ignoreScreenshotWorkflow {
+                            sessionFinished = true
+                            markSessionTerminal("ignored")
+                            finish()
+                        }
+                    },
                 )
             }
         }
@@ -200,14 +252,21 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         const val EXTRA_NOTIFICATION_ID = "com.suishouban.app.extra.NOTIFICATION_ID"
         const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
         const val EXTRA_OCR_TOKEN = "com.suishouban.app.extra.OCR_TOKEN"
+        const val EXTRA_INTAKE_SESSION_ID = "com.suishouban.app.extra.INTAKE_SESSION_ID"
 
         /** Explicit and non-exported; only private FileProvider capture URIs are accepted. */
-        fun captureIntent(context: Context, uri: Uri, restoreOverlayAfterCapture: Boolean = false): Intent =
+        fun captureIntent(
+            context: Context,
+            uri: Uri,
+            restoreOverlayAfterCapture: Boolean = false,
+            intakeSessionId: String = UUID.randomUUID().toString(),
+        ): Intent =
             Intent(context, ScreenshotPreviewActivity::class.java).apply {
                 action = ACTION_CAPTURE_PREVIEW
                 data = uri
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 putExtra(EXTRA_RESTORE_OVERLAY_AFTER_CAPTURE, restoreOverlayAfterCapture)
+                putExtra(EXTRA_INTAKE_SESSION_ID, intakeSessionId)
             }
 
         private fun Context.isTrustedPrivateCapture(source: Intent?): Boolean {
@@ -221,6 +280,7 @@ class ScreenshotPreviewActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (!isChangingConfigurations) {
+            if (!sessionFinished) markSessionTerminal("cancelled")
             // FileProvider owns this app-private cache URI; system MediaStore screenshots are untouched.
             privateCaptureUri?.let { uri -> runCatching { contentResolver.delete(uri, null, null) } }
             privateCaptureUri = null
@@ -230,6 +290,18 @@ class ScreenshotPreviewActivity : ComponentActivity() {
             }
         }
         super.onDestroy()
+    }
+
+    private fun markSessionTerminal(status: String) {
+        val id = intakeSessionId ?: return
+        (application as SuiShouBanApp).applicationScope.launch {
+            AppDatabase.get(this@ScreenshotPreviewActivity).workflowDao().updateIntakeStatus(
+                id = id,
+                status = status,
+                workflowRunId = null,
+                updatedAt = OffsetDateTime.now().toString(),
+            )
+        }
     }
 }
 
@@ -242,16 +314,24 @@ private fun ScreenshotFloatingPanel(
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
     onRefineWithAi: (String) -> Unit,
+    onResolveOcr: (String) -> Unit,
     onManualAdd: () -> Unit,
+    teams: List<TeamSummary> = emptyList(),
+    teamMembers: List<TeamMemberOption> = emptyList(),
+    onSelectWorkspace: (String?) -> Unit = {},
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
     val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
+    val isReviewing = state.draftCards.isNotEmpty()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 6.dp)
-            .heightIn(max = maxHeight)
+            .then(
+                if (isReviewing) Modifier.height(maxHeight)
+                else Modifier.heightIn(max = maxHeight)
+            )
             .semantics { contentDescription = "screenshot-action-panel" },
         color = ComposeColor.White.copy(alpha = 0.97f),
         shape = RoundedCornerShape(30.dp),
@@ -290,6 +370,10 @@ private fun ScreenshotFloatingPanel(
                     onToggleDraft = onToggleDraft,
                     onSelectAll = onSelectAll,
                     onRefineWithAi = onRefineWithAi,
+                    onResolveOcr = onResolveOcr,
+                    teams = teams,
+                    teamMembers = teamMembers,
+                    onSelectWorkspace = onSelectWorkspace,
                     onConfirm = onConfirm,
                 )
             }
@@ -408,30 +492,136 @@ private fun DraftPane(
     onToggleDraft: (String) -> Unit,
     onSelectAll: () -> Unit,
     onRefineWithAi: (String) -> Unit,
+    onResolveOcr: (String) -> Unit,
+    teams: List<TeamSummary> = emptyList(),
+    teamMembers: List<TeamMemberOption> = emptyList(),
+    onSelectWorkspace: (String?) -> Unit = {},
     onConfirm: () -> Unit,
 ) {
     val selectedCount = state.selectedDraftIds.size
     val selectedCards = state.draftCards.filter { it.id in state.selectedDraftIds }
-    val canCreate = selectedCount > 0 && selectedCards.all { it.isReadyForCreation() }
+    val requiresOcrReview = state.workflowStatus == "awaiting_ocr_review"
+    val canCreate = selectedCount > 0 &&
+        !requiresOcrReview &&
+        selectedCards.all { it.isReadyForCreation() }
+    val selectedTeamMembers = state.draftTeamId
+        ?.let { teamId -> teamMembers.filter { it.teamId == teamId } }
+        .orEmpty()
+    var correctedOcrText by remember(state.traceId) { mutableStateOf(state.ocrText) }
+    val suggestedOcrText = remember(state.ocrText) { TextIntegrity.suggestOcrCorrection(state.ocrText) }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         LazyColumn(
-            modifier = Modifier.weight(1f, fill = false),
+            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (requiresOcrReview) {
+                item {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.38f),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.24f)),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                "识别文字需要复核",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "请修正错字或时间，再重新拆分事项。当前候选不会被保存。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedTextField(
+                                value = correctedOcrText,
+                                onValueChange = { correctedOcrText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 3,
+                                maxLines = 6,
+                                label = { Text("识别文字") },
+                            )
+                            if (suggestedOcrText != null && correctedOcrText != suggestedOcrText) {
+                                OutlinedButton(
+                                    onClick = { correctedOcrText = suggestedOcrText },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                ) {
+                                    Text("使用建议修正")
+                                }
+                            }
+                            Button(
+                                onClick = { onResolveOcr(correctedOcrText.trim()) },
+                                enabled = correctedOcrText.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                            ) {
+                                Text("应用修正并重新分析")
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 EvidenceSummary(state = state)
+            }
+            if (teams.isNotEmpty()) {
+                // Batch-level 归属 chip: one quiet control for the whole candidate list.
+                item {
+                    var menuOpen by remember { mutableStateOf(false) }
+                    val selectedLabel = teams.firstOrNull { it.id == state.draftTeamId }?.name ?: "个人"
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("归属", style = MaterialTheme.typography.labelMedium, color = Muted)
+                        Spacer(Modifier.width(8.dp))
+                        Box {
+                            NeutralPill(
+                                text = "$selectedLabel ▾",
+                                selected = state.draftTeamId != null,
+                                onClick = { menuOpen = true },
+                            )
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("个人") },
+                                    onClick = {
+                                        menuOpen = false
+                                        onSelectWorkspace(null)
+                                    },
+                                )
+                                teams.forEach { team ->
+                                    DropdownMenuItem(
+                                        text = { Text(team.name) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onSelectWorkspace(team.id)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (state.draftTeamSuggested && state.draftTeamId != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("AI 建议", style = MaterialTheme.typography.labelSmall, color = Muted)
+                        }
+                    }
+                }
             }
             items(state.draftCards, key = { it.id }) { card ->
                 val selected = card.id in state.selectedDraftIds
                 val candidateInfo = state.actionCandidates.firstOrNull { it.card.id == card.id }
+                val priorityVisual = visualForPriority(card.priority)
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = ComposeColor.White,
+                    color = priorityVisual.container,
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, if (selected) BrandBlue.copy(alpha = 0.42f) else Line),
+                    border = BorderStroke(
+                        if (selected) 2.dp else 1.dp,
+                        if (selected) priorityVisual.accent else priorityVisual.accent.copy(alpha = 0.34f),
+                    ),
                     shadowElevation = if (selected) 6.dp else 1.dp,
                 ) {
                     Column(
@@ -439,11 +629,21 @@ private fun DraftPane(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = selected, onCheckedChange = { onToggleDraft(card.id) })
+                            Checkbox(
+                                checked = selected,
+                                onCheckedChange = { onToggleDraft(card.id) },
+                                modifier = Modifier.semantics {
+                                    contentDescription = "选择候选：${card.title}"
+                                },
+                            )
                             Column(Modifier.weight(1f)) {
                                 Text(card.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    text = listOfNotNull(card.deadline ?: card.startTime, card.location, card.submitMethod)
+                                    text = listOfNotNull(
+                                        formatSmartTime(card.deadline ?: card.startTime),
+                                        card.location,
+                                        card.submitMethod,
+                                    )
                                         .joinToString(" · ")
                                         .ifBlank { "需要确认字段后创建" },
                                     style = MaterialTheme.typography.bodySmall,
@@ -454,6 +654,17 @@ private fun DraftPane(
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Surface(
+                                color = priorityVisual.accent.copy(alpha = 0.13f),
+                                shape = RoundedCornerShape(999.dp),
+                            ) {
+                                Text(
+                                    text = priorityVisual.label,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = priorityVisual.content,
+                                )
+                            }
                             Surface(
                                 color = BrandBlue.copy(alpha = 0.10f),
                                 shape = RoundedCornerShape(999.dp),
@@ -476,6 +687,24 @@ private fun DraftPane(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                     )
+                                }
+                            }
+                            if (state.draftTeamId != null) {
+                                val assigneeLabel = TeamWorkspacePolicy
+                                    .matchAssignee(card.assigneeId, selectedTeamMembers)?.nickname
+                                    ?: card.assigneeId?.trim()?.takeIf(String::isNotBlank)
+                                assigneeLabel?.let { label ->
+                                    Surface(
+                                        color = BrandBlue.copy(alpha = 0.10f),
+                                        shape = RoundedCornerShape(999.dp),
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = BrandBlue,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -561,6 +790,14 @@ private fun DraftPane(
                             .semantics { contentDescription = "AI 完善建议" },
                     )
                 }
+                state.teamPushError?.let { pushError ->
+                    Text(
+                        text = pushError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -584,7 +821,11 @@ private fun DraftPane(
                         Spacer(Modifier.height(0.dp))
                         Text(
                             text = if (!canCreate) {
-                                if (selectedCount == 0 && state.draftCards.isNotEmpty()) "选择后创建" else "补全后继续"
+                                when {
+                                    requiresOcrReview -> "先修正识别文字"
+                                    selectedCount == 0 && state.draftCards.isNotEmpty() -> "选择后创建"
+                                    else -> "补全后继续"
+                                }
                             } else if (state.draftCards.size > 1) {
                                 if (selectedCount == state.draftCards.size) "全部创建" else "只创建 $selectedCount 个"
                             } else {
@@ -684,6 +925,26 @@ private fun AiRefinementCard(
 
 @Composable
 private fun EvidenceSummary(state: AppUiState) {
+    val scene = (state.screenshotScenarioType ?: inferScenarioType(state.draftCards))?.let { scenarioLabel(it) }
+    val confidence = state.screenshotConfidenceBand?.let { confidenceLabel(it) }
+    val enhancementBadges = buildList {
+        when (state.modelEnhancementStatus) {
+            "succeeded" -> add("\u4e91\u7aef\u6a21\u578b\u5df2\u53c2\u4e0e")
+            "degraded" -> add("\u4e91\u7aef\u589e\u5f3a\u5df2\u964d\u7ea7")
+            "attempted" -> add("\u7b49\u5f85\u4e91\u7aef\u589e\u5f3a")
+        }
+        when (state.ocrEnhancementStatus) {
+            "succeeded" -> add("vivo OCR \u5df2\u53c2\u4e0e")
+            "degraded" -> add("vivo OCR \u5df2\u964d\u7ea7")
+        }
+    }
+    val evidenceItems = state.screenshotPrimaryEvidence
+        .filter(String::isNotBlank)
+        .take(3)
+    if (scene == null && confidence == null && enhancementBadges.isEmpty() && evidenceItems.isEmpty()) {
+        return
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = BrandBlue.copy(alpha = 0.08f),
@@ -694,19 +955,6 @@ private fun EvidenceSummary(state: AppUiState) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val scene = state.screenshotScenarioType?.let { scenarioLabel(it) }
-            val confidence = state.screenshotConfidenceBand?.let { confidenceLabel(it) }
-            val enhancementBadges = buildList {
-                when (state.modelEnhancementStatus) {
-                    "succeeded" -> add("\u4e91\u7aef\u6a21\u578b\u5df2\u53c2\u4e0e")
-                    "degraded" -> add("\u4e91\u7aef\u589e\u5f3a\u5df2\u964d\u7ea7")
-                    "attempted" -> add("\u7b49\u5f85\u4e91\u7aef\u589e\u5f3a")
-                }
-                when (state.ocrEnhancementStatus) {
-                    "succeeded" -> add("vivo OCR \u5df2\u53c2\u4e0e")
-                    "degraded" -> add("vivo OCR \u5df2\u964d\u7ea7")
-                }
-            }
             if (enhancementBadges.isNotEmpty()) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -743,7 +991,7 @@ private fun EvidenceSummary(state: AppUiState) {
                     )
                 }
             }
-            state.screenshotPrimaryEvidence.take(3).forEach { evidence ->
+            evidenceItems.forEach { evidence ->
                 Text(
                     text = "• $evidence",
                     style = MaterialTheme.typography.bodySmall,
@@ -752,14 +1000,18 @@ private fun EvidenceSummary(state: AppUiState) {
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            state.ocrArbitrationReason?.let {
-                Text(
-                    text = "OCR: $it",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
+    }
+}
+
+private fun inferScenarioType(cards: List<ActionCard>): String? {
+    val text = cards.joinToString(" ") { "${it.title} ${it.sourceText} ${it.location.orEmpty()}" }
+    return when {
+        cards.any { it.cardType == CardTypes.PROMISE } -> "chat_promise"
+        listOf("学习通", "作业", "课程", "实验报告", "考试").any { it in text } -> "course_notice"
+        listOf("报名", "报名表", "参赛").any { it in text } -> "registration"
+        listOf("会议", "汇报", "组会", "答辩").any { it in text } -> "meeting"
+        else -> null
     }
 }
 

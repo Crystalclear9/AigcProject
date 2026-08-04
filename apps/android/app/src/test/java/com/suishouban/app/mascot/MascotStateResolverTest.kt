@@ -18,7 +18,7 @@ class MascotStateResolverTest {
     fun urgentDeadlineWinsOverEveryOtherSignal() {
         val state = resolver.resolve(
             cards = listOf(
-                card(id = "urgent", deadline = "2026-07-19T07:59:00Z"),
+                card(id = "urgent", deadline = "2026-07-19T08:01:00Z"),
                 card(id = "draft", status = CardStatus.DRAFT),
             ),
             workflowStatus = "running",
@@ -108,14 +108,29 @@ class MascotStateResolverTest {
     }
 
     @Test
-    fun overdueDeadlineUsesUrgentMoodAndOverdueMessage() {
+    fun expiredDeadlineIsIgnoredWhenNoOtherTaskIsEligible() {
         val state = resolver.resolve(
             cards = listOf(card(id = "late", deadline = "2026-07-19T07:59:00Z")),
             workflowStatus = null,
         )
 
-        assertEquals(MascotMood.URGENT, state.mood)
-        assertEquals("late card 已逾期", state.userMessage)
+        assertEquals(MascotMood.IDLE, state.mood)
+        assertNull(state.actionCardId)
+    }
+
+    @Test
+    fun expiredDeadlineYieldsToHighestPriorityFutureTask() {
+        val state = resolver.resolve(
+            cards = listOf(
+                card(id = "expired", deadline = "2026-07-19T07:59:00Z", priority = Priority.HIGH),
+                card(id = "future-normal", deadline = "2026-07-22T08:00:00Z", priority = Priority.NORMAL),
+                card(id = "future-high", deadline = "2026-07-23T08:00:00Z", priority = Priority.HIGH),
+            ),
+            workflowStatus = null,
+        )
+
+        assertEquals(MascotMood.REMINDER, state.mood)
+        assertEquals("future-high", state.actionCardId)
     }
 
     @Test
@@ -176,13 +191,13 @@ class MascotStateResolverTest {
         val state = resolver.resolve(
             cards = listOf(
                 card(id = "high-future", deadline = "2026-07-21T08:00:00Z", priority = Priority.HIGH),
-                card(id = "normal-overdue", deadline = "2026-07-19T07:59:00Z", priority = Priority.NORMAL),
+                card(id = "normal-urgent", deadline = "2026-07-19T08:01:00Z", priority = Priority.NORMAL),
             ),
             workflowStatus = null,
         )
 
         assertEquals(MascotMood.URGENT, state.mood)
-        assertEquals("normal-overdue", state.actionCardId)
+        assertEquals("normal-urgent", state.actionCardId)
     }
 
     @Test

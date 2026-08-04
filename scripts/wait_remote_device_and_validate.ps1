@@ -1,5 +1,5 @@
 param(
-    [string]$Device = "val-vclinner-rt-contest.vivo.com.cn:37065",
+    [string]$Device = "",
     [string]$WorkflowUrl = "",
     [int]$MaxWaitMinutes = 30,
     [switch]$SkipBuild
@@ -19,6 +19,16 @@ if (-not $sdk) {
 }
 
 $adb = Join-Path $sdk "platform-tools\adb.exe"
+
+if (-not $Device) {
+    $online = @(& $adb devices | Select-Object -Skip 1 | ForEach-Object {
+        if ($_ -match '^([^\s]+)\s+device$') { $Matches[1] }
+    })
+    if ($online.Count -ne 1) {
+        throw "Expected exactly one online ADB device; found $($online.Count). Pass -Device explicitly."
+    }
+    $Device = $online[0]
+}
 $androidDir = Join-Path $env:USERPROFILE ".android"
 if (-not (Test-Path -LiteralPath $androidDir)) {
     New-Item -ItemType Directory -Path $androidDir | Out-Null
@@ -54,7 +64,11 @@ function Invoke-AdbRawWithTimeout {
 }
 
 function Get-AdbState {
-    $connect = (Invoke-AdbRawWithTimeout -Args @("connect", $Device) -TimeoutSeconds 12).Output
+    $connect = if ($Device -match ':') {
+        (Invoke-AdbRawWithTimeout -Args @("connect", $Device) -TimeoutSeconds 12).Output
+    } else {
+        "using connected USB device $Device"
+    }
     Start-Sleep -Seconds 2
     $stateResult = Invoke-AdbRawWithTimeout -Args @("-s", $Device, "get-state") -TimeoutSeconds 8
     $probeResult = Invoke-AdbRawWithTimeout -Args @("-s", $Device, "shell", "echo", "adb-ready") -TimeoutSeconds 8
@@ -112,7 +126,9 @@ while ([DateTimeOffset]::Now -lt $deadline) {
         & powershell @args
         exit $LASTEXITCODE
     }
-    if ($result.State -match "unauthorized" -and ($attempt -eq 3 -or $attempt % 12 -eq 0)) {
+    if ($result.State -match "unauthorized" -and $Device -notmatch ':') {
+        throw "USB device $Device is unauthorized. Approve this computer on the phone; local ADB keys were not deleted."
+    } elseif ($result.State -match "unauthorized" -and ($attempt -eq 3 -or $attempt % 12 -eq 0)) {
         Reset-AdbKeys
     } elseif ($result.State -match "offline|not found|closed|failed") {
         & $adb disconnect $Device | Out-Null

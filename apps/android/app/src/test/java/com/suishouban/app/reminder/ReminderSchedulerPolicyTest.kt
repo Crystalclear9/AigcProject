@@ -9,6 +9,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReminderSchedulerPolicyTest {
+    @Test
+    fun `combined wheel reminder keeps every unit`() {
+        assertEquals(
+            Duration.ofDays(1).plusHours(3).plusMinutes(30),
+            ReminderScheduler.offsetFor("截止前1天3小时30分钟"),
+        )
+    }
+
     private val now: OffsetDateTime = OffsetDateTime.parse("2026-06-16T12:00:00+08:00")
 
     @Test

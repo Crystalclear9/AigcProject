@@ -4,6 +4,7 @@ import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.content.Context
+import android.provider.OpenableColumns
 import com.suishouban.app.data.local.AppDatabase
 import com.suishouban.app.data.local.toDomain
 import com.suishouban.app.data.local.toEntity
@@ -17,18 +18,30 @@ import com.suishouban.app.data.remote.toDto
 import com.suishouban.app.data.remote.WorkflowResumeRequest
 import com.suishouban.app.data.remote.WorkflowReactRequest
 import com.suishouban.app.data.remote.OcrCandidateRequest
+import com.suishouban.app.data.remote.OcrBlockDto
+import com.suishouban.app.ocr.StructuredOcrResult
 import com.suishouban.app.data.remote.DraftFieldOperation
 import com.suishouban.app.data.remote.DraftPatchRequest
 import com.suishouban.app.data.remote.WorkflowEventEnvelope
 import com.suishouban.app.data.model.NodeTrace
+import com.suishouban.app.data.model.UserProfileContext
+import com.suishouban.app.data.remote.IntakeSessionResponseDto
+import com.suishouban.app.data.remote.IntakeConfirmRequestDto
 import com.suishouban.app.domain.ActionEnhancementInput
 import com.suishouban.app.domain.ActionEnhancer
 import com.suishouban.app.domain.LocalRuleActionEnhancer
+import com.suishouban.app.data.model.AiConnectionMode
+import com.suishouban.app.data.model.OcrEnhancementPolicy
+import com.suishouban.app.data.remote.DirectProviderClient
+import com.suishouban.app.domain.ocr.OcrCandidate
+import com.suishouban.app.domain.TextIntegrity
+import com.suishouban.app.domain.EvidenceSummaryComposer
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +64,8 @@ class ActionCardRepository(
     private val localEnhancer: ActionEnhancer = LocalRuleActionEnhancer()
     private val workflowPrefs = appContext.getSharedPreferences("workflow_runtime", Context.MODE_PRIVATE)
     private val gson = Gson()
+    private val providerSecrets = ProviderSecretStore(appContext)
+    private val directProvider = DirectProviderClient(appContext, providerSecrets)
 
     fun observeCards(
         type: String? = null,
@@ -66,22 +81,138 @@ class ActionCardRepository(
 
     fun observeAll(): Flow<List<ActionCard>> = dao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
-    suspend fun analyzeImage(uri: Uri, screenshotTime: String? = null): AnalyzeResult? {
-        if (!settingsRepository.settings.value.keepOriginalScreenshot) return null
+    suspend fun repairLegacySummaries(): Int {
+        var repaired = 0
+        dao.loadAll().forEach { row ->
+            val card = row.toDomain()
+            if (TextIntegrity.summaryQuality(card.summary).acceptable) return@forEach
+            val replacement = EvidenceSummaryComposer.compose(
+                title = card.title,
+                deadline = card.deadline,
+                startTime = card.startTime,
+                location = card.location,
+                materials = card.materials,
+                submitMethod = card.submitMethod,
+            )
+            if (replacement != card.summary) {
+                dao.updateSummary(card.id, replacement)
+                repaired += 1
+            }
+        }
+        return repaired
+    }
+
+    suspend fun analyzeImage(
+        uri: Uri,
+        screenshotTime: String? = null,
+        profileContext: UserProfileContext? = null,
+    ): AnalyzeResult? {
         val api = workflowApiOrNull() ?: return null
 
         return runCatching {
+            val imagePart = buildImagePart(uri)
+            intakeToResult(
+                api.startIntake(
+                    text = "".textPart(),
+                    sourceKind = "screenshot".textPart(),
+                    workspaceType = "personal".textPart(),
+                    roleTemplate = "action_analyst".textPart(),
+                    profileContext = gson.toJson(profileContext ?: emptyMap<String, String>())
+                        .toRequestBody(JSON_MEDIA_TYPE),
+                    files = listOf(imagePart),
+                )
+            )
+        }.recoverCatching {
             val imagePart = buildImagePart(uri)
             val timePart = screenshotTime?.toRequestBody("text/plain".toMediaType())
             responseToResult(api.startImageWorkflow(imagePart, timePart))
         }.getOrNull()
     }
 
-    suspend fun analyzeText(text: String, screenshotTime: String? = null, enginePrefix: String? = null): AnalyzeResult {
+    suspend fun analyzeFiles(
+        uris: List<Uri>,
+        sourceKind: String,
+        profileContext: UserProfileContext? = null,
+        workspaceType: String = "personal",
+    ): AnalyzeResult? {
+        if (uris.isEmpty()) return null
+        val api = workflowApiOrNull() ?: return null
+        val parts = uris.take(8).mapIndexed { index, uri -> buildIntakePart(uri, index) }
+        return runCatching {
+            intakeToResult(
+                api.startIntake(
+                    text = "".textPart(),
+                    sourceKind = sourceKind.textPart(),
+                    workspaceType = workspaceType.textPart(),
+                    roleTemplate = (
+                        if (workspaceType == "team") "team_coordinator" else "action_analyst"
+                        ).textPart(),
+                    profileContext = gson.toJson(profileContext ?: emptyMap<String, String>())
+                        .toRequestBody(JSON_MEDIA_TYPE),
+                    files = parts,
+                )
+            )
+        }.getOrNull()
+    }
+
+    suspend fun addIntakeAttachments(sessionId: String, uris: List<Uri>): AnalyzeResult {
+        require(uris.isNotEmpty()) { "请至少选择一个材料文件" }
+        val parts = uris.take(8).mapIndexed { index, uri -> buildIntakePart(uri, index) }
+        return intakeToResult(requireRemoteApi().addIntakeAttachments(sessionId, parts))
+    }
+
+    suspend fun analyzeText(
+        text: String,
+        screenshotTime: String? = null,
+        enginePrefix: String? = null,
+        profileContext: UserProfileContext? = null,
+        workspaceType: String = "personal",
+    ): AnalyzeResult {
+        val settings = settingsRepository.settings.value
+        if (settings.aiConnectionMode == AiConnectionMode.DIRECT_API && providerSecrets.hasApiKey()) {
+            val local = localEnhancer.enhance(
+                ActionEnhancementInput(
+                    ocrText = text,
+                    screenshotTime = screenshotTime,
+                    source = enginePrefix ?: "local",
+                )
+            )
+            val enhanced = runCatching {
+                directProvider.enhanceText(settings.providerProfile, text.cloudSafe())
+            }.getOrNull()
+            if (!enhanced.isNullOrEmpty()) {
+                return mergeDirectCandidates(local, enhanced).copy(
+                    engine = prefixEngine("direct-api+local-constraints", enginePrefix),
+                    route = "direct_enhancement",
+                    modelEnhancementStatus = "succeeded",
+                    warnings = local.warnings + "直接 API 只增强候选；完整 Agent 图需要 HTTPS Workflow 网关",
+                )
+            }
+            return local.copy(
+                engine = prefixEngine(local.engine, enginePrefix),
+                modelEnhancementStatus = "degraded",
+                warnings = local.warnings + "直接模型不可用，已保留本地规则结果",
+            )
+        }
         val api = workflowApiOrNull()
         if (api != null) {
             val remoteResult = runCatching {
-                val response = api.startTextWorkflow(AnalyzeScreenshotTextRequest(text.cloudSafe(), screenshotTime))
+                intakeToResult(
+                    api.startIntake(
+                        text = text.cloudSafe().textPart(),
+                        sourceKind = "text".textPart(),
+                        workspaceType = workspaceType.textPart(),
+                        roleTemplate = (
+                            if (workspaceType == "team") "team_coordinator" else "action_analyst"
+                            ).textPart(),
+                        profileContext = gson.toJson(profileContext ?: emptyMap<String, String>())
+                            .toRequestBody(JSON_MEDIA_TYPE),
+                    )
+                ).let { it.copy(engine = prefixEngine(it.engine, enginePrefix)) }
+            }.recoverCatching {
+                val response = api.startTextWorkflow(
+                    AnalyzeScreenshotTextRequest(text.cloudSafe(), screenshotTime)
+                )
                 responseToResult(response).copy(engine = prefixEngine(response.engine, enginePrefix))
             }.getOrNull()
             if (remoteResult != null) return remoteResult
@@ -117,9 +248,52 @@ class ActionCardRepository(
         )
     }
 
-    suspend fun submitOcrCandidate(runId: String, text: String): AnalyzeResult {
+    suspend fun submitOcrCandidate(
+        runId: String,
+        text: String,
+        structured: StructuredOcrResult? = null,
+    ): AnalyzeResult {
         val api = requireRemoteApi()
-        return responseToResult(api.submitOcrCandidate(runId, OcrCandidateRequest(text.cloudSafe())))
+        return responseToResult(
+            api.submitOcrCandidate(
+                runId,
+                OcrCandidateRequest(
+                    text = text.cloudSafe(),
+                    engine = structured?.let { "mlkit:${it.variant}" } ?: "mlkit",
+                    blocks = structured?.blocks?.map { block ->
+                        OcrBlockDto(
+                            id = block.id,
+                            text = block.text.cloudSafe(),
+                            left = block.left,
+                            top = block.top,
+                            right = block.right,
+                            bottom = block.bottom,
+                            readingOrder = block.readingOrder,
+                            pageIndex = block.pageIndex,
+                        )
+                    }.orEmpty(),
+                    arrivedAtMs = System.currentTimeMillis(),
+                    imageWidth = structured?.imageWidth,
+                    imageHeight = structured?.imageHeight,
+                    rotationDegrees = structured?.rotationDegrees ?: 0,
+                    variant = structured?.variant ?: "original",
+                ),
+            )
+        )
+    }
+
+    suspend fun resolveOcr(runId: String, correctedText: String): AnalyzeResult {
+        val api = requireRemoteApi()
+        return responseToResult(
+            api.resolveOcr(
+                runId,
+                OcrCandidateRequest(
+                    text = correctedText.cloudSafe(),
+                    engine = "user-corrected",
+                    confidence = 1.0,
+                ),
+            ),
+        )
     }
 
     suspend fun followWorkflow(runId: String, onUpdate: (AnalyzeResult) -> Unit): AnalyzeResult {
@@ -217,8 +391,19 @@ class ActionCardRepository(
             DraftPatchRequest(baseRevision = baseRevision, operations = operations),
         )
         val confirmed = api.confirmWorkflow(runId, com.suishouban.app.data.remote.ConfirmWorkflowRequest(patched.revision))
-        clearActiveWorkflow()
         return responseToResult(confirmed)
+    }
+
+    suspend fun confirmIntake(
+        sessionId: String,
+        revision: Int,
+        selectedCardIds: List<String>,
+    ): AnalyzeResult {
+        val response = requireRemoteApi().confirmIntake(
+            sessionId,
+            IntakeConfirmRequestDto(revision, selectedCardIds),
+        )
+        return intakeToResult(response)
     }
 
     suspend fun refineWithReact(
@@ -251,6 +436,10 @@ class ActionCardRepository(
     }
 
     suspend fun testConnection(): String {
+        val settings = settingsRepository.settings.value
+        if (settings.aiConnectionMode == AiConnectionMode.DIRECT_API) {
+            return directProvider.test(settings.providerProfile).message
+        }
         val api = remoteApiOrNull() ?: return "当前未配置 AI 增强服务，手机端 OCR、行动判定、卡片和提醒可用"
         val health = api.health()
         if (!health.ready) {
@@ -307,10 +496,38 @@ class ActionCardRepository(
             providerUsage = response.providerUsage.mapValues { it.value.toDomain() },
             modelEnhancementStatus = response.modelEnhancementStatus,
             ocrEnhancementStatus = response.ocrEnhancementStatus,
+            ocrQualityReport = response.ocrQualityReport?.toDomain(),
+            ocrReviewReasons = response.ocrReviewReasons,
             imageGenerationStatus = response.imageGenerationStatus,
             reactSuggestions = response.reactSuggestions,
+            agentContractVersion = response.agentContractVersion,
+            agentOutputs = response.agentOutputs,
         )
     }
+
+    private fun intakeToResult(response: IntakeSessionResponseDto): AnalyzeResult {
+        response.workflow?.let { workflow ->
+            return responseToResult(workflow).copy(
+                ocrText = response.canonicalText.ifBlank { workflow.ocrText },
+                warnings = response.warnings + workflow.warnings,
+            )
+        }
+        return AnalyzeResult(
+            ocrText = response.canonicalText,
+            cards = response.cards.map { it.toDomain() },
+            previewActions = emptyList(),
+            engine = "intake:${response.classification}",
+            traceId = response.workflowRunId ?: response.sessionId,
+            warnings = response.warnings,
+            workflowStatus = if (response.shouldCreateCards) "running" else "completed",
+            resultStage = if (response.shouldCreateCards) "provisional" else "final",
+            overallConfidence = response.classificationConfidence,
+            route = if (response.shouldCreateCards) "intake_graph" else "classification_only",
+        )
+    }
+
+    private fun String.textPart(): RequestBody =
+        toRequestBody("text/plain; charset=utf-8".toMediaType())
 
     private fun editableFields(card: ActionCard): List<Pair<String, Any?>> = listOf(
         "card_type" to card.cardType,
@@ -336,6 +553,38 @@ class ActionCardRepository(
         val bytes = readCompressedJpeg(uri)
         val body = bytes.toRequestBody("image/jpeg".toMediaType())
         return MultipartBody.Part.createFormData("image", "screenshot.jpg", body)
+    }
+
+    private fun buildIntakePart(uri: Uri, index: Int): MultipartBody.Part {
+        val resolver = appContext.contentResolver
+        val declaredMime = resolver.getType(uri).orEmpty()
+        val (bytes, mime, fallbackName) = if (declaredMime.startsWith("image/")) {
+            Triple(readCompressedJpeg(uri), "image/jpeg", "image-$index.jpg")
+        } else {
+            val data = resolver.openInputStream(uri)?.use { input ->
+                input.readNBytes(MAX_INTAKE_FILE_BYTES + 1)
+            } ?: error("Unable to read attachment")
+            require(data.size <= MAX_INTAKE_FILE_BYTES) { "Attachment exceeds 15 MB" }
+            Triple(
+                data,
+                declaredMime.ifBlank { "application/octet-stream" },
+                "attachment-$index",
+            )
+        }
+        val displayName = resolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }.orEmpty().ifBlank { fallbackName }
+        return MultipartBody.Part.createFormData(
+            "files",
+            displayName,
+            bytes.toRequestBody(mime.toMediaType()),
+        )
     }
 
     private fun readCompressedJpeg(uri: Uri): ByteArray {
@@ -384,6 +633,44 @@ class ActionCardRepository(
         return SaveConfirmedResult(confirmed, syncError)
     }
 
+    /**
+     * Persists the user's complete selection in one Room transaction before any
+     * remote acknowledgement. Replaying the same card ids is intentionally
+     * idempotent, so a killed process can safely retry the confirmation flow.
+     */
+    suspend fun persistConfirmedBatch(cards: List<ActionCard>): List<ActionCard> {
+        val confirmed = cards.map { card ->
+            card.safeForLocalStorage().copy(status = CardStatus.CONFIRMED)
+        }
+        dao.upsertAll(confirmed.map(ActionCard::toEntity))
+        return confirmed
+    }
+
+    /**
+     * Team-destined confirmation: teammates only see cards that reach the server, so each card
+     * is POSTed first (the server resolves plain-name assignees to member user ids) and the
+     * server's copy is what lands in Room. Best-effort per card — but when every POST fails the
+     * whole batch is rejected (returns null, nothing persisted) so team cards are never silently
+     * created only locally.
+     */
+    suspend fun persistConfirmedTeamBatch(cards: List<ActionCard>): List<ActionCard>? {
+        val api = remoteApiOrNull() ?: return null
+        val confirmed = cards.map { card ->
+            card.safeForLocalStorage().copy(status = CardStatus.CONFIRMED)
+        }
+        val pushed = confirmed.map { card ->
+            withTimeoutOrNull(TEAM_CARD_PUSH_TIMEOUT_MILLIS) {
+                runCatching { api.createCard(card.safeForCloud().toDto()).toDomain() }.getOrNull()
+            }
+        }
+        if (pushed.all { it == null }) return null
+        val toPersist = confirmed.mapIndexed { index, local ->
+            (pushed[index] ?: local).copy(status = CardStatus.CONFIRMED)
+        }
+        dao.upsertAll(toPersist.map(ActionCard::toEntity))
+        return toPersist
+    }
+
     suspend fun saveDraft(card: ActionCard) {
         dao.upsert(card.safeForLocalStorage().toEntity())
     }
@@ -391,12 +678,67 @@ class ActionCardRepository(
     suspend fun update(card: ActionCard) {
         val safeCard = card.safeForLocalStorage()
         dao.upsert(safeCard.toEntity())
-        remoteApiOrNull()?.let { api -> runCatching { api.updateCard(safeCard.id, safeCard.safeForCloud().toDto()) } }
+        remoteApiOrNull()?.let { api ->
+            runCatching {
+                api.updateCard(
+                    safeCard.id,
+                    safeCard.safeForCloud().toDto(),
+                    settingsRepository.settings.value.localUserId,
+                )
+            }
+        }
+    }
+
+    /** Team edits are remote-first so Room never advertises a change rejected by the server. */
+    suspend fun updateTeamCard(card: ActionCard): Result<ActionCard> {
+        if (card.workspaceType != "team") {
+            return Result.failure(IllegalArgumentException("只能通过该接口修改团队任务"))
+        }
+        val api = remoteApiOrNull()
+            ?: return Result.failure(IllegalStateException(TeamRepository.GATEWAY_UNAVAILABLE_MESSAGE))
+        val userId = settingsRepository.settings.value.localUserId
+        if (userId.isBlank()) {
+            return Result.failure(IllegalStateException("本地账号身份不可用"))
+        }
+        return runCatching {
+            val remote = api.updateCard(
+                card.id,
+                card.safeForCloud().toDto(),
+                userId,
+            ).toDomain().safeForLocalStorage()
+            dao.upsert(remote.toEntity())
+            remote
+        }
+    }
+
+    suspend fun replan(card: ActionCard, changedFields: List<String>): ActionCard? {
+        val api = remoteApiOrNull() ?: return null
+        val request = com.suishouban.app.data.remote.CardReplanRequestDto(
+            changedFields = changedFields.distinct(),
+            priorityMode = card.priorityMode,
+            manualPriority = card.priority.takeIf { card.priorityLocked },
+            importance = when (card.priority) {
+                "high" -> 0.85
+                "low" -> 0.25
+                else -> 0.5
+            },
+            blockedDependents = card.dependencies.size,
+            teamImpact = if (card.workspaceType == "team") 0.7 else 0.0,
+        )
+        return runCatching {
+            api.replanCard(
+                card.id,
+                request,
+                settingsRepository.settings.value.localUserId,
+            ).card.toDomain()
+        }.getOrNull()
     }
 
     suspend fun complete(id: String) {
         dao.updateStatus(id, CardStatus.DONE)
-        remoteApiOrNull()?.let { api -> runCatching { api.completeCard(id) } }
+        remoteApiOrNull()?.let { api ->
+            runCatching { api.completeCard(id, settingsRepository.settings.value.localUserId) }
+        }
     }
 
     suspend fun archive(id: String) {
@@ -404,22 +746,73 @@ class ActionCardRepository(
     }
 
     suspend fun syncFromServer() {
-        val cards = requireRemoteApi()
-            .listCards()
-            .map { it.toDomain().toEntity() }
-        dao.upsertAll(cards)
+        upsertServerCards(requireRemoteApi().listCards().map { it.toDomain() })
+    }
+
+    /**
+     * Shared server→Room upsert used by full card sync and team summary polling, so both paths go
+     * through the same DTO→domain→entity mapping.
+     */
+    suspend fun upsertServerCards(cards: List<ActionCard>) {
+        if (cards.isEmpty()) return
+        dao.upsertAll(cards.map(ActionCard::toEntity))
     }
 
     private fun workflowApiOrNull(): com.suishouban.app.data.remote.SuiShouBanApi? {
         val settings = settingsRepository.settings.value
-        if (!settings.preferCloudModel) return null
+        if (settings.aiConnectionMode != AiConnectionMode.WORKFLOW_GATEWAY || !settings.preferCloudModel) return null
         return remoteApiOrNull(settings)
     }
 
     private fun remoteApiOrNull(settings: AppSettings = settingsRepository.settings.value): com.suishouban.app.data.remote.SuiShouBanApi? {
+        if (settings.aiConnectionMode != AiConnectionMode.WORKFLOW_GATEWAY) return null
         val baseUrl = WorkflowUrlPolicy.normalize(settings.apiBaseUrl) ?: return null
         return ApiFactory.create(baseUrl)
     }
+
+    suspend fun recognizeImageDirect(uri: Uri): OcrCandidate? {
+        val settings = settingsRepository.settings.value
+        if (settings.aiConnectionMode != AiConnectionMode.DIRECT_API ||
+            settings.ocrEnhancementPolicy == OcrEnhancementPolicy.LOCAL_ONLY ||
+            !providerSecrets.hasApiKey()
+        ) return null
+        return runCatching {
+            directProvider.recognize(settings.providerProfile, uri)
+        }.getOrNull()?.takeIf { it.text.isNotBlank() }
+    }
+
+    private fun mergeDirectCandidates(local: AnalyzeResult, remote: List<ActionCard>): AnalyzeResult {
+        val remaining = remote.toMutableList()
+        val merged = local.cards.mapIndexed { index, card ->
+            val candidate = remaining.firstOrNull { remoteCard ->
+                normalizeTitle(remoteCard.title).let { remoteTitle ->
+                    remoteTitle == normalizeTitle(card.title) ||
+                        remoteTitle.contains(normalizeTitle(card.title)) ||
+                        normalizeTitle(card.title).contains(remoteTitle)
+                }
+            } ?: remaining.getOrNull(index)
+            if (candidate == null) return@mapIndexed card
+            remaining.remove(candidate)
+            card.copy(
+                summary = TextIntegrity.chooseBetterSummary(card.summary, candidate.summary),
+                deadline = card.deadline ?: candidate.deadline,
+                startTime = card.startTime ?: candidate.startTime,
+                endTime = card.endTime ?: candidate.endTime,
+                location = card.location ?: candidate.location,
+                materials = card.materials.ifEmpty { candidate.materials },
+                submitMethod = card.submitMethod ?: candidate.submitMethod,
+                evidenceSummary = (card.evidenceSummary + candidate.evidenceSummary).distinct(),
+                needConfirm = (card.needConfirm + candidate.needConfirm).distinct(),
+            )
+        }
+        val appended = remaining.filter { candidate ->
+            candidate.title.isNotBlank() && candidate.evidenceSummary.any { it in candidate.sourceText }
+        }
+        return local.copy(cards = merged + appended)
+    }
+
+    private fun normalizeTitle(value: String): String = value.lowercase()
+        .replace(Regex("""[\s\p{Punct}\p{S}]+"""), "")
 
     private fun requireRemoteApi(): com.suishouban.app.data.remote.SuiShouBanApi {
         return remoteApiOrNull() ?: error("未配置云端增强端点")
@@ -442,11 +835,23 @@ class ActionCardRepository(
     }
 
     private fun ActionCard.safeForLocalStorage(): ActionCard {
-        return if (settingsRepository.settings.value.privacyMask) {
-            copy(sourceText = sourceText.maskSensitiveText())
-        } else {
-            this
-        }
+        val composed = EvidenceSummaryComposer.compose(
+            title = title,
+            deadline = deadline,
+            startTime = startTime,
+            location = location,
+            materials = materials,
+            submitMethod = submitMethod,
+        )
+        val safeSummary = TextIntegrity.chooseBetterSummary(composed, summary)
+        return copy(
+            summary = safeSummary,
+            sourceText = if (settingsRepository.settings.value.privacyMask) {
+                sourceText.maskSensitiveText()
+            } else {
+                sourceText
+            },
+        )
     }
 
 }
@@ -469,3 +874,6 @@ private val snapshotRequiredEvents = setOf(
     "completed",
     "failed",
 )
+private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+private const val MAX_INTAKE_FILE_BYTES = 15 * 1024 * 1024
+private const val TEAM_CARD_PUSH_TIMEOUT_MILLIS = 6_000L

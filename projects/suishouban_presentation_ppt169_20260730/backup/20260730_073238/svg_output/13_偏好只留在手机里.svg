@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 900 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">莫斐记住的偏好，只留在手机里</text>
+    <text x="64" y="136" font-size="24" fill="#182033">个性化不等于上传完整画像。</text>
+  </g>
+  <g id="privacy-phone-boundary" data-pptx-bounds="196 176 660 446">
+    <rect x="196" y="176" width="660" height="446" rx="58" fill="#EAF2FF" stroke="#1748B8" stroke-width="5"/>
+    <rect x="442" y="188" width="168" height="18" rx="9" fill="#1748B8"/>
+    <text x="236" y="228" font-size="18" font-weight="700" fill="#1748B8">仅保存在本机</text>
+  </g>
+  <g id="preference-teacher" data-pptx-bounds="242 246 352 76">
+    <line x1="242" y1="314" x2="594" y2="314" stroke="#BFD0EE" stroke-width="2"/>
+    <text x="242" y="280" font-size="24" fill="#182033">张老师的作业</text>
+    <text x="594" y="280" text-anchor="end" font-size="24" font-weight="700" fill="#2F6BFF">周日 23:59</text>
+  </g>
+  <g id="preference-reminder" data-pptx-bounds="242 336 352 76">
+    <line x1="242" y1="404" x2="594" y2="404" stroke="#BFD0EE" stroke-width="2"/>
+    <text x="242" y="370" font-size="24" fill="#182033">课程任务</text>
+    <text x="594" y="370" text-anchor="end" font-size="24" font-weight="700" fill="#2F6BFF">提前 1 天提醒</text>
+  </g>
+  <g id="preference-place" data-pptx-bounds="242 426 352 76">
+    <line x1="242" y1="494" x2="594" y2="494" stroke="#BFD0EE" stroke-width="2"/>
+    <text x="242" y="460" font-size="24" fill="#182033">常用地点</text>
+    <text x="594" y="460" text-anchor="end" font-size="24" font-weight="700" fill="#2F6BFF">三教 201</text>
+  </g>
+  <g id="mofei-guard" data-pptx-bounds="590 260 246 250">
+    <image href="../images/mofei_guard.png" x="590" y="260" width="246" height="250" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="local-preference-scope" data-pptx-bounds="236 520 584 72">
+    <line x1="236" y1="526" x2="820" y2="526" stroke="#BFD0EE" stroke-width="2"/>
+    <text x="236" y="560" font-size="18" font-weight="700" fill="#1748B8">本地保存范围</text>
+    <text x="366" y="560" font-size="18" fill="#182033">常用时间 · 提醒方式 · 地点偏好 · 标签模板</text>
+  </g>
+  <g id="cloud-boundary" data-pptx-bounds="912 246 288 236">
+    <path d="M968 350 C968 315 994 290 1028 290 C1044 258 1092 252 1116 286 C1156 284 1184 312 1184 350 C1184 388 1158 412 1120 412 H1008 C974 412 948 388 948 356 C948 354 948 352 948 350 Z" fill="#FFFFFF" stroke="#7A8190" stroke-width="3" stroke-dasharray="10 8"/>
+    <text x="1066" y="350" text-anchor="middle" font-size="24" font-weight="700" fill="#7A8190">云端</text>
+    <text x="1066" y="388" text-anchor="middle" font-size="18" fill="#7A8190">只补充复杂信息</text>
+    <line x1="856" y1="360" x2="948" y2="360" stroke="#7A8190" stroke-width="3" stroke-dasharray="8 8" opacity="0.55"/>
+  </g>
+  <g id="privacy-takeaway" data-pptx-bounds="914 510 286 92">
+    <rect x="914" y="510" width="286" height="92" rx="18" fill="#1748B8"/>
+    <text x="1057" y="548" text-anchor="middle" font-size="18" fill="#CFE0FF">边界清晰</text>
+    <text x="1057" y="580" text-anchor="middle" font-size="24" font-weight="700" fill="#FFFFFF">云端不获取完整画像</text>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">13</text></g>
+</svg>

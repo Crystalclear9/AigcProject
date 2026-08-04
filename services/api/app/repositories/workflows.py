@@ -472,6 +472,42 @@ class WorkflowRepository:
                 (run_id, owner),
             )
 
+    def input_path_for_run(self, run_id: str) -> str | None:
+        with _connection_lock, _connect() as conn:
+            row = conn.execute(
+                "SELECT input_path FROM workflow_jobs WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        if row is None or row["input_path"] is None:
+            return None
+        return str(row["input_path"])
+
+    def clear_input_path(self, run_id: str, expected_path: str) -> bool:
+        with _connection_lock, _connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE workflow_jobs SET input_path=NULL
+                WHERE run_id=? AND input_path=?
+                """,
+                (run_id, expected_path),
+            )
+            return cursor.rowcount == 1
+
+    def input_path_records(self) -> list[tuple[str, str, str]]:
+        with _connection_lock, _connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT jobs.run_id, runs.status, jobs.input_path
+                FROM workflow_jobs jobs
+                JOIN workflow_runs runs ON runs.run_id=jobs.run_id
+                WHERE jobs.input_path IS NOT NULL
+                """
+            ).fetchall()
+        return [
+            (str(row["run_id"]), str(row["status"]), str(row["input_path"]))
+            for row in rows
+        ]
+
     def recoverable_jobs(self) -> list[tuple[str, str | None]]:
         now = _now().isoformat()
         with _connection_lock, _connect() as conn:
@@ -577,6 +613,8 @@ class WorkflowRepository:
             field_conflicts=state.get("field_conflicts", []),
             agent_plan=state.get("agent_plan"),
             agent_tasks=state.get("agent_task_results", []),
+            agent_contract_version=state.get("agent_contract_version", "agent-contract-v2"),
+            agent_outputs=state.get("agent_outputs", []),
             unresolved_evidence=state.get("unresolved_evidence", []),
             budget_usage=state.get("budget_usage", {}),
             retrieval_sources=state.get("retrieval_sources", []),
@@ -585,6 +623,8 @@ class WorkflowRepository:
             provider_usage=provider_usage,
             model_enhancement_status=state.get("model_enhancement_status") or model_status,
             ocr_enhancement_status=state.get("ocr_enhancement_status") or ocr_status,
+            ocr_quality_report=state.get("ocr_quality_report"),
+            ocr_review_reasons=state.get("ocr_review_reasons", []),
             image_generation_status=state.get("image_generation_status") or image_generation_status,
             react_session=state.get("react_session"),
             react_suggestions=state.get("react_suggestions", []),

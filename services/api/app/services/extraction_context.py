@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.schemas.card import ActionCard
+from app.services.text_integrity import sanitize_summary, summary_needs_rewrite
 
 NOISE_PATTERNS = [
     r"^\d{1,2}:\d{2}$",
@@ -15,11 +16,11 @@ NOISE_PATTERNS = [
 ]
 
 NOISE_TOKENS = {
-    "发送",
-    "群文件",
     "撤回了一条消息",
     "按住说话",
     "输入消息",
+    "发送",
+    "群文件",
     "转发",
     "收藏",
 }
@@ -169,14 +170,14 @@ def build_summary(
         parts = [title_text, material_text]
 
     summary = "".join(part for part in parts if part)
-    if len(summary) < 10:
+    if len(summary) < 4:
         summary = _best_sentence(source)
     return _trim_summary(summary)
 
 
 def should_rewrite_summary(summary: Any, source_text: str) -> bool:
     value = str(summary or "").strip()
-    if not value or len(value) > 80:
+    if not value or len(value) > 80 or summary_needs_rewrite(value):
         return True
     normalized_value = _compact(value)
     normalized_source = _compact(source_text)
@@ -235,7 +236,7 @@ def _is_noise_line(line: str) -> bool:
         return True
     if len(compact) <= 2 and not re.search(r"[年月日周点:：]|[\u4e00-\u9fff]{2}", compact):
         return True
-    if any(token in compact for token in NOISE_TOKENS):
+    if any(compact == _compact(token) for token in NOISE_TOKENS):
         return True
     return any(re.search(pattern, compact, flags=re.I) for pattern in NOISE_PATTERNS)
 
@@ -267,7 +268,7 @@ def _find_locations(text: str) -> list[str]:
         r"在\s*([^，。；\n]{2,40})(?:集合|开会|参加|签到|考试|召开|举行)",
     ]:
         locations.extend(match.group(1).strip() for match in re.finditer(pattern, text))
-    for token in ["学习通", "官网", "邮箱", "腾讯会议", "Zoom"]:
+    for token in ["学习通", "雨课堂", "官网", "邮箱", "腾讯会议", "群文件", "飞书", "Moodle", "Zoom"]:
         if token in text:
             locations.append(token)
     return _unique_keep_order(locations)
@@ -326,7 +327,7 @@ def _compact_time(value: str | None) -> str | None:
 
 
 def _trim_summary(value: str) -> str:
-    text = re.sub(r"\s+", " ", value).strip(" ，,。")
+    text = sanitize_summary(re.sub(r"\s+", " ", value)).strip(" ，,。")
     return text[:60]
 
 

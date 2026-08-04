@@ -18,9 +18,11 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TaskAlt
@@ -28,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -40,13 +43,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.data.repository.LatestScreenshotRepository
-import com.suishouban.app.capture.MofeiScreenCaptureActivity
+import com.suishouban.app.capture.InAppScreenshotCapture
+import com.suishouban.app.capture.InAppScreenshotResult
 import com.suishouban.app.capture.ScreenCaptureImageWriter
 import com.suishouban.app.mascot.FloatingMascot
 import com.suishouban.app.mascot.MascotOverlayService
@@ -64,11 +72,17 @@ import com.suishouban.app.ui.screens.CalendarScreen
 import com.suishouban.app.ui.screens.CardsScreen
 import com.suishouban.app.ui.screens.HomeScreen
 import com.suishouban.app.ui.screens.ImportScreen
+import com.suishouban.app.ui.screens.OnboardingScreen
 import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
+import com.suishouban.app.ui.screens.TeamDetailScreen
+import com.suishouban.app.ui.screens.TeamScreen
+import com.suishouban.app.ui.theme.BrandBlue
+import com.suishouban.app.ui.theme.MistBlue
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
@@ -76,6 +90,7 @@ import kotlinx.coroutines.launch
 private data class OverlayNavigation(
     val actionCardId: String? = null,
     val mofeiAction: MofeiAction? = null,
+    val destinationRoute: String? = null,
     val requestId: Long = 0L,
 )
 
@@ -94,6 +109,17 @@ class MainActivity : ComponentActivity() {
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                val teamState by viewModel.teamUiState.collectAsStateWithLifecycle()
+                val teamMemberOptions by viewModel.teamMemberOptions.collectAsStateWithLifecycle()
+                val milestoneMarks by viewModel.milestoneMarks.collectAsStateWithLifecycle()
+                val systemReduceMotion = remember {
+                    Settings.Global.getFloat(
+                        contentResolver,
+                        Settings.Global.ANIMATOR_DURATION_SCALE,
+                        1f,
+                    ) == 0f
+                }
+                val reduceMotion = state.settings.reduceMascotMotion || systemReduceMotion
                 val mascotState by viewModel.mascotState.collectAsStateWithLifecycle()
                 val notificationCandidates by viewModel.notificationCandidates.collectAsStateWithLifecycle()
                 val pendingNotificationCandidates by viewModel.pendingNotificationCandidateCount.collectAsStateWithLifecycle()
@@ -131,17 +157,20 @@ class MainActivity : ComponentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
                     if (uri != null) {
-                        viewModel.analyzeImage(uri) { hasCards ->
-                            if (hasCards) current = Screen.Preview.route
-                        }
+                        current = Screen.Preview.route
+                        viewModel.analyzeImage(uri)
                     }
+                }
+                val intakeMaterialsLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenMultipleDocuments(),
+                ) { uris ->
+                    if (uris.isNotEmpty()) viewModel.addMaterialsToActiveIntake(uris)
                 }
                 val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
                     val uri = pendingCameraUri
                     if (captured && uri != null) {
-                        viewModel.analyzeImage(uri) { hasCards ->
-                            if (hasCards) current = Screen.Preview.route
-                        }
+                        current = Screen.Preview.route
+                        viewModel.analyzeImage(uri)
                     }
                     pendingCameraUri = null
                 }
@@ -169,9 +198,23 @@ class MainActivity : ComponentActivity() {
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                         MofeiActionCommand.LaunchCamera -> launchCameraCapture()
-                        MofeiActionCommand.RequestScreenCapture -> startActivity(
-                            MofeiScreenCaptureActivity.intent(this@MainActivity),
-                        )
+                        MofeiActionCommand.RequestScreenCapture -> actionScope.launch {
+                            // Let the action ring collapse before taking one app-window screenshot.
+                            delay(IN_APP_SCREENSHOT_SETTLE_MILLIS)
+                            when (val result = InAppScreenshotCapture.capture(this@MainActivity)) {
+                                is InAppScreenshotResult.Success -> startActivity(
+                                    ScreenshotPreviewActivity.captureIntent(
+                                        context = this@MainActivity,
+                                        uri = result.uri,
+                                    ),
+                                )
+                                is InAppScreenshotResult.Failure -> Toast.makeText(
+                                    this@MainActivity,
+                                    result.message,
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
                         MofeiActionCommand.OpenLatestScreenshot -> actionScope.launch {
                             val uri = latestScreenshotRepository.findLatest()
                             latestScreenshotUri = uri
@@ -182,9 +225,8 @@ class MainActivity : ComponentActivity() {
                                     Toast.LENGTH_SHORT,
                                 ).show()
                             } else {
-                                viewModel.analyzeImage(uri) { hasCards ->
-                                    if (hasCards) current = Screen.Preview.route
-                                }
+                                current = Screen.Preview.route
+                                viewModel.analyzeImage(uri)
                             }
                         }
                         MofeiActionCommand.OpenNotificationDrafts -> {
@@ -245,6 +287,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(requestedOverlayNavigation.requestId) {
+                    requestedOverlayNavigation.destinationRoute?.let { current = it }
                     requestedOverlayNavigation.mofeiAction?.let { action ->
                         executeMofeiCommand(
                             MofeiActionCommand.forAction(action, requestedOverlayNavigation.actionCardId),
@@ -252,18 +295,42 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                Box(Modifier.fillMaxSize()) {
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
-                        NavigationBar {
+                        NavigationBar(
+                            modifier = Modifier.shadow(
+                                elevation = 18.dp,
+                                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                                clip = false,
+                                ambientColor = BrandBlue.copy(alpha = 0.18f),
+                                spotColor = BrandBlue.copy(alpha = 0.18f),
+                            ),
+                            containerColor = Color.White,
+                            tonalElevation = 0.dp,
+                        ) {
                             bottomScreens.forEach { screen ->
+                                val selected = current == screen.route
                                 NavigationBarItem(
-                                    selected = current == screen.route,
+                                    selected = selected,
                                     onClick = { current = screen.route },
                                     icon = { Icon(screen.icon, contentDescription = screen.label) },
-                                    label = { Text(screen.label) },
+                                    label = {
+                                        Text(
+                                            screen.label,
+                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = BrandBlue,
+                                        selectedTextColor = BrandBlue,
+                                        indicatorColor = MistBlue,
+                                        unselectedIconColor = Color(0xFF77839B),
+                                        unselectedTextColor = Color(0xFF77839B),
+                                    ),
                                 )
                             }
                         }
@@ -275,14 +342,16 @@ class MainActivity : ComponentActivity() {
                             Screen.Import.route -> ImportScreen(
                                 state = state,
                                 onPickImage = { uri ->
-                                    viewModel.analyzeImage(uri) { hasCards ->
-                                        if (hasCards) current = Screen.Preview.route
-                                    }
+                                    current = Screen.Preview.route
+                                    viewModel.analyzeImage(uri)
+                                },
+                                onPickFiles = { uris ->
+                                    current = Screen.Preview.route
+                                    viewModel.analyzeFiles(uris)
                                 },
                                 onAnalyzeText = { text ->
-                                    viewModel.analyzeText(text) { hasCards ->
-                                        if (hasCards) current = Screen.Preview.route
-                                    }
+                                    current = Screen.Preview.route
+                                    viewModel.analyzeText(text)
                                 },
                                 onPreview = { current = Screen.Preview.route },
                                 mascotState = mascotState,
@@ -291,9 +360,28 @@ class MainActivity : ComponentActivity() {
                                 state = state,
                                 onUpdateDraft = viewModel::updateDraft,
                                 onRemoveDraft = viewModel::removeDraft,
+                                onToggleDraftSelection = viewModel::toggleDraftSelection,
+                                onSelectAllDrafts = viewModel::selectAllDrafts,
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
+                                teams = teamState.teams,
+                                teamMembers = teamMemberOptions,
+                                onSelectWorkspace = viewModel::setDraftWorkspace,
+                                onAddMaterials = {
+                                    intakeMaterialsLauncher.launch(
+                                        arrayOf(
+                                            "application/pdf",
+                                            "text/plain",
+                                            "text/markdown",
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            "image/jpeg",
+                                            "image/png",
+                                        )
+                                    )
+                                },
                             )
                             Screen.Cards.route -> CardsScreen(
                                 state = state,
@@ -302,19 +390,65 @@ class MainActivity : ComponentActivity() {
                                 onArchive = viewModel::archiveCard,
                                 onImport = { current = Screen.Import.route },
                                 highlightCardId = requestedOverlayNavigation.actionCardId,
+                                teamNames = teamState.teams.associate { it.id to it.name },
                             )
                             Screen.Calendar.route -> CalendarScreen(
                                 state = state,
                                 onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
+                                milestones = milestoneMarks,
                             )
+                            Screen.Team.route -> {
+                                // Simple two-level navigation: null shows the team list, an id
+                                // opens that team's detail. System back is handled inside detail.
+                                var openTeamId by rememberSaveable { mutableStateOf<String?>(null) }
+                                val openedTeamId = openTeamId
+                                if (openedTeamId == null) {
+                                    TeamScreen(
+                                        state = teamState,
+                                        onSaveNickname = viewModel::saveNickname,
+                                        onCreateTeam = viewModel::createTeam,
+                                        onJoinTeam = viewModel::joinTeam,
+                                        onRefresh = viewModel::refreshTeams,
+                                        onOpenTeam = { openTeamId = it },
+                                    )
+                                } else {
+                                    val teamDetail by viewModel.teamDetailState.collectAsStateWithLifecycle()
+                                    TeamDetailScreen(
+                                        teamId = openedTeamId,
+                                        teamRow = teamState.teams.firstOrNull { it.id == openedTeamId },
+                                        detail = teamDetail,
+                                        teamCards = state.cards.filter {
+                                            it.workspaceType == "team" && it.workspaceId == openedTeamId
+                                        },
+                                        myUserId = state.settings.localUserId,
+                                        reduceMotion = reduceMotion,
+                                        onBack = { openTeamId = null },
+                                        onStartPolling = viewModel::startTeamPolling,
+                                        onStopPolling = viewModel::stopTeamPolling,
+                                        onRefresh = viewModel::refreshTeamSummary,
+                                        onRename = viewModel::renameTeam,
+                                        onDissolve = viewModel::dissolveTeam,
+                                        onCreateGoal = viewModel::createTeamGoal,
+                                        onConfirmGoal = viewModel::confirmTeamGoal,
+                                        onExtractGoalSeed = viewModel::extractGoalSeed,
+                                        onUpdateTask = viewModel::updateTeamTask,
+                                    )
+                                }
+                            }
                             Screen.Settings.route -> SettingsScreen(
                                 state = state,
+                                onBack = { current = Screen.Home.route },
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
+                                onSaveProviderApiKey = viewModel::saveProviderApiKey,
+                                onClearProviderApiKey = viewModel::clearProviderApiKey,
                                 mascotState = mascotState,
                                 notificationAccessGranted = notificationAccessGranted,
                                 notificationApps = notificationApps,
+                                onClearInferredProfile = viewModel::clearInferredProfile,
+                                onResetUserProfile = viewModel::resetUserProfile,
                                 onOpenNotificationAccessSettings = {
                                     runCatching {
                                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -353,13 +487,22 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
+                                onSettings = { current = Screen.Settings.route },
                                 onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
                             )
                         }
                         }
                         // Resident in-app pet: always visible (no permission), above content and below
                         // the navigation bar. Distinct from the simpler system-edge capsule overlay.
-                        if (state.settings.mascotInAppEnabled) {
+                        // Home already has a full-size, animated Mofei in its hero. Rendering the
+                        // draggable companion there as well obscures the workflow strip on common
+                        // phone sizes. Keep the companion available on every working screen.
+                        if (
+                            state.settings.onboardingSeen &&
+                            state.settings.mascotInAppEnabled &&
+                            current != Screen.Home.route
+                        ) {
                             FloatingMascot(
                                 state = mascotState,
                                 dockSide = if (state.settings.mascotDockSide == "left") {
@@ -368,7 +511,7 @@ class MainActivity : ComponentActivity() {
                                     OverlayDockSide.RIGHT
                                 },
                                 verticalFraction = state.settings.mascotVerticalFraction,
-                                reduceMotion = state.settings.reduceMascotMotion,
+                                reduceMotion = reduceMotion,
                                 completionSignal = celebrationSignal,
                                 onOpenCurrentAction = { cardId ->
                                     overlayNavigation.value = OverlayNavigation(
@@ -407,6 +550,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
+                if (!state.settings.onboardingSeen) {
+                    OnboardingScreen(
+                        settings = state.settings,
+                        reduceMotion = reduceMotion,
+                        onSkip = viewModel::skipOnboarding,
+                        onComplete = viewModel::completeOnboardingQuestionnaire,
+                    )
+                }
                 }
             }
         }
@@ -507,6 +659,15 @@ class MainActivity : ComponentActivity() {
 
     /** Overlay navigation is intentionally constrained to the existing Cards route and a card ID. */
     private fun handleOverlayNavigationIntent(source: Intent?) {
+        if (source?.action == MascotOverlayService.ACTION_OPEN_HOME) {
+            overlayNavigation.value = OverlayNavigation(
+                actionCardId = null,
+                mofeiAction = null,
+                requestId = System.currentTimeMillis(),
+                destinationRoute = Screen.Home.route,
+            )
+            return
+        }
         if (source?.action != MascotOverlayService.ACTION_OPEN_CURRENT &&
             source?.action != MascotOverlayService.ACTION_OPEN_MOFEI_ACTION
         ) return
@@ -527,6 +688,7 @@ class MainActivity : ComponentActivity() {
 
 private const val EXTRA_OCR_TEXT_BASE64 = "com.suishouban.app.extra.OCR_TEXT_BASE64"
 private const val CAPTURE_CACHE_MAX_AGE_MS = 24L * 60 * 60 * 1000
+private const val IN_APP_SCREENSHOT_SETTLE_MILLIS = 180L
 
 private sealed class Screen(
     val route: String,
@@ -537,6 +699,7 @@ private sealed class Screen(
     data object Import : Screen("import", "导入", Icons.Outlined.PhotoCamera)
     data object Cards : Screen("cards", "卡片", Icons.Outlined.TaskAlt)
     data object Calendar : Screen("calendar", "日历", Icons.Outlined.CalendarMonth)
+    data object Team : Screen("team", "团队", Icons.Outlined.Groups)
     data object Settings : Screen("settings", "设置", Icons.Outlined.Settings)
     data object Preview : Screen("preview", "预览", Icons.Outlined.TaskAlt)
 }
@@ -546,5 +709,5 @@ private val bottomScreens = listOf(
     Screen.Import,
     Screen.Cards,
     Screen.Calendar,
-    Screen.Settings,
+    Screen.Team,
 )

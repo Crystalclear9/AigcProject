@@ -34,9 +34,7 @@ class VivoOcrError(RuntimeError):
 
 
 def _format_http_error(error: httpx.HTTPStatusError) -> str:
-    body = error.response.text.strip()
-    suffix = f": {body}" if body else ""
-    return f"vivo OCR HTTP {error.response.status_code}{suffix}"
+    return f"vivo OCR HTTP {error.response.status_code}"
 
 
 def _format_request_error(error: httpx.HTTPError) -> str:
@@ -75,14 +73,11 @@ class VivoOcrClient:
         try:
             async with runtime.semaphores["ocr"]:
                 telemetry_started = runtime.attempt("ocr")
-                response = await runtime.client.post(
-                    settings.vivo_ocr_url,
-                    data=payload,
+                response = await self._post_with_bounded_retry(
+                    payload=payload,
                     params=params,
                     headers=headers,
-                    timeout=settings.vivo_ocr_timeout_seconds,
                 )
-                response.raise_for_status()
         except asyncio.CancelledError:
             runtime.failure("ocr", "CancelledError", telemetry_started)
             raise
@@ -100,6 +95,36 @@ class VivoOcrClient:
             raise
         runtime.success("ocr", telemetry_started)
         return lines
+
+    async def _post_with_bounded_retry(
+        self,
+        *,
+        payload: dict[str, Any],
+        params: dict[str, str],
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        last_error: httpx.HTTPError | None = None
+        for attempt in range(3):
+            try:
+                response = await runtime.client_for_url(settings.vivo_ocr_url).post(
+                    settings.vivo_ocr_url,
+                    data=payload,
+                    params=params,
+                    headers=headers,
+                    timeout=settings.vivo_ocr_timeout_seconds,
+                )
+                response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as error:
+                last_error = error
+                if error.response.status_code != 429 and error.response.status_code < 500:
+                    raise
+            except (httpx.TimeoutException, httpx.NetworkError) as error:
+                last_error = error
+            if attempt < 2:
+                await asyncio.sleep(0.2 * (2**attempt))
+        assert last_error is not None
+        raise last_error
 
 
 def parse_vivo_ocr_lines(body: dict[str, Any]) -> list[OcrLine]:
@@ -145,10 +170,6 @@ def clean_ocr_lines(lines: list[OcrLine]) -> str:
             and not re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|KB/s", line.text, flags=re.I)
             and not re.fullmatch(r"\d{1,2}:\d{2}", line.text.strip())
         ]
-    action_lines = [line for line in candidates if _has_action_signal(line.text)]
-    if action_lines:
-        candidates = _expand_nearby_block(candidates, action_lines)
-
     merged = _merge_same_row(candidates)
     text = "\n".join(line for line in merged if line)
     return _strip_residual_noise(text)
@@ -176,12 +197,15 @@ def _is_noise_line(line: OcrLine) -> bool:
     compact = re.sub(r"\s+", "", text)
     if not compact:
         return True
-    # Top and bottom mobile chrome are layout, not user intent.
-    if line.center_y < 0.12 or line.center_y > 0.90:
+    if compact in {"今日", "日历", "首页", "返回", "我的", "消息", "设置"}:
+        return True
+    # Position alone is never enough to discard content: long screenshots often
+    # place a real deadline near the bottom edge.
+    if (line.center_y < 0.08 or line.center_y > 0.96) and len(compact) <= 4:
         return True
     if re.fullmatch(r"\d{1,2}:\d{2}", compact):
         return True
-    if any(token in compact for token in ["KB/s", "5G", "发送", "群文件", "撤回了一条消息"]):
+    if any(token in compact for token in ["KB/s", "5G", "撤回了一条消息"]):
         return True
     if re.search(r"video_\d{8}_\d{6}\.mp4", compact, flags=re.I):
         return True
@@ -212,18 +236,6 @@ def _has_action_signal(text: str) -> bool:
     ) or bool(re.search(r"\d{1,2}[.:：]\d{2}|\d{1,2}\s*[月.]\s*\d{1,2}", text))
 
 
-def _expand_nearby_block(candidates: list[OcrLine], action_lines: list[OcrLine]) -> list[OcrLine]:
-    top = max(0.0, min(line.top for line in action_lines) - 0.04)
-    bottom = min(1.0, max(line.bottom for line in action_lines) + 0.08)
-    left = max(0.0, min(line.left for line in action_lines) - 0.08)
-    right = min(1.0, max(line.right for line in action_lines) + 0.08)
-    return [
-        line
-        for line in candidates
-        if top <= line.center_y <= bottom and left <= line.center_x <= right
-    ]
-
-
 def _merge_same_row(lines: list[OcrLine]) -> list[str]:
     sorted_lines = sorted(lines, key=lambda line: (line.center_y, line.left))
     rows: list[list[OcrLine]] = []
@@ -244,7 +256,7 @@ def _strip_residual_noise(text: str) -> str:
     lines = []
     for line in text.splitlines():
         compact = re.sub(r"\s+", "", line)
-        if re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|撤回了一条消息|群文件", compact, flags=re.I):
+        if re.search(r"video_\d{8}_\d{6}\.mp4|\d+(\.\d+)?GB|撤回了一条消息", compact, flags=re.I):
             continue
         lines.append(line.strip())
     return "\n".join(lines).strip()

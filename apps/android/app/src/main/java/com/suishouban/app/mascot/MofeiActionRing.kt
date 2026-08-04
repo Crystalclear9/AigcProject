@@ -63,6 +63,7 @@ fun MofeiActionRing(
     revealedActionOverride: MofeiAction? = null,
     onActionPreview: (MofeiAction) -> Unit = {},
     dockSide: OverlayDockSide = OverlayDockSide.RIGHT,
+    idleTimeoutMillis: Long = MOFEI_ACTION_RING_IDLE_TIMEOUT_MS,
     modifier: Modifier = Modifier,
 ) {
     var revealedAction by remember { mutableStateOf<MofeiAction?>(null) }
@@ -73,7 +74,7 @@ fun MofeiActionRing(
     }
     LaunchedEffect(expanded, interactionVersion) {
         if (expanded) {
-            delay(MOFEI_ACTION_RING_IDLE_TIMEOUT_MS)
+            delay(idleTimeoutMillis)
             onDismiss()
         }
     }
@@ -140,11 +141,17 @@ fun MofeiActionRing(
                         }
                         MofeiActionOrb(
                             item = item,
+                            surface = surface,
                             selected = selected,
                             dockSide = dockSide,
                             onClick = {
                                 interactionVersion += 1
-                                if (effectiveRevealedAction == item.action) {
+                                if (item.action == MofeiAction.CAPTURE_CURRENT_SCREEN) {
+                                    // Screenshot is reversible and already guarded by platform
+                                    // permission. One tap should capture instead of asking twice.
+                                    revealedAction = null
+                                    onAction(item.action)
+                                } else if (effectiveRevealedAction == item.action) {
                                     revealedAction = null
                                     onAction(item.action)
                                 } else {
@@ -167,6 +174,7 @@ fun MofeiActionRing(
 @Composable
 private fun MofeiActionOrb(
     item: MofeiActionItem,
+    surface: MofeiSurface,
     selected: Boolean,
     dockSide: OverlayDockSide,
     onClick: () -> Unit,
@@ -174,7 +182,7 @@ private fun MofeiActionOrb(
 ) {
     val enabled = item.availability != MofeiActionAvailability.UNSUPPORTED &&
         item.availability != MofeiActionAvailability.BUSY
-    val label = actionLabel(item.action)
+    val label = actionLabel(surface, item.action)
     val stateHint = when (item.availability) {
         MofeiActionAvailability.READY -> ""
         MofeiActionAvailability.NEEDS_PERMISSION -> "，需要权限"
@@ -253,8 +261,8 @@ private fun MofeiActionOrb(
     }
 }
 
-private fun actionLabel(action: MofeiAction): String = when (action) {
-    MofeiAction.CAPTURE_CURRENT_SCREEN -> "识别当前屏"
+private fun actionLabel(surface: MofeiSurface, action: MofeiAction): String = when (action) {
+    MofeiAction.CAPTURE_CURRENT_SCREEN -> if (surface == MofeiSurface.OVERLAY) "截屏" else "截图识别"
     MofeiAction.ANALYZE_LATEST_SCREENSHOT -> "最近截图"
     MofeiAction.PICK_IMAGE -> "相册导入"
     MofeiAction.TAKE_PHOTO -> "拍照识别"

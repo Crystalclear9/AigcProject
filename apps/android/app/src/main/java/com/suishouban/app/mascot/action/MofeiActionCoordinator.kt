@@ -10,7 +10,15 @@ class MofeiActionCoordinator {
     fun actionsFor(surface: MofeiSurface, state: MofeiCapabilityState): List<MofeiActionItem> {
         val actions = when (surface) {
             MofeiSurface.IN_APP -> IN_APP_ACTIONS
-            MofeiSurface.OVERLAY -> OVERLAY_ACTIONS
+            MofeiSurface.OVERLAY -> buildList {
+                addAll(OVERLAY_FIXED_ACTIONS)
+                if (state.currentActionCardAvailable) {
+                    add(MofeiAction.OPEN_CURRENT_CARD)
+                }
+                if (state.pendingNotificationDrafts > 0) {
+                    add(MofeiAction.REVIEW_NOTIFICATION_DRAFTS)
+                }
+            }
         }
         return actions.map { action ->
             MofeiActionItem(
@@ -48,12 +56,10 @@ class MofeiActionCoordinator {
             MofeiAction.OPEN_CURRENT_CARD,
             MofeiAction.OPEN_SETTINGS,
         )
-        val OVERLAY_ACTIONS = listOf(
+        val OVERLAY_FIXED_ACTIONS = listOf(
             MofeiAction.CAPTURE_CURRENT_SCREEN,
-            MofeiAction.ANALYZE_LATEST_SCREENSHOT,
-            MofeiAction.REVIEW_NOTIFICATION_DRAFTS,
-            MofeiAction.OPEN_CURRENT_CARD,
-            MofeiAction.OPEN_SETTINGS,
+            MofeiAction.TAKE_PHOTO,
+            MofeiAction.PICK_IMAGE,
         )
     }
 }

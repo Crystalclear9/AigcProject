@@ -22,10 +22,16 @@ from app.services.autonomous_agents import (
 )
 from app.services.rule_extractor import extract_cards_with_rules, preview_actions_for
 from app.services.vivo_ocr import VivoOcrClient, clean_ocr_lines
+from app.services.ocr_quality import (
+    adjudicate_candidates,
+    create_trusted_text_candidate,
+    evaluate_candidate,
+)
 from app.services.workflow_agents import (
     adjudicate,
     build_action_graph as create_action_graph,
 )
+from app.schemas.agent_contracts import AGENT_CONTRACT_VERSION
 
 repository = WorkflowRepository()
 
@@ -41,6 +47,8 @@ class WorkflowState(TypedDict, total=False):
     ocr_text: str
     ocr_engine: str
     ocr_quality: float
+    ocr_quality_report: dict[str, Any]
+    ocr_review_reasons: list[str]
     ocr_candidates: list[dict[str, Any]]
     rule_cards: list[dict[str, Any]]
     cards: list[dict[str, Any]]
@@ -83,6 +91,8 @@ class WorkflowState(TypedDict, total=False):
     retrieval_sources: list[dict[str, Any]]
     replan_count: int
     workflow_deadline_at: float
+    workspace_type: Literal["personal", "team"]
+    prompt_envelope: dict[str, Any]
 
 
 def _trace(node: str, started: float, status: str = "completed", **extra: Any) -> dict[str, Any]:
@@ -101,13 +111,21 @@ def _card_dicts(cards: list[ActionCard]) -> list[dict[str, Any]]:
 async def prepare_text(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
     text = state.get("input_text", "").strip()
+    engine = (
+        "user-corrected"
+        if state.get("ocr_engine") == "user-corrected"
+        else "provided-text"
+    )
+    candidate = create_trusted_text_candidate(text, engine=engine)
     return {
         "ocr_text": text,
-        "ocr_engine": "provided-text",
+        "ocr_engine": engine,
         "ocr_quality": 1.0,
-        "ocr_candidates": [{"text": text, "engine": "provided-text", "confidence": 1.0}],
+        "ocr_quality_report": candidate["quality_report"],
+        "ocr_review_reasons": [],
+        "ocr_candidates": [candidate],
         "workflow_status": "running",
-        "node_trace": [_trace("prepare_text", started, engine="provided-text")],
+        "node_trace": [_trace("prepare_text", started, engine=engine)],
     }
 
 
@@ -119,7 +137,7 @@ async def _wait_for_client_ocr(run_id: str, timeout: float) -> dict[str, Any]:
         except KeyError:
             candidates = []
         if candidates:
-            return max(candidates, key=lambda item: float(item.get("confidence", 0)))
+            return adjudicate_candidates(candidates).selected
         await asyncio.sleep(0.08)
     raise TimeoutError("client OCR candidate timeout")
 
@@ -152,7 +170,26 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
             if task is cloud_task:
                 text = clean_ocr_lines(result)
                 if text:
-                    candidates.append({"text": text, "engine": "vivo-ocr", "confidence": 0.9})
+                    candidates.append(
+                        {
+                            "text": text,
+                            "engine": "vivo-ocr",
+                            "confidence": 0.5,
+                            "variant": "cloud",
+                            "blocks": [
+                                {
+                                    "text": line.text,
+                                    "left": line.left,
+                                    "top": line.top,
+                                    "right": line.right,
+                                    "bottom": line.bottom,
+                                    "line_index": index,
+                                }
+                                for index, line in enumerate(result)
+                                if line.text.strip()
+                            ],
+                        }
+                    )
             else:
                 candidates.append(dict(result))
         except Exception as error:
@@ -168,12 +205,17 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
     usable = [candidate for candidate in candidates if str(candidate.get("text", "")).strip()]
     if not usable:
         raise RuntimeError("OCR unavailable")
-    best = max(usable, key=lambda item: float(item.get("confidence", 0)))
+    adjudication = adjudicate_candidates(_dedupe_ocr(usable))
+    best = adjudication.selected
     return {
-        "ocr_text": str(best["text"]).strip(),
+        "ocr_text": adjudication.merged_text,
         "ocr_engine": str(best.get("engine", "ocr")),
-        "ocr_quality": float(best.get("confidence", 0.5)),
-        "ocr_candidates": _dedupe_ocr(usable),
+        "ocr_quality": float(best.get("quality_score", 0)),
+        "ocr_quality_report": dict(best.get("quality_report", {})),
+        "ocr_review_reasons": adjudication.review_reasons,
+        "ocr_candidates": adjudication.candidates,
+        "review_requested": adjudication.requires_review,
+        "pending_action": "resolve_ocr" if adjudication.requires_review else None,
         "warnings": warnings,
         "node_trace": [
             _trace(
@@ -197,7 +239,24 @@ async def _persist_late_ocr_candidate(
         result = await task
         if cloud:
             text = clean_ocr_lines(result)
-            candidate = {"text": text, "engine": "vivo-ocr", "confidence": 0.9}
+            candidate = {
+                "text": text,
+                "engine": "vivo-ocr",
+                "confidence": 0.5,
+                "variant": "cloud",
+                "blocks": [
+                    {
+                        "text": line.text,
+                        "left": line.left,
+                        "top": line.top,
+                        "right": line.right,
+                        "bottom": line.bottom,
+                        "line_index": index,
+                    }
+                    for index, line in enumerate(result)
+                    if line.text.strip()
+                ],
+            }
         else:
             candidate = dict(result)
         if not str(candidate.get("text", "")).strip():
@@ -222,7 +281,9 @@ def _dedupe_ocr(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for candidate in candidates:
         key = (str(candidate.get("engine", "ocr")), str(candidate.get("text", "")).strip())
         current = deduped.get(key)
-        if current is None or float(candidate.get("confidence", 0)) > float(current.get("confidence", 0)):
+        if current is None or float(candidate.get("quality_score", 0)) > float(
+            current.get("quality_score", 0)
+        ):
             deduped[key] = candidate
     return list(deduped.values())
 
@@ -365,6 +426,10 @@ def dispatch_ready_tasks(state: WorkflowState) -> list[Send] | str:
             "agent_task_results",
             "started_at",
             "workflow_deadline_at",
+            "agent_plan",
+            "prompt_envelope",
+            "workspace_type",
+            "user_locked",
         )
     }
     return [
@@ -397,14 +462,34 @@ def _result_to_expert_output(result: AgentResult) -> dict[str, Any]:
                 "reliability": claim.confidence,
             }
         )
+    semantic_cards = []
+    if result.output_type == "semantic_decomposition":
+        semantic_cards = [
+            {
+                "action_id": action.get("action_id"),
+                "id": action.get("action_id"),
+                "card_type": action.get("card_type", "task"),
+                "title": action.get("title", ""),
+                "summary": action.get("summary", ""),
+                "source_text": action.get("evidence", {}).get("source_text", ""),
+            }
+            for action in result.validated_output.get("actions", [])
+        ]
     return {
         "agent": result.tool,
         "evidence": evidence,
-        "cards": result.cards,
+        "cards": semantic_cards,
         "findings": result.findings,
         "claims": [claim.model_dump(mode="json") for claim in result.claims],
         "risk_level": result.risk_level,
         "retrieval_sources": [source.model_dump(mode="json") for source in result.retrieval_sources],
+        "contract_version": result.contract_version,
+        "output_type": result.output_type,
+        "validated_output": result.validated_output,
+        "contract_errors": result.contract_errors,
+        "evidence_coverage": result.evidence_coverage,
+        "dependency_failures": result.dependency_failures,
+        "decision_summary": result.decision_summary,
     }
 
 
@@ -582,6 +667,22 @@ def verify_workflow(state: WorkflowState) -> dict[str, Any]:
         budget["exhausted"] = True
         budget["exhaustion_reason"] = "deadline"
     return {
+        "agent_contract_version": AGENT_CONTRACT_VERSION,
+        "agent_outputs": [
+            {
+                "task_id": result.get("task_id"),
+                "tool": result.get("tool"),
+                "status": result.get("status"),
+                "contract_version": result.get("contract_version"),
+                "output_type": result.get("output_type"),
+                "validated_output": result.get("validated_output", {}),
+                "contract_errors": result.get("contract_errors", []),
+                "evidence_coverage": result.get("evidence_coverage", 0),
+                "dependency_failures": result.get("dependency_failures", []),
+                "decision_summary": result.get("decision_summary", ""),
+            }
+            for result in state.get("agent_task_results", [])
+        ],
         "verification_summary": summary.model_dump(mode="json"),
         "unresolved_evidence": summary.unresolved_evidence,
         "review_requested": bool(
@@ -677,6 +778,23 @@ def require_review(state: WorkflowState) -> dict[str, Any]:
     }
 
 
+def require_ocr_review(state: WorkflowState) -> dict[str, Any]:
+    return {
+        "workflow_status": "awaiting_ocr_review",
+        "pending_action": "resolve_ocr",
+        "result_stage": "provisional",
+        "revision": int(state.get("revision", 0)) + 1,
+        "warnings": [
+            f"OCR review required: {reason}"
+            for reason in state.get("ocr_review_reasons", [])
+        ],
+    }
+
+
+def route_after_ocr(state: WorkflowState) -> str:
+    return "ocr_review" if state.get("review_requested") else "draft"
+
+
 def build_workflow_graph(checkpointer=None):
     graph = StateGraph(WorkflowState)
     graph.add_node("prepare_text", prepare_text)
@@ -692,6 +810,7 @@ def build_workflow_graph(checkpointer=None):
     graph.add_node("replan", replan_workflow)
     graph.add_node("project_cards", project_cards)
     graph.add_node("require_review", require_review)
+    graph.add_node("require_ocr_review", require_ocr_review)
 
     graph.add_conditional_edges(
         START,
@@ -699,7 +818,14 @@ def build_workflow_graph(checkpointer=None):
         {"prepare_text": "prepare_text", "recognize_image": "recognize_image"},
     )
     graph.add_edge("prepare_text", "create_rule_draft")
-    graph.add_edge("recognize_image", "create_rule_draft")
+    graph.add_conditional_edges(
+        "recognize_image",
+        route_after_ocr,
+        {
+            "ocr_review": "require_ocr_review",
+            "draft": "create_rule_draft",
+        },
+    )
     graph.add_edge("create_rule_draft", "supervisor")
     graph.add_conditional_edges("supervisor", dispatch_ready_tasks)
     graph.add_edge("run_agent_task", "task_barrier")
@@ -724,5 +850,6 @@ def build_workflow_graph(checkpointer=None):
     graph.add_conditional_edges("replan", dispatch_ready_tasks)
     graph.add_edge("finalize_rules_fast", END)
     graph.add_edge("require_review", END)
+    graph.add_edge("require_ocr_review", END)
     graph.add_edge("project_cards", END)
     return graph.compile(checkpointer=checkpointer or MemorySaver())

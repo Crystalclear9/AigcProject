@@ -20,6 +20,7 @@ WorkflowStatus = Literal[
     "queued",
     "running",
     "awaiting_client_ocr",
+    "awaiting_ocr_review",
     "awaiting_review",
     "completed",
     "failed",
@@ -42,12 +43,48 @@ class NodeTrace(BaseModel):
 class WorkflowStartTextRequest(BaseModel):
     text: str = Field(min_length=1)
     screenshot_time: str | None = None
+    workspace_type: Literal["personal", "team"] = "personal"
+    profile_context: dict[str, str] = Field(default_factory=dict)
+    role_template: Literal[
+        "action_analyst",
+        "personal_planner",
+        "team_coordinator",
+    ] = "action_analyst"
+
+
+class OcrBlock(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    left: float | None = None
+    top: float | None = None
+    right: float | None = None
+    bottom: float | None = None
+    line_index: int | None = Field(default=None, ge=0)
 
 
 class OcrCandidateRequest(BaseModel):
     text: str = Field(min_length=1)
     engine: str = "mlkit"
     confidence: float = Field(default=0.8, ge=0, le=1)
+    blocks: list[OcrBlock] = Field(default_factory=list, max_length=2000)
+    arrived_at_ms: int | None = Field(default=None, ge=0)
+    image_width: int | None = Field(default=None, gt=0)
+    image_height: int | None = Field(default=None, gt=0)
+    rotation_degrees: int = Field(default=0)
+    variant: str = Field(default="original", max_length=40)
+
+
+class OcrQualityReport(BaseModel):
+    quality_score: float = Field(default=0, ge=0, le=1)
+    garbled_ratio: float = Field(default=0, ge=0, le=1)
+    completeness_score: float = Field(default=0, ge=0, le=1)
+    layout_score: float = Field(default=0, ge=0, le=1)
+    evidence_score: float = Field(default=0, ge=0, le=1)
+    agreement_score: float = Field(default=0, ge=0, le=1)
+    duplicate_ratio: float = Field(default=0, ge=0, le=1)
+    noise_ratio: float = Field(default=0, ge=0, le=1)
+    block_count: int = Field(default=0, ge=0)
+    time_expressions: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
 
 
 class DraftPatchRequest(BaseModel):
@@ -132,6 +169,8 @@ class WorkflowRunResponse(BaseModel):
     field_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     agent_plan: AgentPlan | None = None
     agent_tasks: list[AgentResult] = Field(default_factory=list)
+    agent_contract_version: str = "agent-contract-v2"
+    agent_outputs: list[dict[str, Any]] = Field(default_factory=list)
     unresolved_evidence: list[str] = Field(default_factory=list)
     budget_usage: BudgetUsage = Field(default_factory=BudgetUsage)
     retrieval_sources: list[RetrievalSource] = Field(default_factory=list)
@@ -140,6 +179,8 @@ class WorkflowRunResponse(BaseModel):
     provider_usage: dict[str, dict[str, Any]] = Field(default_factory=dict)
     model_enhancement_status: EnhancementStatus = "not_configured"
     ocr_enhancement_status: EnhancementStatus = "not_configured"
+    ocr_quality_report: OcrQualityReport | None = None
+    ocr_review_reasons: list[str] = Field(default_factory=list)
     image_generation_status: EnhancementStatus = "not_configured"
     react_session: ReActSession | None = None
     react_suggestions: list[str] = Field(default_factory=list)
@@ -169,8 +210,12 @@ class WorkflowEvent(BaseModel):
         "verification_failed",
         "plan_revised",
         "budget_exhausted",
+        "attachment_extracted",
+        "plan_draft_created",
+        "plan_updated",
         "completed",
         "failed",
+        "cancelled",
     ]
     data: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime

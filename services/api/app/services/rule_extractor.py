@@ -11,11 +11,12 @@ from app.services.reminders import recommend_reminders
 
 CN_TZ = timezone(timedelta(hours=8))
 
-TASK_WORDS = ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "准备", "完成", "整理"]
-EVENT_WORDS = ["开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加"]
+TASK_WORDS = ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "发到", "准备", "完成", "整理", "评审", "交", "submit", "upload"]
+EVENT_WORDS = ["开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加", "答辩", "开题"]
 PROMISE_WORDS = ["帮我", "帮你", "答应", "可以，我", "我来", "没问题", "承诺", "说好了"]
 COMPARISON_WORDS = ["对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS"]
-OBJECT_WORDS = ["老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件"]
+OBJECT_WORDS = ["老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "报名材料", "报价表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件", "选题表", "参考文献", "需求分析", "原型", "测试报告", "PDF", "report"]
+COMMERCE_WORDS = ["限时秒杀", "优惠", "满减", "购物车", "下单", "抽奖", "直播间", "红包", "立即抢购"]
 
 
 @dataclass
@@ -142,7 +143,7 @@ def extract_time(text: str, screenshot_time: str | None = None) -> TimeGuess:
 
 
 def _extract_materials(text: str) -> list[str]:
-    candidates = ["报名表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件"]
+    candidates = ["报名表", "报名材料", "报价表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "选题表", "参考文献", "需求分析", "原型", "测试报告", "PDF", "report", "表格", "材料", "证件", "文件"]
     return [item for item in candidates if item in text]
 
 
@@ -153,6 +154,7 @@ def _has_time_signal(text: str) -> bool:
         r"(?:今天|明天|后天|今晚|上午|早上|中午|下午|晚上)",
         r"\d{1,2}[:：]\d{2}",
         r"\d{1,2}\s*点",
+        r"20\d{2}-\d{1,2}-\d{1,2}",
         r"本月底|月底|近期|近日|\d{1,2}\s*月\s*(?:上旬|中旬|下旬)",
     ]
     return any(re.search(pattern, text) for pattern in time_patterns)
@@ -175,6 +177,10 @@ def _has_key_signal(text: str) -> bool:
 def is_actionable_text(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", text).strip()
     if len(normalized) < 4:
+        return False
+    if sum(word in normalized for word in COMMERCE_WORDS) >= 2 and not any(
+        word in normalized for word in OBJECT_WORDS
+    ):
         return False
     has_action_signal = any(
         [
@@ -208,13 +214,18 @@ def _extract_location(text: str) -> str | None:
         match = re.search(pattern, text)
         if match:
             location = match.group("location").strip()
-            if re.search(r"\d{1,2}\s*(?:月|日|号|[:：])", location):
+            if re.search(r"\d{1,2}\s*(?:月|日|号|[:：])", location) or any(
+                token in location for token in ("前把", "报告", "发送", "提交", "完成")
+            ):
                 continue
             return location
     if "学习通" in text:
         return "学习通"
     if "官网" in text:
         return "官网"
+    for platform in ("雨课堂", "腾讯会议", "群文件", "飞书", "Moodle"):
+        if platform.lower() in text.lower():
+            return platform
     return None
 
 
@@ -225,6 +236,8 @@ def _extract_submit_method(text: str) -> str | None:
         return "发送至指定邮箱" if "指定邮箱" in text else "发送至邮箱"
     if "官网" in text or "报名链接" in text:
         return "官网报名链接"
+    if "Moodle" in text:
+        return "upload to Moodle"
     return None
 
 
@@ -246,6 +259,8 @@ def _title_for(text: str, card_type: str) -> str:
         return "完成 AIGC 创新赛报名"
     if "报名表" in text:
         return "提交报名表"
+    if "报价表" in text:
+        return "发送报价表"
     if "组会" in text:
         return "参加组会"
     if "进展汇报" in text:
@@ -260,6 +275,20 @@ def _title_for(text: str, card_type: str) -> str:
         return "发送项目 PPT"
     if "商业计划书" in text or "团队信息表" in text:
         return "提交项目材料"
+    if "选题表" in text:
+        return "提交选题表"
+    if "参考文献" in text:
+        return "发送参考文献"
+    if "需求分析" in text:
+        return "完成需求分析"
+    if "原型" in text and "评审" in text:
+        return "评审原型"
+    if "原型" in text:
+        return "完成原型"
+    if "测试报告" in text:
+        return "提交测试报告"
+    if re.search(r"\breport\b", text, re.I):
+        return "Submit report"
     if "提交" in text:
         return "提交材料"
     if "开会" in text or "会议" in text:
@@ -365,12 +394,50 @@ def build_card(text: str, card_type: str, screenshot_time: str | None = None, ti
     )
 
 
+ASSIGNMENT_PATTERN = re.compile(
+    r"(?P<person>[一-鿿]{2,4}|[A-Za-z][A-Za-z .]{1,11})"
+    r"负责(?P<task>[^，。；、！？!?\n]{2,30})"
+)
+
+
+def _assignment_cards(text: str, screenshot_time: str | None = None) -> list[ActionCard]:
+    """Split a分工公告 (duty roster) into one task card per person.
+
+    Only fires when at least two "<person>负责<task>" clauses appear, so a
+    single casual mention never hijacks normal extraction. The person is kept
+    as a plain-text assignee hint; team workspaces resolve it to a member id
+    at card creation time.
+    """
+    matches = list(ASSIGNMENT_PATTERN.finditer(text))
+    if len(matches) < 2:
+        return []
+    cards: list[ActionCard] = []
+    for match in matches:
+        task = match.group("task").strip("，。；;、:： ")
+        person = match.group("person")
+        card = build_card(text, "task", screenshot_time, title=task)
+        cards.append(
+            card.model_copy(
+                update={
+                    "assignee_id": person,
+                    "participant_ids": [person],
+                    "evidence_summary": [match.group(0)],
+                }
+            )
+        )
+    return cards
+
+
 def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> list[ActionCard]:
     normalized = re.sub(r"\s+", " ", text).strip()
     cards: list[ActionCard] = []
 
     if not is_actionable_text(normalized):
         return []
+
+    assignment_cards = _assignment_cards(normalized, screenshot_time)
+    if assignment_cards:
+        return assignment_cards
 
     action_segments = _split_action_segments(normalized)
     if len(action_segments) > 1:

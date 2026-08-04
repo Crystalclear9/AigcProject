@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2F6BFF"/></marker>
+  </defs>
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 760 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">先有草稿，再由用户确认</text>
+    <text x="64" y="136" font-size="24" fill="#182033">本地结果立即可看，复杂补全在后台继续。</text>
+  </g>
+  <g id="flow-line" data-pptx-bounds="86 244 1108 190">
+    <line x1="130" y1="340" x2="1136" y2="340" stroke="#2F6BFF" stroke-width="6" marker-end="url(#arrow)"/>
+  </g>
+  <g id="step-capture" data-pptx-bounds="70 248 160 174">
+    <circle cx="150" cy="340" r="44" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="4"/>
+    <rect x="126" y="316" width="48" height="48" rx="8" fill="#EAF2FF" stroke="#2F6BFF" stroke-width="3"/>
+    <text x="150" y="414" text-anchor="middle" font-size="24" font-weight="700" fill="#182033">截图</text>
+  </g>
+  <g id="step-recognize" data-pptx-bounds="240 248 160 174">
+    <circle cx="320" cy="340" r="44" fill="#EAF2FF" stroke="#2F6BFF" stroke-width="4"/>
+    <circle cx="320" cy="340" r="17" fill="none" stroke="#1748B8" stroke-width="5"/>
+    <line x1="332" y1="352" x2="348" y2="368" stroke="#1748B8" stroke-width="5" stroke-linecap="round"/>
+    <text x="320" y="414" text-anchor="middle" font-size="24" font-weight="700" fill="#182033">识别</text>
+  </g>
+  <g id="step-draft" data-pptx-bounds="410 222 160 242">
+    <circle cx="490" cy="340" r="54" fill="#FFFFFF" stroke="#2F6BFF" stroke-width="4"/>
+    <rect x="465" y="306" width="50" height="68" rx="6" fill="#EAF2FF" stroke="#1748B8" stroke-width="3"/>
+    <line x1="476" y1="326" x2="504" y2="326" stroke="#1748B8" stroke-width="3"/>
+    <line x1="476" y1="342" x2="504" y2="342" stroke="#1748B8" stroke-width="3"/>
+    <text x="490" y="420" text-anchor="middle" font-size="24" font-weight="700" fill="#182033">草稿</text>
+    <text x="490" y="452" text-anchor="middle" font-size="18" fill="#2F6BFF">立即出现</text>
+  </g>
+  <g id="step-enrich" data-pptx-bounds="580 222 160 242">
+    <circle cx="660" cy="340" r="54" fill="#EAF2FF" stroke="#2F6BFF" stroke-width="4" stroke-dasharray="8 6"/>
+    <circle cx="660" cy="340" r="18" fill="none" stroke="#2F6BFF" stroke-width="4"/>
+    <path d="M660 309 V321 M660 359 V371 M629 340 H641 M679 340 H691" stroke="#2F6BFF" stroke-width="4" stroke-linecap="round"/>
+    <text x="660" y="420" text-anchor="middle" font-size="24" font-weight="700" fill="#182033">补全</text>
+    <text x="660" y="452" text-anchor="middle" font-size="18" fill="#6E7891">后台进行</text>
+  </g>
+  <g id="step-confirm" data-pptx-bounds="750 190 190 302">
+    <circle cx="845" cy="340" r="76" fill="#2F6BFF"/>
+    <path d="M810 340 L834 364 L882 312" fill="none" stroke="#FFFFFF" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="845" y="444" text-anchor="middle" font-size="32" font-weight="700" fill="#1748B8">确认</text>
+    <text x="845" y="478" text-anchor="middle" font-size="18" fill="#2F6BFF">确认并保存</text>
+  </g>
+  <g id="step-remind" data-pptx-bounds="960 248 160 174">
+    <circle cx="1040" cy="340" r="44" fill="#FFFFFF" stroke="#FF8A3D" stroke-width="4"/>
+    <path d="M1040 314 C1025 314 1018 326 1018 340 V350 L1008 360 H1072 L1062 350 V340 C1062 326 1055 314 1040 314 Z" fill="none" stroke="#FF8A3D" stroke-width="4"/>
+    <text x="1040" y="414" text-anchor="middle" font-size="24" font-weight="700" fill="#182033">提醒</text>
+  </g>
+  <g id="mofei-scan" data-pptx-bounds="334 454 274 176">
+    <image href="../images/mofei_scan.png" x="334" y="454" width="274" height="176" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-confirm-burst" data-pptx-bounds="824 476 226 166">
+    <image href="../images/mofei_confirm_burst.png" x="824" y="476" width="226" height="166" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32">
+    <text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">06</text>
+  </g>
+</svg>
