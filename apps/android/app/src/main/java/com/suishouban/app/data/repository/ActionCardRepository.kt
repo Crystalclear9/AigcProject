@@ -646,6 +646,31 @@ class ActionCardRepository(
         return confirmed
     }
 
+    /**
+     * Team-destined confirmation: teammates only see cards that reach the server, so each card
+     * is POSTed first (the server resolves plain-name assignees to member user ids) and the
+     * server's copy is what lands in Room. Best-effort per card — but when every POST fails the
+     * whole batch is rejected (returns null, nothing persisted) so team cards are never silently
+     * created only locally.
+     */
+    suspend fun persistConfirmedTeamBatch(cards: List<ActionCard>): List<ActionCard>? {
+        val api = remoteApiOrNull() ?: return null
+        val confirmed = cards.map { card ->
+            card.safeForLocalStorage().copy(status = CardStatus.CONFIRMED)
+        }
+        val pushed = confirmed.map { card ->
+            withTimeoutOrNull(TEAM_CARD_PUSH_TIMEOUT_MILLIS) {
+                runCatching { api.createCard(card.safeForCloud().toDto()).toDomain() }.getOrNull()
+            }
+        }
+        if (pushed.all { it == null }) return null
+        val toPersist = confirmed.mapIndexed { index, local ->
+            (pushed[index] ?: local).copy(status = CardStatus.CONFIRMED)
+        }
+        dao.upsertAll(toPersist.map(ActionCard::toEntity))
+        return toPersist
+    }
+
     suspend fun saveDraft(card: ActionCard) {
         dao.upsert(card.safeForLocalStorage().toEntity())
     }
@@ -653,7 +678,37 @@ class ActionCardRepository(
     suspend fun update(card: ActionCard) {
         val safeCard = card.safeForLocalStorage()
         dao.upsert(safeCard.toEntity())
-        remoteApiOrNull()?.let { api -> runCatching { api.updateCard(safeCard.id, safeCard.safeForCloud().toDto()) } }
+        remoteApiOrNull()?.let { api ->
+            runCatching {
+                api.updateCard(
+                    safeCard.id,
+                    safeCard.safeForCloud().toDto(),
+                    settingsRepository.settings.value.localUserId,
+                )
+            }
+        }
+    }
+
+    /** Team edits are remote-first so Room never advertises a change rejected by the server. */
+    suspend fun updateTeamCard(card: ActionCard): Result<ActionCard> {
+        if (card.workspaceType != "team") {
+            return Result.failure(IllegalArgumentException("只能通过该接口修改团队任务"))
+        }
+        val api = remoteApiOrNull()
+            ?: return Result.failure(IllegalStateException(TeamRepository.GATEWAY_UNAVAILABLE_MESSAGE))
+        val userId = settingsRepository.settings.value.localUserId
+        if (userId.isBlank()) {
+            return Result.failure(IllegalStateException("本地账号身份不可用"))
+        }
+        return runCatching {
+            val remote = api.updateCard(
+                card.id,
+                card.safeForCloud().toDto(),
+                userId,
+            ).toDomain().safeForLocalStorage()
+            dao.upsert(remote.toEntity())
+            remote
+        }
     }
 
     suspend fun replan(card: ActionCard, changedFields: List<String>): ActionCard? {
@@ -670,12 +725,20 @@ class ActionCardRepository(
             blockedDependents = card.dependencies.size,
             teamImpact = if (card.workspaceType == "team") 0.7 else 0.0,
         )
-        return runCatching { api.replanCard(card.id, request).card.toDomain() }.getOrNull()
+        return runCatching {
+            api.replanCard(
+                card.id,
+                request,
+                settingsRepository.settings.value.localUserId,
+            ).card.toDomain()
+        }.getOrNull()
     }
 
     suspend fun complete(id: String) {
         dao.updateStatus(id, CardStatus.DONE)
-        remoteApiOrNull()?.let { api -> runCatching { api.completeCard(id) } }
+        remoteApiOrNull()?.let { api ->
+            runCatching { api.completeCard(id, settingsRepository.settings.value.localUserId) }
+        }
     }
 
     suspend fun archive(id: String) {
@@ -813,3 +876,4 @@ private val snapshotRequiredEvents = setOf(
 )
 private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 private const val MAX_INTAKE_FILE_BYTES = 15 * 1024 * 1024
+private const val TEAM_CARD_PUSH_TIMEOUT_MILLIS = 6_000L

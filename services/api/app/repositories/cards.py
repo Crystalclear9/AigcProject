@@ -87,6 +87,7 @@ class CardRepository:
             "assignee_id",
             "participant_ids",
             "deliverables",
+            "goal_id",
             "milestone_id",
             "source_session_id",
             "tags",

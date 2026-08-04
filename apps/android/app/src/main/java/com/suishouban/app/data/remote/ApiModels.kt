@@ -368,6 +368,7 @@ data class ActionCardDto(
     val status: String = "draft",
     @SerializedName("source_text") val sourceText: String = "",
     @SerializedName("created_at") val createdAt: String,
+    @SerializedName("goal_id") val goalId: String? = null,
     @SerializedName("milestone_id") val milestoneId: String? = null,
     @SerializedName("updated_at") val updatedAt: String? = null,
 )
@@ -415,6 +416,7 @@ fun ActionCardDto.toDomain(): ActionCard = ActionCard(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
     milestoneId = milestoneId,
     updatedAt = updatedAt,
 )
@@ -452,6 +454,7 @@ fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
     milestoneId = milestoneId,
     updatedAt = updatedAt,
 )

@@ -1,6 +1,7 @@
 package com.suishouban.app.data.repository
 
 import com.suishouban.app.data.local.TeamMemberEntity
+import com.suishouban.app.data.local.TeamMilestoneEntity
 import com.suishouban.app.data.local.TeamWorkspaceEntity
 import com.suishouban.app.data.local.WorkflowDao
 import com.suishouban.app.data.model.AiConnectionMode
@@ -44,18 +45,28 @@ class TeamRepository(
     fun observeMembers(workspaceId: String): Flow<List<TeamMemberEntity>> =
         dao.observeMembers(workspaceId)
 
-    /**
-     * Idempotent identity upsert. Registration is best-effort on purpose: a failure here will
-     * resurface as an explicit error on the next create/join call.
-     */
-    suspend fun ensureRegistered() {
+    /** Idempotently mirrors the saved local identity when background refreshes start. */
+    suspend fun ensureRegistered(): Result<Unit> {
         val settings = settingsRepository.settings.value
-        if (settings.localUserId.isBlank() || settings.userNickname.isBlank()) return
-        val api = remoteApiOrNull() ?: return
-        runCatching {
+        if (settings.localUserId.isBlank() || settings.userNickname.isBlank()) {
+            return Result.success(Unit)
+        }
+        return updateIdentity(settings.userNickname)
+    }
+
+    /** Updates the server identity without committing the nickname to local settings first. */
+    suspend fun updateIdentity(nickname: String): Result<Unit> {
+        val api = remoteApiOrNull()
+            ?: return Result.failure(IllegalStateException(GATEWAY_UNAVAILABLE_MESSAGE))
+        val userId = localUserId()
+        if (userId.isBlank()) {
+            return Result.failure(IllegalStateException("本地账号身份不可用"))
+        }
+        return runCatching {
             api.registerUser(
-                UserRegisterRequestDto(id = settings.localUserId, nickname = settings.userNickname),
+                UserRegisterRequestDto(id = userId, nickname = nickname),
             )
+            Unit
         }
     }
 
@@ -70,7 +81,10 @@ class TeamRepository(
             val remoteIds = teams.map { it.id }.toSet()
             dao.loadWorkspaceIds()
                 .filterNot { it in remoteIds }
-                .forEach { dao.deleteWorkspace(it) }
+                .forEach { removedId ->
+                    dao.deleteWorkspace(removedId)
+                    dao.deleteMilestonesOfTeam(removedId)
+                }
             teams.forEach { mirrorTeam(it) }
         }
     }
@@ -79,7 +93,7 @@ class TeamRepository(
         val api = remoteApiOrNull()
             ?: return Result.failure(IllegalStateException(GATEWAY_UNAVAILABLE_MESSAGE))
         return runCatching {
-            ensureRegistered()
+            ensureRegistered().getOrThrow()
             mirrorTeam(api.createTeam(localUserId(), TeamCreateRequestDto(name = name)))
         }
     }
@@ -88,7 +102,7 @@ class TeamRepository(
         val api = remoteApiOrNull()
             ?: return Result.failure(IllegalStateException(GATEWAY_UNAVAILABLE_MESSAGE))
         return runCatching {
-            ensureRegistered()
+            ensureRegistered().getOrThrow()
             mirrorTeam(api.joinTeam(localUserId(), TeamJoinRequestDto(inviteCode = code)))
         }
     }
@@ -111,6 +125,7 @@ class TeamRepository(
         return runCatching {
             api.deleteTeam(localUserId(), teamId)
             dao.deleteWorkspace(teamId)
+            dao.deleteMilestonesOfTeam(teamId)
             if (activeTeamId == teamId) setActiveTeam(null)
         }
     }
@@ -168,9 +183,32 @@ class TeamRepository(
             val dto = api.teamSummary(localUserId(), teamId, since)
             mirrorTeam(dto.team)
             cardRepository.upsertServerCards(dto.changedCards.map { it.toDomain() })
+            mirrorMilestones(teamId, dto)
             dto.toDomain().also { summary ->
                 if (activeTeamId == teamId) _currentSummary.value = summary
             }
+        }
+    }
+
+    /** Delete-then-insert per goal so milestones removed on the server disappear locally too. */
+    private suspend fun mirrorMilestones(
+        teamId: String,
+        dto: com.suishouban.app.data.remote.TeamSummaryResponseDto,
+    ) {
+        dto.goals.forEach { progress ->
+            dao.deleteMilestonesOfGoal(progress.goal.id)
+            dao.upsertMilestones(
+                progress.goal.milestones.map { milestone ->
+                    TeamMilestoneEntity(
+                        id = milestone.id,
+                        teamId = teamId,
+                        goalId = milestone.goalId.ifBlank { progress.goal.id },
+                        title = milestone.title,
+                        dueDate = milestone.dueDate,
+                        sortOrder = milestone.sortOrder,
+                    )
+                },
+            )
         }
     }
 

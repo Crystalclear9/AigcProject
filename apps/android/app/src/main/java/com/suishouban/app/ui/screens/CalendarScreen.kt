@@ -48,11 +48,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
+import com.suishouban.app.TeamMilestoneMark
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.ActionPlan
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.PlanItem
 import com.suishouban.app.data.model.PlanItemKinds
+import com.suishouban.app.data.model.WorkspaceTypes
 import com.suishouban.app.data.model.primaryTime
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.SectionHeader
@@ -80,10 +82,16 @@ import java.util.Locale
 fun CalendarScreen(
     state: AppUiState,
     onComplete: (String) -> Unit,
+    teamNames: Map<String, String> = emptyMap(),
+    milestones: List<TeamMilestoneMark> = emptyList(),
 ) {
     val active = state.cards.filter { it.status != CardStatus.ARCHIVED }
     val today = LocalDate.now()
     val cardsByDate = active.groupByDate()
+    // Milestone due dates arrive as plain ISO dates from the Room mirror.
+    val milestonesByDate = milestones
+        .mapNotNull { mark -> mark.localDate()?.let { date -> date to mark } }
+        .groupBy({ it.first }, { it.second })
     val workBlocks = state.actionPlans.flatMap { plan ->
         plan.items
             .filter { it.kind == PlanItemKinds.WORK_BLOCK && it.startTime != null }
@@ -96,6 +104,7 @@ fun CalendarScreen(
     var selectedDate by remember { mutableStateOf(today) }
     val selectedCards = cardsByDate[selectedDate].orEmpty()
     val selectedWorkBlocks = workBlocksByDate[selectedDate].orEmpty()
+    val selectedMilestones = milestonesByDate[selectedDate].orEmpty()
     val undatedCards = active.filter { it.primaryLocalDate() == null }
 
     LazyColumn(
@@ -117,6 +126,7 @@ fun CalendarScreen(
                 today = today,
                 cardsByDate = cardsByDate,
                 workBlocksByDate = workBlocksByDate,
+                milestonesByDate = milestonesByDate,
                 onPreviousMonth = {
                     visibleMonth = visibleMonth.minusMonths(1)
                     selectedDate = visibleMonth.atDay(1)
@@ -133,6 +143,8 @@ fun CalendarScreen(
                 selectedDate = selectedDate,
                 cards = selectedCards,
                 workBlockCount = selectedWorkBlocks.size,
+                milestones = selectedMilestones,
+                teamNames = teamNames,
                 onComplete = onComplete,
             )
         }
@@ -154,6 +166,7 @@ fun CalendarScreen(
                     card = card,
                     compact = true,
                     onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
+                    teamBadge = card.teamBadgeOf(teamNames),
                 )
             }
         }
@@ -170,6 +183,7 @@ private fun MonthCalendarCard(
     today: LocalDate,
     cardsByDate: Map<LocalDate, List<ActionCard>>,
     workBlocksByDate: Map<LocalDate, List<Pair<ActionPlan, PlanItem>>>,
+    milestonesByDate: Map<LocalDate, List<TeamMilestoneMark>>,
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectDate: (LocalDate) -> Unit,
@@ -220,6 +234,7 @@ private fun MonthCalendarCard(
                         isToday = date == today,
                         cards = cardsByDate[date].orEmpty(),
                         workBlockCount = workBlocksByDate[date].orEmpty().size,
+                        hasMilestone = milestonesByDate.containsKey(date),
                         onClick = { onSelectDate(date) },
                     )
                 }
@@ -252,6 +267,7 @@ private fun CalendarDayCell(
     isToday: Boolean,
     cards: List<ActionCard>,
     workBlockCount: Int,
+    hasMilestone: Boolean,
     onClick: () -> Unit,
 ) {
     val borderColor = when {
@@ -317,15 +333,30 @@ private fun CalendarDayCell(
                     }
                 }
             }
-            if (workBlockCount > 0) {
-                Box(
-                    Modifier
-                        .size(7.dp)
-                        .background(
-                            if (selected) Color.White else Color(0xFF805AD5),
-                            CircleShape,
-                        ),
-                )
+            if (workBlockCount > 0 || hasMilestone) {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    if (workBlockCount > 0) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .background(
+                                    if (selected) Color.White else Color(0xFF805AD5),
+                                    CircleShape,
+                                ),
+                        )
+                    }
+                    // Quiet team milestone mark: one small brand-colored dot, no new hues.
+                    if (hasMilestone) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .background(
+                                    if (selected) Color.White else BrandBlue,
+                                    CircleShape,
+                                ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -377,6 +408,8 @@ private fun SelectedDaySection(
     selectedDate: LocalDate,
     cards: List<ActionCard>,
     workBlockCount: Int,
+    milestones: List<TeamMilestoneMark>,
+    teamNames: Map<String, String>,
     onComplete: (String) -> Unit,
 ) {
     val selectedDateLabel = remember(selectedDate) {
@@ -399,7 +432,15 @@ private fun SelectedDaySection(
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        if (cards.isEmpty() && workBlockCount == 0) {
+        // Milestone due dates read as quiet context lines, not tappable items.
+        milestones.forEach { mark ->
+            Text(
+                "里程碑 · ${mark.title}（${mark.teamName}）",
+                style = MaterialTheme.typography.labelMedium,
+                color = Muted,
+            )
+        }
+        if (cards.isEmpty() && workBlockCount == 0 && milestones.isEmpty()) {
             SoftCard {
                 Row(
                     Modifier.fillMaxWidth().padding(20.dp),
@@ -420,6 +461,7 @@ private fun SelectedDaySection(
                     card = card,
                     compact = true,
                     onComplete = if (card.status == CardStatus.DONE) null else ({ onComplete(card.id) }),
+                    teamBadge = card.teamBadgeOf(teamNames),
                 )
             }
         }
@@ -522,6 +564,17 @@ private fun ActionCard.primaryLocalDate(): LocalDate? {
     val value = primaryTime() ?: return null
     return runCatching { OffsetDateTime.parse(value).toLocalDate() }.getOrNull()
 }
+
+private fun ActionCard.teamBadgeOf(teamNames: Map<String, String>): String? =
+    if (workspaceType == WorkspaceTypes.TEAM) {
+        teamNames[workspaceId]?.firstOrNull()?.toString() ?: "团"
+    } else {
+        null
+    }
+
+private fun TeamMilestoneMark.localDate(): LocalDate? =
+    runCatching { LocalDate.parse(dueDate.take(10)) }.getOrNull()
+        ?: runCatching { OffsetDateTime.parse(dueDate).toLocalDate() }.getOrNull()
 
 private fun PlanItem.primaryLocalDate(): LocalDate? {
     val value = startTime ?: deadline ?: return null

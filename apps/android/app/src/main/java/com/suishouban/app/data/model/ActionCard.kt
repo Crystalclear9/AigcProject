@@ -67,6 +67,7 @@ data class ActionCard(
     val status: String = CardStatus.DRAFT,
     val sourceText: String = "",
     val createdAt: String = OffsetDateTime.now().toString(),
+    val goalId: String? = null,
     val milestoneId: String? = null,
     val updatedAt: String? = null,
 )

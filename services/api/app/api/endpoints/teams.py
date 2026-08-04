@@ -235,6 +235,7 @@ def confirm_goal(
                     workspace_type="team",
                     workspace_id=team_id,
                     assignee_id=task.assignee_id,
+                    goal_id=goal.id,
                     milestone_id=(
                         task.milestone_id
                         if task.milestone_id in milestone_ids
@@ -278,7 +279,12 @@ def team_summary(
     for goal in repo.list_goals(team_id):
         milestone_progress = []
         for milestone in goal.milestones:
-            scoped = [c for c in active_cards if c.milestone_id == milestone.id]
+            scoped = [
+                c
+                for c in active_cards
+                if c.milestone_id == milestone.id
+                and (c.goal_id == goal.id or c.goal_id is None)
+            ]
             milestone_progress.append(
                 MilestoneProgress(
                     milestone=milestone,
@@ -287,7 +293,13 @@ def team_summary(
                 )
             )
         milestone_ids = {m.id for m in goal.milestones}
-        scoped = [c for c in active_cards if c.milestone_id in milestone_ids]
+        # New cards have a stable goal id. The milestone fallback keeps pre-migration rows visible.
+        scoped = [
+            c
+            for c in active_cards
+            if c.goal_id == goal.id
+            or (c.goal_id is None and c.milestone_id in milestone_ids)
+        ]
         goals.append(
             GoalProgress(
                 goal=goal,

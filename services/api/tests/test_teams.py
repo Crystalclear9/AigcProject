@@ -226,6 +226,8 @@ def test_goal_confirm_creates_team_cards(client: TestClient) -> None:
     # Owner reassigns the first task before confirming.
     tasks = preview["tasks"]
     tasks[0]["assignee_id"] = "u-carol"
+    # A task without a milestone must still remain attached to its goal.
+    tasks[-1]["milestone_id"] = None
     response = client.post(
         f"/api/teams/{team['id']}/goals/{preview['goal']['id']}/confirm",
         json={"tasks": tasks},
@@ -240,6 +242,8 @@ def test_goal_confirm_creates_team_cards(client: TestClient) -> None:
     assert first["assignee_id"] == "u-carol"
     assert first["status"] == "confirmed"
     assert first["milestone_id"] is not None
+    assert all(card["goal_id"] == preview["goal"]["id"] for card in cards)
+    assert cards[-1]["milestone_id"] is None
 
     listed = client.get(f"/api/teams/{team['id']}/goals", headers={"X-User-Id": "u-bob"})
     assert listed.status_code == 200
@@ -288,7 +292,7 @@ def test_summary_reports_progress_and_incremental_changes(client: TestClient) ->
 
     # A member completes one card; only that card comes back as changed.
     card_id = confirmed["cards"][0]["id"]
-    done = client.post(f"/api/cards/{card_id}/complete")
+    done = client.post(f"/api/cards/{card_id}/complete", headers=owner)
     assert done.status_code == 200
     after = client.get(
         f"/api/teams/{team['id']}/summary", params={"since": cursor}, headers=owner
@@ -319,8 +323,12 @@ def test_card_update_refreshes_updated_at_for_last_write_wins(
     card = cards[0]
     assert card["updated_at"] is not None
 
-    first = client.patch(f"/api/cards/{card['id']}", json={"summary": "A 的修改"})
-    second = client.patch(f"/api/cards/{card['id']}", json={"summary": "B 的修改"})
+    first = client.patch(
+        f"/api/cards/{card['id']}", json={"summary": "A 的修改"}, headers=owner
+    )
+    second = client.patch(
+        f"/api/cards/{card['id']}", json={"summary": "B 的修改"}, headers=owner
+    )
     assert first.status_code == second.status_code == 200
     assert second.json()["summary"] == "B 的修改"
     assert second.json()["updated_at"] >= first.json()["updated_at"]
@@ -333,3 +341,116 @@ def test_summary_requires_membership(client: TestClient) -> None:
         f"/api/teams/{team['id']}/summary", headers={"X-User-Id": "u-eve"}
     )
     assert response.status_code == 403
+
+
+def test_team_card_mutations_require_membership(client: TestClient) -> None:
+    team = _team_with_members(client)
+    _register(client, "u-eve", "路人")
+    card = client.post(
+        "/api/cards",
+        json={
+            "title": "团队任务",
+            "workspace_type": "team",
+            "workspace_id": team["id"],
+        },
+    ).json()
+
+    missing = client.patch(f"/api/cards/{card['id']}", json={"summary": "越权修改"})
+    assert missing.status_code == 422
+    forbidden = client.patch(
+        f"/api/cards/{card['id']}",
+        json={"summary": "越权修改"},
+        headers={"X-User-Id": "u-eve"},
+    )
+    assert forbidden.status_code == 403
+    allowed = client.patch(
+        f"/api/cards/{card['id']}",
+        json={"summary": "成员修改"},
+        headers={"X-User-Id": "u-bob"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["summary"] == "成员修改"
+
+    assert client.post(f"/api/cards/{card['id']}/complete").status_code == 422
+    assert client.post(
+        f"/api/cards/{card['id']}/complete", headers={"X-User-Id": "u-bob"}
+    ).status_code == 200
+
+
+def test_personal_card_update_remains_compatible_without_identity(
+    client: TestClient,
+) -> None:
+    card = client.post("/api/cards", json={"title": "个人任务"}).json()
+    response = client.patch(
+        f"/api/cards/{card['id']}", json={"summary": "本地更新"}
+    )
+    assert response.status_code == 200
+    assert response.json()["summary"] == "本地更新"
+
+
+def test_duty_roster_text_splits_into_assigned_cards() -> None:
+    from app.services.rule_extractor import extract_cards_with_rules
+
+    cards = extract_cards_with_rules(
+        "各位同学，期末大作业分工如下：小李负责数据整理，小王负责PPT制作，小张负责答辩讲稿，6月18日前完成。"
+    )
+    assert [c.card_type for c in cards] == ["task", "task", "task"]
+    assert [c.assignee_id for c in cards] == ["小李", "小王", "小张"]
+    assert all(c.deadline for c in cards)
+
+    # A single casual "负责" mention must not hijack normal extraction.
+    single = extract_cards_with_rules("明天下午3点小组开会，小王负责订会议室")
+    assert all(c.assignee_id is None for c in single)
+
+
+def test_create_card_resolves_nicknames_to_member_ids(client: TestClient) -> None:
+    team = _team_with_members(client)
+    response = client.post(
+        "/api/cards",
+        json={
+            "title": "整理数据",
+            "workspace_type": "team",
+            "workspace_id": team["id"],
+            "assignee_id": "小王",
+            "participant_ids": ["小王", "小张", "陌生人"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    card = response.json()
+    assert card["assignee_id"] == "u-bob"
+    assert card["participant_ids"] == ["u-bob", "u-carol", "陌生人"]
+
+
+def test_moving_card_into_team_resolves_names(client: TestClient) -> None:
+    team = _team_with_members(client)
+    card = client.post(
+        "/api/cards", json={"title": "写PPT", "assignee_id": "小张"}
+    ).json()
+    assert card["assignee_id"] == "小张"  # personal workspace keeps the hint
+
+    missing_identity = client.patch(
+        f"/api/cards/{card['id']}",
+        json={"workspace_type": "team", "workspace_id": team["id"]},
+    )
+    assert missing_identity.status_code == 422
+
+    moved = client.patch(
+        f"/api/cards/{card['id']}",
+        json={"workspace_type": "team", "workspace_id": team["id"]},
+        headers={"X-User-Id": "u-alice"},
+    )
+    assert moved.status_code == 200
+    assert moved.json()["assignee_id"] == "u-carol"
+
+    # Authorization is based on the current team too, so moving out cannot bypass it.
+    moving_out_without_identity = client.patch(
+        f"/api/cards/{card['id']}",
+        json={"workspace_type": "personal", "workspace_id": "personal"},
+    )
+    assert moving_out_without_identity.status_code == 422
+    moved_out = client.patch(
+        f"/api/cards/{card['id']}",
+        json={"workspace_type": "personal", "workspace_id": "personal"},
+        headers={"X-User-Id": "u-bob"},
+    )
+    assert moved_out.status_code == 200

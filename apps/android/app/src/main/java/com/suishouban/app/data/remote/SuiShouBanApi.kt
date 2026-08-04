@@ -169,15 +169,23 @@ interface SuiShouBanApi {
     suspend fun createCard(@Body card: ActionCardDto): ActionCardDto
 
     @PATCH("api/cards/{id}")
-    suspend fun updateCard(@Path("id") id: String, @Body card: ActionCardDto): ActionCardDto
+    suspend fun updateCard(
+        @Path("id") id: String,
+        @Body card: ActionCardDto,
+        @Header("X-User-Id") userId: String,
+    ): ActionCardDto
 
     @POST("api/cards/{id}/complete")
-    suspend fun completeCard(@Path("id") id: String): ActionCardDto
+    suspend fun completeCard(
+        @Path("id") id: String,
+        @Header("X-User-Id") userId: String,
+    ): ActionCardDto
 
     @POST("api/cards/{id}/replan")
     suspend fun replanCard(
         @Path("id") id: String,
         @Body request: CardReplanRequestDto,
+        @Header("X-User-Id") userId: String,
     ): CardReplanResponseDto
 
     @POST("api/users")

@@ -48,6 +48,9 @@ interface WorkflowDao {
     @Query("SELECT * FROM team_members WHERE workspace_id=:workspaceId ORDER BY role, display_name")
     fun observeMembers(workspaceId: String): Flow<List<TeamMemberEntity>>
 
+    @Query("SELECT * FROM team_members ORDER BY workspace_id, role, display_name")
+    fun observeAllMembers(): Flow<List<TeamMemberEntity>>
+
     @Query(
         "SELECT workspace_id, COUNT(*) AS member_count FROM team_members GROUP BY workspace_id",
     )
@@ -61,4 +64,16 @@ interface WorkflowDao {
 
     @Query("DELETE FROM team_members WHERE workspace_id=:workspaceId")
     suspend fun deleteMembersOfWorkspace(workspaceId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMilestones(milestones: List<TeamMilestoneEntity>)
+
+    @Query("DELETE FROM team_milestones WHERE goal_id=:goalId")
+    suspend fun deleteMilestonesOfGoal(goalId: String)
+
+    @Query("DELETE FROM team_milestones WHERE team_id=:teamId")
+    suspend fun deleteMilestonesOfTeam(teamId: String)
+
+    @Query("SELECT * FROM team_milestones ORDER BY sort_order")
+    fun observeMilestones(): Flow<List<TeamMilestoneEntity>>
 }

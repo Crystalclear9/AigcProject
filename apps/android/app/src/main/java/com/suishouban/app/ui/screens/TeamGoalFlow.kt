@@ -1,6 +1,12 @@
 package com.suishouban.app.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,16 +19,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -38,9 +45,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.suishouban.app.data.model.GoalSeed
 import com.suishouban.app.data.model.ProposedTeamTask
 import com.suishouban.app.data.model.TeamGoalPlan
 import com.suishouban.app.data.model.TeamMemberInfo
@@ -70,6 +79,9 @@ fun TeamGoalFlow(
     onCreateGoal: (String, String?, (Result<TeamGoalPlan>) -> Unit) -> Unit,
     onConfirmGoal: (String, List<ProposedTeamTask>, (String?) -> Unit) -> Unit,
     onClose: () -> Unit,
+    onExtractGoalSeed: (Uri, (Result<GoalSeed>) -> Unit) -> Unit = { _, onResult ->
+        onResult(Result.failure(IllegalStateException("未接入截图提取")))
+    },
 ) {
     BackHandler(onBack = onClose)
     var title by rememberSaveable { mutableStateOf("") }
@@ -80,6 +92,27 @@ fun TeamGoalFlow(
     var error by remember { mutableStateOf<String?>(null) }
     var confirming by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var extracting by remember { mutableStateOf(false) }
+    var extractError by remember { mutableStateOf<String?>(null) }
+    // Reuses the same system photo picker as the import flow; the analysis itself is the
+    // existing OCR + rule path, so no new pipeline is introduced for goal prefill.
+    val goalImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null && !extracting) {
+            extracting = true
+            extractError = null
+            onExtractGoalSeed(uri) { result ->
+                extracting = false
+                result
+                    .onSuccess { seed ->
+                        title = seed.title
+                        seed.dueDate?.let { dueDate = it }
+                    }
+                    .onFailure { extractError = "未能从截图提取，请手动输入" }
+            }
+        }
+    }
 
     fun decompose() {
         if (title.isBlank() || loading) return
@@ -105,8 +138,8 @@ fun TeamGoalFlow(
             }
             Text(
                 "发布共同目标",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.ExtraBold,
                 color = Ink,
             )
         }
@@ -139,9 +172,17 @@ fun TeamGoalFlow(
                 title = title,
                 dueDate = dueDate,
                 error = error,
+                extracting = extracting,
+                extractError = extractError,
+                memberCount = members.size,
                 onTitleChange = { title = it },
                 onPickDate = { showDatePicker = true },
                 onClearDate = { dueDate = null },
+                onExtractFromScreenshot = {
+                    goalImagePicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                    )
+                },
                 onSubmit = ::decompose,
             )
         }
@@ -170,45 +211,87 @@ private fun GoalInput(
     title: String,
     dueDate: String?,
     error: String?,
+    extracting: Boolean,
+    extractError: String?,
+    memberCount: Int,
     onTitleChange: (String) -> Unit,
     onPickDate: () -> Unit,
     onClearDate: () -> Unit,
+    onExtractFromScreenshot: () -> Unit,
     onSubmit: () -> Unit,
 ) {
-    SoftCard {
-        Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(DS.ItemGap)) {
-            OutlinedTextField(
-                value = title,
-                onValueChange = onTitleChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("一句话说出共同目标") },
-                singleLine = true,
-                shape = RoundedCornerShape(DS.RadiusTile),
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onPickDate) {
-                    Icon(Icons.Outlined.Schedule, contentDescription = null, tint = BrandBlue)
-                    Spacer(Modifier.width(6.dp))
+    Column {
+        SoftCard {
+            Column(Modifier.padding(DS.CardPadding), verticalArrangement = Arrangement.spacedBy(DS.ItemGap)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
-                        dayLabelOf(dueDate)?.let { "截止 $it" } ?: "选择截止日（可选）",
-                        color = if (dueDate == null) Muted else BrandBlue,
-                        fontWeight = FontWeight.SemiBold,
+                        "目标",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = BrandBlue,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = onTitleChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("一句话说出共同目标") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(DS.RadiusTile),
+                    )
+                    Text(
+                        "例如：6月20日前完成AIGC比赛作品初稿",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Muted,
                     )
                 }
-                if (dueDate != null) {
-                    TextButton(onClick = onClearDate) { Text("清除", color = Muted) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onPickDate) {
+                        Icon(Icons.Outlined.Schedule, contentDescription = null, tint = BrandBlue)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            dayLabelOf(dueDate)?.let { "截止 $it" } ?: "选择截止日（可选）",
+                            color = if (dueDate == null) Muted else BrandBlue,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    if (dueDate != null) {
+                        TextButton(onClick = onClearDate) { Text("清除", color = Muted) }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onExtractFromScreenshot, enabled = !extracting) {
+                        Text(
+                            if (extracting) "正在提取…" else "从截图提取",
+                            color = Muted,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                if (extracting) {
+                    // One thin quiet line while the on-device OCR + rules run.
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                        color = BrandBlue,
+                        trackColor = MistBlue,
+                    )
+                }
+                extractError?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = Muted) }
+                error?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = TaskRed) }
+                Button(
+                    onClick = onSubmit,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = title.isNotBlank(),
+                    shape = RoundedCornerShape(DS.RadiusButton),
+                ) {
+                    Text("AI 拆解", fontWeight = FontWeight.SemiBold)
                 }
             }
-            error?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = TaskRed) }
-            Button(
-                onClick = onSubmit,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = title.isNotBlank(),
-                shape = RoundedCornerShape(DS.RadiusButton),
-            ) {
-                Text("AI 拆解", fontWeight = FontWeight.SemiBold)
-            }
         }
+        Text(
+            "AI 会把目标拆成里程碑，并把任务分给 $memberCount 名成员，发布前你可以调整",
+            style = MaterialTheme.typography.bodySmall,
+            color = Muted,
+            modifier = Modifier.padding(top = 10.dp, start = 4.dp, end = 4.dp),
+        )
     }
 }
 
@@ -223,7 +306,7 @@ private fun GoalDecomposeLoading(reduceMotion: Boolean) {
             animationHint = MascotAnimationHint.SCAN,
         )
     }
-    Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -243,7 +326,6 @@ private fun GoalDecomposeLoading(reduceMotion: Boolean) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GoalPreview(
     plan: TeamGoalPlan,
@@ -258,7 +340,7 @@ private fun GoalPreview(
     val milestoneTitles = plan.goal.milestones.associate { it.id to it.title }
     val summaryLine = buildString {
         append("已生成 ${tasks.size} 项任务、${plan.goal.milestones.size} 个里程碑")
-        if (plan.goal.decomposeSource == "template") append(" · 规则拆解")
+        if (plan.goal.decomposeSource == "template") append(" · 模板拆解")
     }
     val grouped = tasks
         .withIndex()
@@ -271,6 +353,19 @@ private fun GoalPreview(
     }
 
     Column(Modifier.fillMaxSize()) {
+        Text(
+            plan.goal.title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = Ink,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        dayLabelOf(plan.goal.dueDate)?.let { due ->
+            Spacer(Modifier.height(2.dp))
+            Text("截止 $due", style = MaterialTheme.typography.labelMedium, color = Muted)
+        }
+        Spacer(Modifier.height(4.dp))
         Text(summaryLine, style = MaterialTheme.typography.labelMedium, color = Muted)
         Spacer(Modifier.height(DS.ItemGap))
         LazyColumn(
@@ -280,11 +375,21 @@ private fun GoalPreview(
             groupOrder.forEach { milestoneId ->
                 val groupTasks = grouped[milestoneId].orEmpty()
                 item(key = "milestone-$milestoneId") {
-                    Text(
-                        milestoneTitles[milestoneId] ?: "未分组",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Muted,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(BrandBlue),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            milestoneTitles[milestoneId] ?: "未分组",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Ink,
+                        )
+                    }
                 }
                 items(groupTasks.size, key = { index -> "task-$milestoneId-${groupTasks[index].index}" }) { position ->
                     val indexed = groupTasks[position]
@@ -318,6 +423,7 @@ private fun GoalPreview(
         ) {
             Text(if (confirming) "发布中…" else "确认发布", fontWeight = FontWeight.SemiBold)
         }
+        Spacer(Modifier.height(4.dp))
         TextButton(onClick = onRetry, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("重新拆解", color = Muted, fontWeight = FontWeight.SemiBold)
         }
@@ -325,7 +431,6 @@ private fun GoalPreview(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProposedTaskRow(
     task: ProposedTeamTask,
@@ -335,8 +440,8 @@ private fun ProposedTaskRow(
 ) {
     SoftCard(radius = DS.RadiusTile) {
         Column(
-            Modifier.padding(horizontal = DS.CardPadding, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.padding(horizontal = DS.CardPadding, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -360,26 +465,38 @@ private fun ProposedTaskRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 var expanded by remember { mutableStateOf(false) }
                 val assigneeName = members.firstOrNull { it.userId == task.assigneeId }?.nickname
-                    ?: "未分配"
-                ExposedDropdownMenuBox(
-                    expanded = expanded,
-                    onExpandedChange = { expanded = it },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    OutlinedTextField(
-                        value = assigneeName,
-                        onValueChange = {},
-                        readOnly = true,
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.labelMedium,
-                        label = { Text("负责人") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                        shape = RoundedCornerShape(DS.RadiusButton),
+                val assigned = assigneeName != null
+                val tint = if (assigned) BrandBlue else Muted
+                Box {
+                    Row(
                         modifier = Modifier
-                            .menuAnchor()
-                            .fillMaxWidth(),
-                    )
-                    ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            .clip(RoundedCornerShape(DS.RadiusChipBadge))
+                            .background(if (assigned) MistBlue else DS.TileNeutral)
+                            .clickable { expanded = true }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Person,
+                            contentDescription = "负责人",
+                            tint = tint,
+                            modifier = Modifier.size(13.dp),
+                        )
+                        Text(
+                            assigneeName ?: "未分配",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = tint,
+                        )
+                        Icon(
+                            Icons.Outlined.ArrowDropDown,
+                            contentDescription = null,
+                            tint = tint,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                         members.forEach { member ->
                             DropdownMenuItem(
                                 text = { Text(member.nickname) },
@@ -398,8 +515,8 @@ private fun ProposedTaskRow(
                         )
                     }
                 }
+                Spacer(Modifier.weight(1f))
                 dayLabelOf(task.deadline ?: task.startTime)?.let { day ->
-                    Spacer(Modifier.width(10.dp))
                     Text(day, style = MaterialTheme.typography.labelSmall, color = Muted)
                 }
             }

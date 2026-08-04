@@ -21,9 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TeamWorkspaceEntity::class,
         TeamMemberEntity::class,
         TeamAssignmentEntity::class,
+        TeamMilestoneEntity::class,
         IntakeSessionEntity::class,
     ],
-    version = 8,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(StringListConverter::class, ReminderNodeConverter::class)
@@ -52,6 +53,8 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
                 )
                 .build()
                 .also { instance = it }
@@ -386,6 +389,32 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL("ALTER TABLE cards ADD COLUMN milestone_id TEXT")
                 db.execSQL("ALTER TABLE cards ADD COLUMN updated_at TEXT")
+            }
+        }
+
+        /** Calendar fusion: milestone due dates are mirrored locally for quiet calendar marks. */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_milestones (
+                        id TEXT NOT NULL,
+                        team_id TEXT NOT NULL,
+                        goal_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        due_date TEXT,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /** Stable task-to-goal linkage; legacy rows remain null and use compatibility matching. */
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE cards ADD COLUMN goal_id TEXT")
             }
         }
     }

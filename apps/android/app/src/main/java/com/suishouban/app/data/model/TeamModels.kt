@@ -42,6 +42,12 @@ data class TeamGoalPlan(
     val warnings: List<String> = emptyList(),
 )
 
+/** Prefill extracted from a screenshot for the goal-publish flow: first card title + due date. */
+data class GoalSeed(
+    val title: String,
+    val dueDate: String? = null,
+)
+
 data class TeamMilestoneProgress(
     val milestone: TeamMilestone,
     val done: Int = 0,

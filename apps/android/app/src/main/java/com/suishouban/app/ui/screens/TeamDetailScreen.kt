@@ -22,7 +22,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -50,6 +61,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -63,9 +75,12 @@ import com.suishouban.app.data.model.TeamGoalPlan
 import com.suishouban.app.data.model.TeamGoalProgress
 import com.suishouban.app.data.model.TeamMemberInfo
 import com.suishouban.app.ui.components.NeutralPill
+import com.suishouban.app.ui.components.DateTimeWheelPickerDialog
+import com.suishouban.app.ui.theme.AccentIconChip
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.CollectionBrown
 import com.suishouban.app.ui.theme.DS
+import com.suishouban.app.ui.theme.DsSectionHeader
 import com.suishouban.app.ui.theme.HairlineDivider
 import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
@@ -101,6 +116,10 @@ fun TeamDetailScreen(
     onDissolve: (String, (String?) -> Unit) -> Unit,
     onCreateGoal: (String, String, String?, (Result<TeamGoalPlan>) -> Unit) -> Unit,
     onConfirmGoal: (String, String, List<ProposedTeamTask>, (String?) -> Unit) -> Unit,
+    onUpdateTask: (ActionCard, (String?) -> Unit) -> Unit,
+    onExtractGoalSeed: (android.net.Uri, (Result<com.suishouban.app.data.model.GoalSeed>) -> Unit) -> Unit = { _, onResult ->
+        onResult(Result.failure(IllegalStateException("未接入截图提取")))
+    },
 ) {
     // Poll only while this screen is actually visible; disposal stops the network cadence.
     DisposableEffect(teamId) {
@@ -117,6 +136,7 @@ fun TeamDetailScreen(
             onCreateGoal = { title, dueDate, onResult -> onCreateGoal(teamId, title, dueDate, onResult) },
             onConfirmGoal = { goalId, tasks, onResult -> onConfirmGoal(teamId, goalId, tasks, onResult) },
             onClose = { showGoalFlow = false },
+            onExtractGoalSeed = onExtractGoalSeed,
         )
         return
     }
@@ -125,16 +145,25 @@ fun TeamDetailScreen(
     var tab by rememberSaveable { mutableStateOf("overview") }
     var showRenameDialog by rememberSaveable { mutableStateOf(false) }
     var showDissolveDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedGoalId by rememberSaveable(teamId) { mutableStateOf<String?>(null) }
+    var selectedTask by remember { mutableStateOf<ActionCard?>(null) }
 
     val summary = detail.summary
     val teamName = summary?.teamName ?: teamRow?.name ?: "团队"
     val inviteCode = summary?.inviteCode?.takeIf { it.isNotBlank() } ?: teamRow?.inviteCode.orEmpty()
     val isOwner = teamRow?.myRole == "owner" || (summary != null && summary.ownerId == myUserId)
-    val activeGoal = summary?.goals
-        ?.filter { it.goal.status == "active" }
-        ?.maxByOrNull { it.goal.createdAt }
-        ?: summary?.goals?.lastOrNull()
-    val visibleCards = teamCards.filter { it.status != CardStatus.ARCHIVED }
+    val goals = summary?.goals.orEmpty()
+    LaunchedEffect(goals.map { it.goal.id }) {
+        if (selectedGoalId !in goals.map { it.goal.id }) {
+            selectedGoalId = goals.firstOrNull { it.goal.status == "active" }?.goal?.id
+                ?: goals.firstOrNull()?.goal?.id
+        }
+    }
+    val activeGoal = goals.firstOrNull { it.goal.id == selectedGoalId }
+    val visibleCards = teamCards.filter { card ->
+        card.status != CardStatus.ARCHIVED &&
+            (activeGoal == null || card.belongsTo(activeGoal))
+    }
     val nicknameById = summary?.members?.associate { it.userId to it.nickname }.orEmpty()
 
     LazyColumn(
@@ -155,14 +184,30 @@ fun TeamDetailScreen(
         item {
             MemberChipsRow(members = summary?.members.orEmpty())
         }
+        if (goals.isNotEmpty()) {
+            item {
+                GoalSelectorRow(
+                    goals = goals,
+                    selectedGoalId = activeGoal?.goal?.id,
+                    canPublish = isOwner,
+                    onSelect = { selectedGoalId = it },
+                    onPublish = { showGoalFlow = true },
+                )
+            }
+        }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 NeutralPill(text = "总览", selected = tab == "overview", onClick = { tab = "overview" })
                 Spacer(Modifier.width(8.dp))
                 NeutralPill(text = "时间线", selected = tab == "timeline", onClick = { tab = "timeline" })
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onRefresh) {
-                    Text("刷新", color = Muted, fontWeight = FontWeight.SemiBold)
+                IconButton(onClick = onRefresh, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        Icons.Outlined.Refresh,
+                        contentDescription = "刷新",
+                        tint = Muted,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
             if (detail.isStale) {
@@ -182,14 +227,17 @@ fun TeamDetailScreen(
                     onPublish = { showGoalFlow = true },
                 )
             }
-            val stats = summary?.memberStats.orEmpty()
+            // Progress follows the selected goal instead of mixing every goal in the team.
+            val stats = summary?.members.orEmpty().map { member ->
+                val owned = visibleCards.filter { it.assigneeId == member.userId }
+                Triple(member, owned.count { it.status == CardStatus.DONE }, owned.size)
+            }
             if (stats.isNotEmpty()) {
                 item {
-                    Text(
-                        "成员进度",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Ink,
+                    DsSectionHeader(
+                        title = "成员进度",
+                        icon = Icons.Outlined.Groups,
+                        trailing = "${stats.size} 人",
                     )
                     Spacer(Modifier.height(4.dp))
                     SoftCard(radius = DS.RadiusTile) {
@@ -197,10 +245,10 @@ fun TeamDetailScreen(
                             Modifier.padding(horizontal = DS.CardPadding, vertical = 14.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            stats.forEach { stat ->
+                            stats.forEach { (member, done, total) ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        stat.nickname.ifBlank { "成员" },
+                                        member.nickname.ifBlank { "成员" },
                                         modifier = Modifier.width(72.dp),
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Ink,
@@ -208,7 +256,7 @@ fun TeamDetailScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     LinearProgressIndicator(
-                                        progress = { if (stat.total > 0) stat.done.toFloat() / stat.total else 0f },
+                                        progress = { if (total > 0) done.toFloat() / total else 0f },
                                         modifier = Modifier
                                             .weight(1f)
                                             .height(4.dp)
@@ -219,7 +267,7 @@ fun TeamDetailScreen(
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Text(
-                                        "${stat.done}/${stat.total}",
+                                        "$done/$total",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = Muted,
                                     )
@@ -231,11 +279,10 @@ fun TeamDetailScreen(
             }
             if (visibleCards.isNotEmpty()) {
                 item {
-                    Text(
-                        "任务",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Ink,
+                    DsSectionHeader(
+                        title = "任务",
+                        icon = Icons.Outlined.Checklist,
+                        trailing = "${visibleCards.size} 项",
                     )
                 }
                 item {
@@ -243,6 +290,7 @@ fun TeamDetailScreen(
                         cards = visibleCards,
                         goal = activeGoal,
                         nicknameById = nicknameById,
+                        onOpenTask = { selectedTask = it },
                     )
                 }
             }
@@ -253,10 +301,11 @@ fun TeamDetailScreen(
                     cards = visibleCards,
                     goal = activeGoal,
                     nicknameById = nicknameById,
+                    onOpenTask = { selectedTask = it },
                 )
             }
         }
-        item { Spacer(Modifier.height(24.dp)) }
+        item { Spacer(Modifier.height(92.dp)) }
     }
 
     if (showRenameDialog) {
@@ -274,6 +323,17 @@ fun TeamDetailScreen(
             onConfirm = { done -> onDissolve(teamId, done) },
             onDismiss = { showDissolveDialog = false },
             onDissolved = onBack,
+        )
+    }
+    selectedTask?.let { task ->
+        TaskDetailDialog(
+            card = task,
+            members = summary?.members.orEmpty(),
+            onSave = onUpdateTask,
+            onCancelTask = { done ->
+                onUpdateTask(task.copy(status = CardStatus.ARCHIVED), done)
+            },
+            onDismiss = { selectedTask = null },
         )
     }
 }
@@ -310,15 +370,34 @@ private fun TeamDetailHeader(
                 overflow = TextOverflow.Ellipsis,
             )
             if (inviteCode.isNotBlank()) {
-                Text(
-                    if (copied) "邀请码 $inviteCode · 已复制" else "邀请码 $inviteCode · 点击复制",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Muted,
-                    modifier = Modifier.clickable {
-                        clipboard.setText(AnnotatedString(inviteCode))
-                        copied = true
-                    },
-                )
+                Spacer(Modifier.height(2.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(DS.RadiusChipBadge))
+                        .background(DS.TileNeutral)
+                        .clickable {
+                            clipboard.setText(AnnotatedString(inviteCode))
+                            copied = true
+                        }
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(if (copied) "已复制" else "邀请码", fontSize = 10.sp, color = Muted)
+                    Text(
+                        inviteCode,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BrandBlue,
+                        letterSpacing = 1.sp,
+                    )
+                    Icon(
+                        if (copied) Icons.Outlined.Check else Icons.Outlined.ContentCopy,
+                        contentDescription = "复制邀请码",
+                        tint = if (copied) BrandBlue else Muted,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
             }
         }
         if (isOwner) {
@@ -373,7 +452,7 @@ private fun MemberChipsRow(members: List<TeamMemberInfo>) {
                     modifier = Modifier
                         .size(20.dp)
                         .clip(CircleShape)
-                        .background(accent.copy(alpha = 0.10f)),
+                        .background(accent.copy(alpha = 0.16f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -398,6 +477,39 @@ private fun MemberChipsRow(members: List<TeamMemberInfo>) {
 }
 
 @Composable
+private fun GoalSelectorRow(
+    goals: List<TeamGoalProgress>,
+    selectedGoalId: String?,
+    canPublish: Boolean,
+    onSelect: (String) -> Unit,
+    onPublish: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        goals.forEach { progress ->
+            val title = progress.goal.title
+            NeutralPill(
+                text = if (title.length > 12) "${title.take(12)}…" else title,
+                selected = progress.goal.id == selectedGoalId,
+                onClick = { onSelect(progress.goal.id) },
+            )
+        }
+        if (canPublish) {
+            TextButton(onClick = onPublish) {
+                Icon(Icons.Outlined.Add, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("新增目标", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
 private fun GoalCard(
     goal: TeamGoalProgress?,
     isOwner: Boolean,
@@ -412,18 +524,43 @@ private fun GoalCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = Muted,
                 )
-                goal == null && isOwner -> Button(
-                    onClick = onPublish,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(DS.RadiusButton),
+                goal == null -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("发布共同目标 · AI 拆解分工", fontWeight = FontWeight.SemiBold)
+                    AccentIconChip(icon = Icons.Outlined.Flag, size = 36.dp)
+                    Text(
+                        "还没有共同目标",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Ink,
+                    )
+                    if (isOwner) {
+                        Text(
+                            "发布一个目标，AI 会拆成里程碑和分工",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Muted,
+                            textAlign = TextAlign.Center,
+                        )
+                        Button(
+                            onClick = onPublish,
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            shape = RoundedCornerShape(DS.RadiusButton),
+                        ) {
+                            Text("发布共同目标", fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        Text(
+                            "等待队长发布目标后，这里会显示进度",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Muted,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
-                goal == null -> Text(
-                    "队长还未发布共同目标",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Muted,
-                )
                 else -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -434,7 +571,15 @@ private fun GoalCard(
                             color = Ink,
                         )
                         if (goal.goal.decomposeSource == "template") {
-                            Text("规则拆解", fontSize = 10.sp, color = Muted)
+                            Text(
+                                "模板拆解",
+                                fontSize = 10.sp,
+                                color = Muted,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(DS.RadiusChipBadge))
+                                    .background(DS.TileNeutral)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
                         }
                     }
                     dayLabelOf(goal.goal.dueDate)?.let { due ->
@@ -460,6 +605,7 @@ private fun GoalCard(
                     }
                     if (goal.milestones.isNotEmpty()) {
                         HairlineDivider()
+                        Text("里程碑", style = MaterialTheme.typography.labelSmall, color = Muted)
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             goal.milestones.forEach { milestone ->
                                 val complete = milestone.total > 0 && milestone.done == milestone.total
@@ -507,6 +653,7 @@ private fun TaskGroups(
     cards: List<ActionCard>,
     goal: TeamGoalProgress?,
     nicknameById: Map<String, String>,
+    onOpenTask: (ActionCard) -> Unit,
 ) {
     val milestones = goal?.goal?.milestones.orEmpty().sortedBy { it.sortOrder }
     val cardsByMilestone = cards.groupBy { it.milestoneId }
@@ -532,7 +679,7 @@ private fun TaskGroups(
                 if (index > 0) HairlineDivider()
                 Text(label, style = MaterialTheme.typography.labelSmall, color = Muted)
                 groupCards.sortedBy { it.deadline ?: it.startTime ?: "" }.forEach { card ->
-                    TaskRow(card = card, nicknameById = nicknameById)
+                    TaskRow(card = card, nicknameById = nicknameById, onOpen = { onOpenTask(card) })
                 }
             }
         }
@@ -540,10 +687,21 @@ private fun TaskGroups(
 }
 
 @Composable
-private fun TaskRow(card: ActionCard, nicknameById: Map<String, String>) {
+private fun TaskRow(
+    card: ActionCard,
+    nicknameById: Map<String, String>,
+    onOpen: () -> Unit,
+) {
     val visual = visualForCardType(card.cardType)
     val done = card.status == CardStatus.DONE
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(DS.RadiusChipBadge))
+            .clickable(onClick = onOpen)
+            .padding(vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Box(
             modifier = Modifier
                 .size(width = 4.dp, height = 18.dp)
@@ -576,6 +734,8 @@ private fun TaskRow(card: ActionCard, nicknameById: Map<String, String>) {
         dayLabelOf(card.deadline ?: card.startTime)?.let { day ->
             Text(day, style = MaterialTheme.typography.labelSmall, color = Muted)
         }
+        Spacer(Modifier.width(4.dp))
+        Icon(Icons.Outlined.Edit, contentDescription = "查看或修改任务", tint = Muted, modifier = Modifier.size(15.dp))
     }
 }
 
@@ -591,6 +751,7 @@ private fun TeamTimeline(
     cards: List<ActionCard>,
     goal: TeamGoalProgress?,
     nicknameById: Map<String, String>,
+    onOpenTask: (ActionCard) -> Unit,
 ) {
     val today = remember { LocalDate.now() }
     val firstDay = today.minusDays(2)
@@ -611,15 +772,20 @@ private fun TeamTimeline(
 
     if (lanes.isEmpty() || timedCards.isEmpty()) {
         SoftCard(radius = DS.RadiusTile) {
-            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text("还没有带时间的团队任务", style = MaterialTheme.typography.bodyMedium, color = Muted)
+            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    "任务带上开始或截止时间后，会出现在时间线上",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Muted,
+                )
             }
         }
         return
     }
 
     SoftCard(radius = DS.RadiusTile) {
-        Row(Modifier.padding(vertical = 14.dp)) {
+        Column(Modifier.padding(vertical = 14.dp)) {
+        Row {
             // Fixed nickname column so lane owners stay visible while the days scroll.
             Column(Modifier.width(64.dp).padding(start = 12.dp)) {
                 Spacer(Modifier.height(TimelineAxisHeight))
@@ -670,9 +836,10 @@ private fun TeamTimeline(
                             laneCards.forEach { card ->
                                 val start = (dayOf(card.startTime) ?: dayOf(card.deadline))!!
                                 val end = dayOf(card.deadline) ?: start
+                                val normalizedEnd = maxOf(end, start)
+                                if (normalizedEnd < firstDay || start > lastDay) return@forEach
                                 val clampedStart = maxOf(start, firstDay)
-                                val clampedEnd = minOf(maxOf(end, clampedStart), lastDay)
-                                if (clampedStart > lastDay || clampedEnd < firstDay) return@forEach
+                                val clampedEnd = minOf(normalizedEnd, lastDay)
                                 val offsetDays = (clampedStart.toEpochDay() - firstDay.toEpochDay()).toInt()
                                 val spanDays = (clampedEnd.toEpochDay() - clampedStart.toEpochDay()).toInt() + 1
                                 val done = card.status == CardStatus.DONE
@@ -682,12 +849,24 @@ private fun TeamTimeline(
                                     Modifier
                                         .offset(x = TimelineDayWidth * offsetDays)
                                         .width(TimelineDayWidth * spanDays)
-                                        .height(16.dp)
+                                        .height(20.dp)
                                         .align(Alignment.CenterStart)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(fill),
+                                        .background(fill)
+                                        .clickable { onOpenTask(card) },
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Box(Modifier.width(3.dp).height(16.dp).background(edge))
+                                    Box(Modifier.width(3.dp).height(20.dp).background(edge))
+                                    if (spanDays >= 3) {
+                                        Text(
+                                            card.title,
+                                            modifier = Modifier.padding(horizontal = 4.dp),
+                                            fontSize = 9.sp,
+                                            color = Ink,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -713,6 +892,271 @@ private fun TeamTimeline(
                     )
                 }
             }
+        }
+        HairlineDivider(Modifier.padding(horizontal = 12.dp, vertical = 10.dp))
+        Column(
+            Modifier.padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            timedCards.sortedBy { it.startTime ?: it.deadline ?: "" }.forEach { card ->
+                val assignee = card.assigneeId?.let { nicknameById[it] } ?: "未分配"
+                val range = timelineRangeLabel(card)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(DS.RadiusChipBadge))
+                        .clickable { onOpenTask(card) }
+                        .padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(TaskRed))
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            card.title,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ink,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text("$assignee · $range", style = MaterialTheme.typography.labelSmall, color = Muted)
+                    }
+                    Icon(Icons.Outlined.Edit, contentDescription = "查看或修改任务", tint = Muted, modifier = Modifier.size(15.dp))
+                }
+            }
+        }
+        }
+    }
+}
+
+@Composable
+private fun TaskDetailDialog(
+    card: ActionCard,
+    members: List<TeamMemberInfo>,
+    onSave: (ActionCard, (String?) -> Unit) -> Unit,
+    onCancelTask: ((String?) -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember(card.id, card.updatedAt) { mutableStateOf(card) }
+    var assigneeMenuOpen by remember { mutableStateOf(false) }
+    var pickerField by remember { mutableStateOf<String?>(null) }
+    var confirmCancel by remember { mutableStateOf(false) }
+    var submitting by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    var cancelSubmitting by remember { mutableStateOf(false) }
+    var cancelError by remember { mutableStateOf<String?>(null) }
+    val assigneeName = members.firstOrNull { it.userId == draft.assigneeId }?.nickname ?: "未分配"
+
+    AlertDialog(
+        onDismissRequest = { if (!submitting && !cancelSubmitting) onDismiss() },
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("任务详情", fontWeight = FontWeight.Bold)
+                Text(
+                    when (card.status) {
+                        CardStatus.DONE -> "已完成"
+                        CardStatus.CONFIRMED -> "进行中"
+                        else -> "待处理"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Muted,
+                )
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = draft.title,
+                    onValueChange = { draft = draft.copy(title = it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("任务名称") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(DS.RadiusTile),
+                )
+                OutlinedTextField(
+                    value = draft.summary,
+                    onValueChange = { draft = draft.copy(summary = it) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("任务说明") },
+                    minLines = 2,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(DS.RadiusTile),
+                )
+                Box {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(DS.RadiusTile))
+                            .background(DS.TileNeutral)
+                            .clickable { assigneeMenuOpen = true }
+                            .padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Outlined.Person, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("负责人", style = MaterialTheme.typography.labelMedium, color = Muted)
+                        Spacer(Modifier.weight(1f))
+                        Text(assigneeName, style = MaterialTheme.typography.bodyMedium, color = Ink)
+                        Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = Muted)
+                    }
+                    DropdownMenu(expanded = assigneeMenuOpen, onDismissRequest = { assigneeMenuOpen = false }) {
+                        members.forEach { member ->
+                            DropdownMenuItem(
+                                text = { Text(member.nickname) },
+                                onClick = {
+                                    draft = draft.copy(assigneeId = member.userId)
+                                    assigneeMenuOpen = false
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("未分配", color = Muted) },
+                            onClick = {
+                                draft = draft.copy(assigneeId = null)
+                                assigneeMenuOpen = false
+                            },
+                        )
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TaskTimeField(
+                        label = "开始",
+                        value = draft.startTime,
+                        modifier = Modifier.weight(1f),
+                        onClick = { pickerField = "start" },
+                    )
+                    TaskTimeField(
+                        label = "截止",
+                        value = draft.deadline,
+                        modifier = Modifier.weight(1f),
+                        onClick = { pickerField = "deadline" },
+                    )
+                }
+                if (draft.deliverables.isNotEmpty()) {
+                    Text(
+                        "交付物：${draft.deliverables.joinToString("、")}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Muted,
+                    )
+                }
+                saveError?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = TaskRed)
+                }
+                TextButton(
+                    onClick = { confirmCancel = true },
+                    modifier = Modifier.align(Alignment.End),
+                    enabled = !submitting,
+                ) {
+                    Text("取消此任务", color = TaskRed, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (submitting) return@TextButton
+                    submitting = true
+                    saveError = null
+                    onSave(
+                        draft.copy(title = draft.title.trim(), summary = draft.summary.trim()),
+                    ) { failure ->
+                        submitting = false
+                        if (failure == null) onDismiss() else saveError = failure
+                    }
+                },
+                enabled = draft.title.isNotBlank() && !submitting,
+            ) {
+                Text(
+                    if (submitting) "保存中…" else "保存修改",
+                    color = BrandBlue,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !submitting) { Text("关闭", color = Muted) }
+        },
+    )
+
+    pickerField?.let { field ->
+        val current = if (field == "start") draft.startTime else draft.deadline
+        DateTimeWheelPickerDialog(
+            initialValue = current,
+            title = if (field == "start") "选择开始时间" else "选择截止时间",
+            onDismiss = { pickerField = null },
+            onClear = {
+                draft = if (field == "start") draft.copy(startTime = null) else draft.copy(deadline = null)
+                pickerField = null
+            },
+            onConfirm = { value ->
+                draft = if (field == "start") draft.copy(startTime = value) else draft.copy(deadline = value)
+                pickerField = null
+            },
+        )
+    }
+    if (confirmCancel) {
+        AlertDialog(
+            onDismissRequest = { if (!cancelSubmitting) confirmCancel = false },
+            title = { Text("取消任务", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("“${card.title}”将从该目标的任务与时间线中移除。")
+                    cancelError?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall, color = TaskRed)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (cancelSubmitting) return@TextButton
+                        cancelSubmitting = true
+                        cancelError = null
+                        onCancelTask { failure ->
+                            cancelSubmitting = false
+                            if (failure == null) onDismiss() else cancelError = failure
+                        }
+                    },
+                    enabled = !cancelSubmitting,
+                ) {
+                    Text(
+                        if (cancelSubmitting) "取消中…" else "确认取消",
+                        color = TaskRed,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { confirmCancel = false },
+                    enabled = !cancelSubmitting,
+                ) { Text("返回", color = Muted) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun TaskTimeField(
+    label: String,
+    value: String?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(DS.RadiusTile))
+            .background(DS.TileNeutral)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.Schedule, contentDescription = null, tint = BrandBlue, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = Muted)
+            Text(dateTimeLabel(value) ?: "未设置", style = MaterialTheme.typography.labelMedium, color = Ink)
         }
     }
 }
@@ -842,3 +1286,27 @@ internal fun dayLabelOf(value: String?): String? =
 
 private fun weekdayLabel(day: LocalDate): String =
     listOf("一", "二", "三", "四", "五", "六", "日")[day.dayOfWeek.value - 1]
+
+private fun ActionCard.belongsTo(goal: TeamGoalProgress): Boolean {
+    if (goalId != null) return goalId == goal.goal.id
+    val milestoneIds = goal.goal.milestones.map { it.id }.toSet()
+    return milestoneId in milestoneIds || sourceText == "团队目标：${goal.goal.title}"
+}
+
+private fun timelineRangeLabel(card: ActionCard): String {
+    val start = dayLabelOf(card.startTime)
+    val end = dayLabelOf(card.deadline)
+    return when {
+        start != null && end != null && start != end -> "$start 至 $end"
+        end != null -> "截止 $end"
+        start != null -> "$start 开始"
+        else -> "未设置时间"
+    }
+}
+
+private fun dateTimeLabel(value: String?): String? {
+    if (value.isNullOrBlank()) return null
+    return runCatching {
+        OffsetDateTime.parse(value).format(DateTimeFormatter.ofPattern("M月d日 HH:mm"))
+    }.getOrNull() ?: dayLabelOf(value)
+}

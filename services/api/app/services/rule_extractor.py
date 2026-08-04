@@ -394,12 +394,50 @@ def build_card(text: str, card_type: str, screenshot_time: str | None = None, ti
     )
 
 
+ASSIGNMENT_PATTERN = re.compile(
+    r"(?P<person>[一-鿿]{2,4}|[A-Za-z][A-Za-z .]{1,11})"
+    r"负责(?P<task>[^，。；、！？!?\n]{2,30})"
+)
+
+
+def _assignment_cards(text: str, screenshot_time: str | None = None) -> list[ActionCard]:
+    """Split a分工公告 (duty roster) into one task card per person.
+
+    Only fires when at least two "<person>负责<task>" clauses appear, so a
+    single casual mention never hijacks normal extraction. The person is kept
+    as a plain-text assignee hint; team workspaces resolve it to a member id
+    at card creation time.
+    """
+    matches = list(ASSIGNMENT_PATTERN.finditer(text))
+    if len(matches) < 2:
+        return []
+    cards: list[ActionCard] = []
+    for match in matches:
+        task = match.group("task").strip("，。；;、:： ")
+        person = match.group("person")
+        card = build_card(text, "task", screenshot_time, title=task)
+        cards.append(
+            card.model_copy(
+                update={
+                    "assignee_id": person,
+                    "participant_ids": [person],
+                    "evidence_summary": [match.group(0)],
+                }
+            )
+        )
+    return cards
+
+
 def extract_cards_with_rules(text: str, screenshot_time: str | None = None) -> list[ActionCard]:
     normalized = re.sub(r"\s+", " ", text).strip()
     cards: list[ActionCard] = []
 
     if not is_actionable_text(normalized):
         return []
+
+    assignment_cards = _assignment_cards(normalized, screenshot_time)
+    if assignment_cards:
+        return assignment_cards
 
     action_segments = _split_action_segments(normalized)
     if len(action_segments) > 1:

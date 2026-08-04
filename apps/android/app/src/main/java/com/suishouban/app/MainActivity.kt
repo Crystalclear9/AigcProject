@@ -110,6 +110,8 @@ class MainActivity : ComponentActivity() {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
                 val teamState by viewModel.teamUiState.collectAsStateWithLifecycle()
+                val teamMemberOptions by viewModel.teamMemberOptions.collectAsStateWithLifecycle()
+                val milestoneMarks by viewModel.milestoneMarks.collectAsStateWithLifecycle()
                 val systemReduceMotion = remember {
                     Settings.Global.getFloat(
                         contentResolver,
@@ -363,6 +365,9 @@ class MainActivity : ComponentActivity() {
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
+                                teams = teamState.teams,
+                                teamMembers = teamMemberOptions,
+                                onSelectWorkspace = viewModel::setDraftWorkspace,
                                 onAddMaterials = {
                                     intakeMaterialsLauncher.launch(
                                         arrayOf(
@@ -390,6 +395,8 @@ class MainActivity : ComponentActivity() {
                             Screen.Calendar.route -> CalendarScreen(
                                 state = state,
                                 onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
+                                milestones = milestoneMarks,
                             )
                             Screen.Team.route -> {
                                 // Simple two-level navigation: null shows the team list, an id
@@ -424,11 +431,14 @@ class MainActivity : ComponentActivity() {
                                         onDissolve = viewModel::dissolveTeam,
                                         onCreateGoal = viewModel::createTeamGoal,
                                         onConfirmGoal = viewModel::confirmTeamGoal,
+                                        onExtractGoalSeed = viewModel::extractGoalSeed,
+                                        onUpdateTask = viewModel::updateTeamTask,
                                     )
                                 }
                             }
                             Screen.Settings.route -> SettingsScreen(
                                 state = state,
+                                onBack = { current = Screen.Home.route },
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
@@ -477,7 +487,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
+                                onSettings = { current = Screen.Settings.route },
                                 onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
                             )
                         }
                         }
@@ -698,5 +710,4 @@ private val bottomScreens = listOf(
     Screen.Cards,
     Screen.Calendar,
     Screen.Team,
-    Screen.Settings,
 )

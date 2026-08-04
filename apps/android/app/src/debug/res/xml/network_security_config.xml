@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Debug-only ADB reverse gateway; release keeps loopback cleartext blocked. -->
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Advanced BYOK exception. The UI requires explicit risk acknowledgement. -->
+        <domain includeSubdomains="false">api-ai.vivo.com.cn</domain>
+    </domain-config>
+</network-security-config>

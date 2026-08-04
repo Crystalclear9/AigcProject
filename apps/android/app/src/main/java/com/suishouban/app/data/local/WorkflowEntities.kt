@@ -63,6 +63,20 @@ data class TeamAssignmentEntity(
     @ColumnInfo(name = "is_owner") val isOwner: Boolean,
 )
 
+/**
+ * Offline mirror of team goal milestones, refreshed delete-then-insert per goal from the team
+ * summary poll. Only the calendar reads it — the server stays the source of truth.
+ */
+@Entity(tableName = "team_milestones")
+data class TeamMilestoneEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") val teamId: String,
+    @ColumnInfo(name = "goal_id") val goalId: String,
+    val title: String,
+    @ColumnInfo(name = "due_date") val dueDate: String? = null,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+)
+
 @Entity(tableName = "intake_sessions")
 data class IntakeSessionEntity(
     @PrimaryKey val id: String,

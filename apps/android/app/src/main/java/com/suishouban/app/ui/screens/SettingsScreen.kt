@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -34,6 +35,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
@@ -78,6 +80,7 @@ import com.suishouban.app.ui.theme.SoftCard
 @Composable
 fun SettingsScreen(
     state: AppUiState,
+    onBack: () -> Unit,
     onUpdate: (AppSettings) -> Unit,
     onSync: () -> Unit,
     onTestConnection: () -> Unit,
@@ -112,7 +115,18 @@ fun SettingsScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionHeader("设置", if (state.settings.apiBaseUrl.isBlank()) "手机独立运行" else "AI 增强已配置", icon = Icons.Outlined.SettingsSuggest)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回", tint = Ink)
+                }
+                Box(Modifier.weight(1f)) {
+                    SectionHeader(
+                        "设置",
+                        if (state.settings.apiBaseUrl.isBlank()) "手机独立运行" else "AI 增强已配置",
+                        icon = Icons.Outlined.SettingsSuggest,
+                    )
+                }
+            }
         }
         item {
             ExpandableSettingsCard(

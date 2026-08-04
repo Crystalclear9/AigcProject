@@ -48,6 +48,7 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
             need_confirm TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL DEFAULT 'draft',
             source_text TEXT NOT NULL DEFAULT '',
+            goal_id TEXT,
             created_at TEXT NOT NULL
         )
         """
@@ -92,6 +93,7 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
         "deliverables": (
             "ALTER TABLE cards ADD COLUMN deliverables TEXT NOT NULL DEFAULT '[]'"
         ),
+        "goal_id": "ALTER TABLE cards ADD COLUMN goal_id TEXT",
         "source_session_id": "ALTER TABLE cards ADD COLUMN source_session_id TEXT",
         "milestone_id": "ALTER TABLE cards ADD COLUMN milestone_id TEXT",
         "updated_at": "ALTER TABLE cards ADD COLUMN updated_at TEXT",
