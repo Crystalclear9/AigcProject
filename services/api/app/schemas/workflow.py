@@ -14,6 +14,8 @@ from app.schemas.agent_workflow import (
     ReActSession,
     RetrievalSource,
     VerificationSummary,
+    TeamTask,
+    TeamWorkflowReview,
 )
 
 WorkflowStatus = Literal[
@@ -26,7 +28,7 @@ WorkflowStatus = Literal[
     "failed",
     "cancelled",
 ]
-ResumeCommand = Literal["provide_ocr_text", "review_cards", "cancel"]
+ResumeCommand = Literal["provide_ocr_text", "review_cards", "review_team_plan", "cancel"]
 ResultStage = Literal["provisional", "enhanced", "final"]
 WorkflowRoute = Literal["rules", "fast_model", "expert_model", "fast_and_expert", "supervisor_agents"]
 EnhancementStatus = Literal["not_configured", "attempted", "succeeded", "degraded"]
@@ -122,6 +124,7 @@ class WorkflowResumeRequest(BaseModel):
     command: ResumeCommand
     ocr_text: str | None = None
     cards: list[ActionCard] | None = None
+    team_tasks: list[TeamTask] | None = None
 
     @model_validator(mode="after")
     def validate_payload(self) -> "WorkflowResumeRequest":
@@ -129,6 +132,8 @@ class WorkflowResumeRequest(BaseModel):
             raise ValueError("ocr_text is required for provide_ocr_text")
         if self.command == "review_cards" and self.cards is None:
             raise ValueError("cards are required for review_cards")
+        if self.command == "review_team_plan" and self.team_tasks is None:
+            raise ValueError("team_tasks are required for review_team_plan")
         return self
 
 
@@ -181,6 +186,13 @@ class WorkflowRunResponse(BaseModel):
     ocr_enhancement_status: EnhancementStatus = "not_configured"
     ocr_quality_report: OcrQualityReport | None = None
     ocr_review_reasons: list[str] = Field(default_factory=list)
+    ocr_evidence_status: Literal["trusted", "review_required", "user_verified"] = "trusted"
+    ocr_candidate_versions: list[dict[str, Any]] = Field(default_factory=list)
+    ocr_conflicts: list[str] = Field(default_factory=list)
+    evidence_spans: list[dict[str, Any]] = Field(default_factory=list)
+    summary_status: Literal["blocked", "provisional", "grounded", "degraded"] = "provisional"
+    team_tasks: list[TeamTask] = Field(default_factory=list)
+    team_workflow_review: TeamWorkflowReview = Field(default_factory=TeamWorkflowReview)
     image_generation_status: EnhancementStatus = "not_configured"
     react_session: ReActSession | None = None
     react_suggestions: list[str] = Field(default_factory=list)
@@ -196,6 +208,8 @@ class WorkflowEvent(BaseModel):
         "draft_created",
         "draft_updated",
         "review_required",
+        "ocr_review_required",
+        "evidence_conflict",
         "agent_dispatched",
         "evidence_added",
         "action_graph_updated",
@@ -213,6 +227,9 @@ class WorkflowEvent(BaseModel):
         "attachment_extracted",
         "plan_draft_created",
         "plan_updated",
+        "team_plan_created",
+        "assignment_conflict",
+        "acceptance_required",
         "completed",
         "failed",
         "cancelled",

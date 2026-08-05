@@ -10,6 +10,7 @@ from typing import Any, Callable
 from app.services.intake_graph import build_intake_graph
 from app.services.ocr_quality import adjudicate_candidates
 from app.services.vivo_ocr import VivoOcrClient, clean_ocr_lines
+from app.services.team_workflow import team_metrics
 
 try:
     from opentelemetry import trace
@@ -433,6 +434,13 @@ async def run_harness(
             )
             cards = output.get("cards", [])
             actual = output.get("classification")
+            team_task_values = output.get("team_tasks", [])
+            team_quality = team_metrics(team_task_values) if case.workspace_type == "team" else {
+                "owner_coverage": 1.0,
+                "deliverable_coverage": 1.0,
+                "acceptance_criterion_coverage": 1.0,
+                "dependency_validity": 1.0,
+            }
             accepted = {
                 "actionable": {"actionable", "mixed"},
                 "mixed": {"mixed", "actionable"},
@@ -508,6 +516,14 @@ async def run_harness(
                     or str(card.get("summary", "")) in {"", "相关日程", "处理截图事项"}
                     for card in cards
                 ),
+                "summary_evidence_coverage": (
+                    sum(bool(card.get("evidence_summary") or card.get("source_text")) for card in cards)
+                    / max(1, len(cards))
+                ),
+                "owner_coverage": team_quality["owner_coverage"],
+                "dependency_validity": team_quality["dependency_validity"],
+                "deliverable_coverage": team_quality["deliverable_coverage"],
+                "acceptance_criterion_coverage": team_quality["acceptance_criterion_coverage"],
                 "latency_ms": round((time.perf_counter() - started) * 1000, 2),
                 "fault_profile": case.fault_profile,
             }
@@ -535,6 +551,11 @@ async def run_harness(
     key_field_accuracy = mean(result["annotated_field_score"] for result in results)
     fact_annotation_coverage = mean(result["fact_annotation_complete"] for result in results)
     wrong_auto_complete_rate = mean(result["wrong_auto_complete"] for result in results)
+    summary_evidence_coverage = mean(result["summary_evidence_coverage"] for result in results)
+    owner_coverage = mean(result["owner_coverage"] for result in results)
+    dependency_validity = mean(result["dependency_validity"] for result in results)
+    deliverable_coverage = mean(result["deliverable_coverage"] for result in results)
+    acceptance_criterion_coverage = mean(result["acceptance_criterion_coverage"] for result in results)
     image_manifest = (
         Path(__file__).resolve().parents[4]
         / "docs"
@@ -565,6 +586,11 @@ async def run_harness(
         "summary_contamination_rate": summary_contamination_rate == 0,
         "generic_title_rate": sum(result["generic_titles"] for result in results) == 0,
     }
+    team_release_gates = {
+        "summary_evidence_coverage": summary_evidence_coverage >= 0.99,
+        "team_owner_coverage": owner_coverage >= 0.90,
+        "team_dependency_validity": dependency_validity == 1.0,
+    }
     return {
         "dataset_version": "locked-intake-v3" if suite == "locked" else "synthetic-smoke-v2",
         "dataset_kind": suite,
@@ -573,7 +599,7 @@ async def run_harness(
         "reviewed_text_count": reviewed_texts,
         "reviewed_image_count": reviewed_images,
         "dataset_complete": dataset_complete,
-        "prompt_version": "prompt-envelope-v2",
+        "prompt_version": "prompt-envelope-v3-grounded",
         "case_count": len(results),
         "classification_accuracy": classification_accuracy,
         "classification_macro_f1": classification_macro_f1,
@@ -584,11 +610,17 @@ async def run_harness(
         "task_boundary_recall": boundary_recall,
         "task_boundary_f1": boundary_f1,
         "summary_contamination_rate": summary_contamination_rate,
+        "summary_evidence_coverage": summary_evidence_coverage,
+        "owner_coverage": owner_coverage,
+        "dependency_validity": dependency_validity,
+        "deliverable_coverage": deliverable_coverage,
+        "acceptance_criterion_coverage": acceptance_criterion_coverage,
         "generic_title_rate": sum(result["generic_titles"] for result in results)
         / max(1, total_cards),
         "wrong_auto_complete_rate": wrong_auto_complete_rate,
         "release_gates": release_gates,
-        "quality_passed": all(release_gates.values()),
+        "team_release_gates": team_release_gates,
+        "quality_passed": all(release_gates.values()) and all(team_release_gates.values()),
         "mean_latency_ms": round(mean(latencies), 2),
         "p95_latency_ms": round(p95, 2),
         "failures": [

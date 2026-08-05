@@ -43,6 +43,21 @@ TERMINAL_WORKFLOW_STATUSES = {"completed", "failed", "cancelled"}
 DEFAULT_ORPHAN_INPUT_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
+def _candidate_spans(candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    spans = []
+    for index, block in enumerate(candidate.get("blocks", [])):
+        text = str(block.get("text", "")).strip()
+        if text:
+            spans.append({
+                "id": f"ocr:{candidate.get('engine', 'ocr')}:{index}",
+                "text": text,
+                "bounds": {key: block.get(key) for key in ("left", "top", "right", "bottom")},
+            })
+    if not spans and str(candidate.get("text", "")).strip():
+        spans.append({"id": f"ocr:{candidate.get('engine', 'ocr')}:text", "text": str(candidate["text"])})
+    return spans
+
+
 def _ensure_loop_runtime() -> None:
     global _runtime_loop, _task_lock, _workflow_semaphore, _tasks, _graph_lock
     loop = asyncio.get_running_loop()
@@ -624,6 +639,13 @@ def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
         "ocr_text": state.get("ocr_text", ""),
         "ocr_quality_report": state.get("ocr_quality_report"),
         "ocr_review_reasons": state.get("ocr_review_reasons", []),
+        "ocr_evidence_status": state.get("ocr_evidence_status", "trusted"),
+        "ocr_candidate_versions": state.get("ocr_candidate_versions", state.get("ocr_candidates", [])),
+        "ocr_conflicts": state.get("ocr_conflicts", []),
+        "evidence_spans": state.get("evidence_spans", []),
+        "summary_status": state.get("summary_status", "provisional"),
+        "team_tasks": state.get("team_tasks", []),
+        "team_workflow_review": state.get("team_workflow_review", {}),
         "cards": state.get("cards", []),
         "preview_actions": state.get("preview_actions", []),
         "engine": state.get("engine", ""),
@@ -760,6 +782,13 @@ def _initial_state(
         "user_locked": {},
         "suggestions": {},
         "ocr_candidates": [],
+        "ocr_evidence_status": "trusted" if input_kind == "text" else "review_required",
+        "ocr_candidate_versions": [],
+        "ocr_conflicts": [],
+        "evidence_spans": [],
+        "summary_status": "provisional",
+        "team_tasks": [],
+        "team_workflow_review": {"required": False, "reasons": [], "tasks": [], "conflicts": []},
         "field_versions": {},
         "field_conflicts": [],
         "action_graph": {},
@@ -918,6 +947,11 @@ def submit_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowR
     state["ocr_quality"] = adjudication.selected.get("quality_score", 0)
     state["ocr_quality_report"] = adjudication.selected.get("quality_report", {})
     state["ocr_review_reasons"] = adjudication.review_reasons
+    state["ocr_candidate_versions"] = adjudication.candidates
+    state["ocr_conflicts"] = adjudication.critical_conflicts
+    state["ocr_evidence_status"] = "review_required" if adjudication.requires_review else "trusted"
+    state["summary_status"] = "blocked" if adjudication.requires_review else "provisional"
+    state["evidence_spans"] = _candidate_spans(adjudication.selected)
     conflict = (
         f"OCR candidates conflict ({'; '.join(adjudication.critical_conflicts)}); "
         "review critical fields"
@@ -949,6 +983,20 @@ def submit_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowR
         },
         f"ocr:{request.engine}:{hashlib.sha1(request.text.strip().encode('utf-8')).hexdigest()[:16]}",
     )
+    if adjudication.requires_review:
+        repository.append_event(
+            run_id,
+            "ocr_review_required",
+            {"reasons": adjudication.review_reasons, "quality_score": adjudication.selected.get("quality_score", 0)},
+            f"ocr-review:{state.get('revision', 0)}:{request.engine}",
+        )
+    if adjudication.critical_conflicts:
+        repository.append_event(
+            run_id,
+            "evidence_conflict",
+            {"conflicts": adjudication.critical_conflicts},
+            f"ocr-conflict:{state.get('revision', 0)}",
+        )
     return repository.response(run_id)
 
 
@@ -1211,6 +1259,8 @@ def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRu
     if int(state.get("revision", 0)) != request.revision:
         raise ValueError(f"revision conflict: expected {state.get('revision', 0)}")
     _revalidate_user_draft(state)
+    if state.get("team_workflow_review", {}).get("required") and not state.get("user_reviewed"):
+        raise ValueError("team workflow review is required before confirmation")
     if state.get("validation_errors"):
         raise ValueError(f"draft validation failed: {state['validation_errors']}")
     if not state.get("cards"):
@@ -1304,6 +1354,21 @@ async def resume_workflow(run_id: str, request: WorkflowResumeRequest) -> Workfl
             OcrCandidateRequest(text=request.ocr_text or "", engine="mlkit", confidence=0.8),
         )
     state = repository.get_state(run_id)
+    if request.command == "review_team_plan":
+        from app.services.team_workflow import validate_team_tasks
+
+        review = validate_team_tasks(request.team_tasks or [])
+        if review.required:
+            raise ValueError(f"team plan validation failed: {review.reasons or review.conflicts}")
+        state["team_tasks"] = [task.model_dump(mode="json") for task in request.team_tasks or []]
+        state["team_workflow_review"] = review.model_dump(mode="json")
+        state["user_reviewed"] = True
+        state["workflow_status"] = "awaiting_review"
+        state["pending_action"] = "confirm"
+        state["revision"] = int(state.get("revision", 0)) + 1
+        repository.save(run_id, state)
+        repository.append_event(run_id, "team_plan_created", {"task_count": len(state["team_tasks"]), "reviewed": True})
+        return repository.response(run_id)
     patch = DraftPatchRequest(
         base_revision=int(state.get("revision", 0)),
         cards=request.cards or [],
@@ -1365,6 +1430,11 @@ async def resolve_ocr_text(
             "ocr_quality_report": corrected_candidate["quality_report"],
             "ocr_review_reasons": [],
             "ocr_candidates": [corrected_candidate],
+            "ocr_evidence_status": "user_verified",
+            "ocr_candidate_versions": [corrected_candidate],
+            "ocr_conflicts": [],
+            "evidence_spans": _candidate_spans(corrected_candidate),
+            "summary_status": "provisional",
             "revision": int(state.get("revision", 0)) + 1,
             "warnings": [
                 warning

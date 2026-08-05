@@ -30,6 +30,38 @@ ReActToolName = Literal[
 ]
 ModelTier = Literal["none", "fast_model", "expert_model"]
 TaskStatus = Literal["pending", "running", "completed", "degraded", "failed", "skipped"]
+TeamTaskStatus = Literal[
+    "unassigned", "conflicted", "blocked", "ready", "in_progress",
+    "awaiting_acceptance", "completed",
+]
+
+
+class AcceptanceCriterion(BaseModel):
+    id: str
+    description: str = Field(min_length=1, max_length=240)
+    evidence_refs: list[str] = Field(default_factory=list)
+    satisfied: bool = False
+
+
+class TeamTask(BaseModel):
+    task_id: str
+    title: str = Field(min_length=1, max_length=160)
+    owner_id: str | None = None
+    participant_ids: list[str] = Field(default_factory=list)
+    dependency_ids: list[str] = Field(default_factory=list)
+    deliverables: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[AcceptanceCriterion] = Field(default_factory=list)
+    deadline: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    status: TeamTaskStatus = "unassigned"
+    unassigned_reason: str | None = None
+
+
+class TeamWorkflowReview(BaseModel):
+    required: bool = False
+    reasons: list[str] = Field(default_factory=list)
+    tasks: list[TeamTask] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentTask(BaseModel):

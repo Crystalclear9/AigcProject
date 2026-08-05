@@ -28,7 +28,7 @@ RoleTemplate = Literal["action_analyst", "personal_planner", "team_coordinator"]
 
 
 class PromptEnvelope(BaseModel):
-    version: str = "prompt-envelope-v2"
+    version: str = "prompt-envelope-v3-grounded"
     role_template: RoleTemplate = "action_analyst"
     role_instruction: str
     user_policy: str = ""

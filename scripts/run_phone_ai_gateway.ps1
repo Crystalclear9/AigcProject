@@ -2,7 +2,8 @@ param(
     [int]$Port = 8000,
     [int]$PollSeconds = 5,
     [int]$BackendStartupTimeoutSeconds = 60,
-    [string]$CredentialPath = "$env:LOCALAPPDATA\Suishouban\secrets\vivo-api-key.xml"
+    [string]$CredentialPath = "$env:LOCALAPPDATA\Suishouban\secrets\vivo-api-key.xml",
+    [string]$ApiKey = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -123,7 +124,18 @@ try {
         throw "Backend runtime is missing. Run scripts\setup_backend.ps1 first."
     }
 
-    $apiKey = Import-ProviderCredential
+    # ApiKey is intentionally process-only. Prefer an explicit value for
+    # acceptance runs so chat-provided credentials never reach DPAPI storage.
+    $apiKey = $ApiKey
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        $apiKey = $env:LANXIN_API_KEY
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey) -and (Test-Path -LiteralPath $CredentialPath)) {
+        $apiKey = Import-ProviderCredential
+    }
+    if ([string]::IsNullOrWhiteSpace($apiKey)) {
+        throw "Provider credential is missing. Pass -ApiKey or set LANXIN_API_KEY for this process."
+    }
     $env:LANXIN_API_KEY = $apiKey
     $env:FAST_MODEL_API_KEY = $apiKey
     $env:EXPERT_MODEL_API_KEY = $apiKey
@@ -133,9 +145,11 @@ try {
     $env:FAST_MODEL_BASE_URL = "https://api-ai.vivo.com.cn/v1"
     $env:EXPERT_MODEL_BASE_URL = "https://api-ai.vivo.com.cn/v1"
     $env:VIVO_OCR_URL = "http://api-ai.vivo.com.cn/ocr/general_recognition"
+    $env:VIVO_OCR_BUSINESS_ID = "1990173156ceb8a09eee80c293135279"
+    $env:VIVO_OCR_PROFILE = "rotatable"
     $env:VIVO_OCR_BUSINESS_PROFILE = "rotatable"
     $env:VIVO_IMAGE_GENERATION_URL = "https://api-ai.vivo.com.cn/api/v1/image_generation"
-    $env:ENABLE_PROVIDER_PROBE = "false"
+    $env:ENABLE_PROVIDER_PROBE = "true"
     $apiKey = $null
 
     $adb = Find-Adb
