@@ -97,6 +97,12 @@ interface SuiShouBanApi {
         @Body request: ConfirmWorkflowRequest,
     ): AnalyzeScreenshotTextResponse
 
+    @POST("api/workflows/{run_id}/confirm-effects")
+    suspend fun confirmWorkflowEffects(
+        @Path("run_id") runId: String,
+        @Body request: ConfirmEffectsRequest,
+    ): AnalyzeScreenshotTextResponse
+
     @POST("api/workflows/{run_id}/react")
     suspend fun reactWorkflow(
         @Path("run_id") runId: String,

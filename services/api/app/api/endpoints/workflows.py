@@ -15,10 +15,12 @@ from app.schemas.workflow import (
     OcrCandidateRequest,
     DraftPatchRequest,
     ConfirmWorkflowRequest,
+    ConfirmEffectsRequest,
     WorkflowReactRequest,
 )
 from app.services.workflow_service import (
     confirm_workflow,
+    confirm_effects,
     get_workflow,
     patch_draft,
     refine_workflow_with_react,
@@ -151,6 +153,16 @@ async def react_refine(run_id: str, request: WorkflowReactRequest) -> WorkflowRu
 def confirm_run(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRunResponse:
     try:
         return confirm_workflow(run_id, request)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="workflow not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.post("/{run_id}/confirm-effects", response_model=WorkflowRunResponse)
+def confirm_effects_run(run_id: str, request: ConfirmEffectsRequest) -> WorkflowRunResponse:
+    try:
+        return confirm_effects(run_id, request)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="workflow not found") from error
     except ValueError as error:

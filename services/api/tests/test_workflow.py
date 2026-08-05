@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.config import settings
 from app.schemas.workflow import (
+    ConfirmEffectsRequest,
     ConfirmWorkflowRequest,
     DraftPatchRequest,
     OcrCandidateRequest,
@@ -27,6 +28,7 @@ from app.services.workflow_service import (
     _can_complete_rules_inline,
     close_workflow_runtime,
     confirm_workflow,
+    confirm_effects,
     get_workflow,
     initialize_workflow_runtime,
     patch_draft,
@@ -72,6 +74,21 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
             ConfirmWorkflowRequest(revision=enhanced.revision),
         )
         self.assertEqual(completed.workflow_status, "completed")
+
+    async def test_confirm_effects_is_idempotent_and_exposes_canonical_phase(self) -> None:
+        started = await start_text_workflow("周五18:00前提交实验报告")
+        review = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
+        self.assertEqual(review.workflow_phase, "review_center")
+        request = ConfirmEffectsRequest(
+            revision=review.revision,
+            confirmed_card_ids=[str(review.cards[0].id)],
+            effect_types=["cards", "reminders"],
+            idempotency_key="test-effects-command-001",
+        )
+        completed = confirm_effects(review.run_id, request)
+        self.assertEqual(completed.workflow_phase, "completed")
+        repeated = confirm_effects(review.run_id, request)
+        self.assertEqual(repeated.command_ids, completed.command_ids)
 
     async def test_image_ocr_candidate_races_failed_cloud_ocr(self) -> None:
         async def failing_ocr(*args, **kwargs):

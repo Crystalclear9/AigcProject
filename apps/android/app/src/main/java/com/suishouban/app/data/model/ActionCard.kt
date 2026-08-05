@@ -105,6 +105,16 @@ data class AnalyzeResult(
     val reactSuggestions: List<String> = emptyList(),
     val agentContractVersion: String = "agent-contract-v2",
     val agentOutputs: List<Map<String, Any?>> = emptyList(),
+    val workflowPhase: String = "received",
+    val evidenceStatus: String = "trusted",
+    val draftStatus: String = "not_started",
+    val reviewItems: List<Map<String, Any?>> = emptyList(),
+    val effectStatus: String = "not_started",
+    val blockedReasons: List<String> = emptyList(),
+    val checkpointId: String? = null,
+    val commandIds: List<String> = emptyList(),
+    val evidenceEnvelopes: List<Map<String, Any?>> = emptyList(),
+    val fieldEvidence: List<Map<String, Any?>> = emptyList(),
 )
 
 data class OcrQualityReport(

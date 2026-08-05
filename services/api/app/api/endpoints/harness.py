@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.config import settings
 from pathlib import Path
 
-from app.services.workflow_harness import run_harness, run_image_harness
+from app.services.workflow_harness import run_harness, run_image_harness, run_harness_suites
 
 router = APIRouter()
 
@@ -13,10 +13,12 @@ router = APIRouter()
 @router.post("/run")
 async def execute_harness(
     limit: int = Query(default=150, ge=1, le=200),
-    mode: str = Query(default="text", pattern="^(text|image)$"),
+    mode: str = Query(default="text", pattern="^(text|image|suites)$"),
 ) -> dict[str, object]:
     if not settings.enable_workflow_harness or settings.workflow_environment == "production":
         raise HTTPException(status_code=404, detail="workflow harness is disabled")
+    if mode == "suites":
+        return await run_harness_suites(limit=limit)
     if mode == "image":
         manifest = (
             Path(__file__).resolve().parents[5]

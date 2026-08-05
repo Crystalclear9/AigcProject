@@ -20,6 +20,27 @@ _connection: sqlite3.Connection | None = None
 _event_condition = Condition()
 
 
+def _canonical_workflow_phase(state: dict[str, Any]) -> str:
+    status = state.get("workflow_status", "queued")
+    if state.get("effect_status") == "executing":
+        return "effects_executing"
+    if status == "completed":
+        return "completed"
+    if status == "cancelled":
+        return "cancelled"
+    if status == "failed":
+        return "failed"
+    if status == "awaiting_ocr_review":
+        return "review_required"
+    if status == "awaiting_review":
+        return "review_center"
+    if status == "running":
+        return "draft_generating"
+    if status == "queued":
+        return "received"
+    return "degraded" if state.get("summary_status") == "degraded" else "evidence_collecting"
+
+
 def _enhancement_status(
     provider_usage: dict[str, dict[str, Any]],
     providers: tuple[str, ...],
@@ -628,6 +649,16 @@ class WorkflowRepository:
             image_generation_status=state.get("image_generation_status") or image_generation_status,
             react_session=state.get("react_session"),
             react_suggestions=state.get("react_suggestions", []),
+            workflow_phase=_canonical_workflow_phase(state),
+            evidence_status=state.get("evidence_status", state.get("ocr_evidence_status", "trusted")),
+            draft_status=state.get("draft_status", "not_started"),
+            review_items=state.get("review_items", []),
+            effect_status=state.get("effect_status", "not_started"),
+            blocked_reasons=state.get("blocked_reasons", []),
+            checkpoint_id=state.get("checkpoint_id"),
+            command_ids=sorted((state.get("command_ids") or {}).keys()),
+            evidence_envelopes=state.get("evidence_envelopes", []),
+            field_evidence=state.get("field_evidence", []),
         )
 
     def get_cache(self, key: str) -> dict[str, Any] | None:

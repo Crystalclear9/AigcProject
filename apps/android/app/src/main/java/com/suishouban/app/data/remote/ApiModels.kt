@@ -85,6 +85,16 @@ data class AnalyzeScreenshotTextResponse(
     @SerializedName("react_suggestions") val reactSuggestions: List<String> = emptyList(),
     @SerializedName("agent_contract_version") val agentContractVersion: String = "agent-contract-v2",
     @SerializedName("agent_outputs") val agentOutputs: List<Map<String, Any?>> = emptyList(),
+    @SerializedName("workflow_phase") val workflowPhase: String = "received",
+    @SerializedName("evidence_status") val evidenceStatus: String = "trusted",
+    @SerializedName("draft_status") val draftStatus: String = "not_started",
+    @SerializedName("review_items") val reviewItems: List<Map<String, Any?>> = emptyList(),
+    @SerializedName("effect_status") val effectStatus: String = "not_started",
+    @SerializedName("blocked_reasons") val blockedReasons: List<String> = emptyList(),
+    @SerializedName("checkpoint_id") val checkpointId: String? = null,
+    @SerializedName("command_ids") val commandIds: List<String> = emptyList(),
+    @SerializedName("evidence_envelopes") val evidenceEnvelopes: List<Map<String, Any?>> = emptyList(),
+    @SerializedName("field_evidence") val fieldEvidence: List<Map<String, Any?>> = emptyList(),
 )
 
 data class OcrQualityReportDto(
@@ -199,6 +209,7 @@ data class WorkflowResumeRequest(
     val command: String,
     @SerializedName("ocr_text") val ocrText: String? = null,
     val cards: List<ActionCardDto>? = null,
+    @SerializedName("team_tasks") val teamTasks: List<Map<String, Any?>>? = null,
 )
 
 data class OcrCandidateRequest(
@@ -225,6 +236,14 @@ data class OcrBlockDto(
 )
 
 data class ConfirmWorkflowRequest(val revision: Int)
+
+data class ConfirmEffectsRequest(
+    val revision: Int,
+    @SerializedName("confirmed_card_ids") val confirmedCardIds: List<String> = emptyList(),
+    @SerializedName("confirmed_team_task_ids") val confirmedTeamTaskIds: List<String> = emptyList(),
+    @SerializedName("effect_types") val effectTypes: List<String> = emptyList(),
+    @SerializedName("idempotency_key") val idempotencyKey: String,
+)
 
 data class WorkflowReactRequest(
     @SerializedName("base_revision") val baseRevision: Int,

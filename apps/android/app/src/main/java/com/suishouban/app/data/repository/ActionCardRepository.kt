@@ -502,6 +502,16 @@ class ActionCardRepository(
             reactSuggestions = response.reactSuggestions,
             agentContractVersion = response.agentContractVersion,
             agentOutputs = response.agentOutputs,
+            workflowPhase = response.workflowPhase,
+            evidenceStatus = response.evidenceStatus,
+            draftStatus = response.draftStatus,
+            reviewItems = response.reviewItems,
+            effectStatus = response.effectStatus,
+            blockedReasons = response.blockedReasons,
+            checkpointId = response.checkpointId,
+            commandIds = response.commandIds,
+            evidenceEnvelopes = response.evidenceEnvelopes,
+            fieldEvidence = response.fieldEvidence,
         )
     }
 

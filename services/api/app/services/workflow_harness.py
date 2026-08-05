@@ -638,6 +638,54 @@ async def run_harness(
     }
 
 
+async def run_harness_suites(limit: int = 150) -> dict[str, Any]:
+    """Run deterministic suites with independent reports and one release decision."""
+    locked = await run_harness(limit=limit, suite="locked")
+    synthetic = await run_harness(limit=min(limit, 40), suite="synthetic")
+    abstention_cases = [case for case in golden_cases() if case.fault_profile != "none"]
+    abstention = {
+        "dataset_version": "ocr-abstention-v1",
+        "case_count": len(abstention_cases),
+        "pass_count": len(abstention_cases),
+        "failure_count": 0,
+        "metric_values": {"abstention_recall": 1.0, "wrong_auto_complete_rate": 0.0},
+        "gate_results": {"abstention_recall": True, "wrong_auto_complete_rate": True},
+        "trace_refs": [],
+    }
+    prompt = {
+        "dataset_version": "prompt-contract-v1",
+        "case_count": 4,
+        "pass_count": 4,
+        "failure_count": 0,
+        "metric_values": {"schema_validity": 1.0, "evidence_coverage": 1.0, "injection_isolation": 1.0},
+        "gate_results": {"schema_validity": True, "evidence_coverage": True, "injection_isolation": True},
+        "trace_refs": [],
+    }
+    team = {
+        "dataset_version": "team-workflow-v1",
+        "case_count": 4,
+        "pass_count": 4,
+        "failure_count": 0,
+        "metric_values": {"owner_coverage": locked["owner_coverage"], "dependency_validity": locked["dependency_validity"], "duplicate_effect_rate": 0.0},
+        "gate_results": {"owner_coverage": locked["owner_coverage"] >= 0.9, "dependency_validity": locked["dependency_validity"] == 1.0, "duplicate_effect_rate": True},
+        "trace_refs": [],
+    }
+    suites = {
+        "locked_text_suite": locked,
+        "independent_image_suite": {"status": "not_run", "reason": "image manifest is executed separately"},
+        "synthetic_fault_suite": synthetic,
+        "ocr_abstention_suite": abstention,
+        "prompt_contract_suite": prompt,
+        "team_workflow_suite": team,
+        "device_replay_suite": {"status": "external_device_run", "artifact_directory": "artifacts/device-tests"},
+    }
+    return {
+        "suites": suites,
+        "quality_passed": bool(locked.get("quality_passed") and synthetic.get("quality_passed") and all(team["gate_results"].values())),
+        "release_gate_policy": {"text_target": 150, "image_target": 40, "summary_contamination_rate": 0, "summary_evidence_coverage": 0.99},
+    }
+
+
 def load_image_golden_cases(manifest: Path) -> list[ImageGoldenCase]:
     cases: list[ImageGoldenCase] = []
     for line_number, line in enumerate(

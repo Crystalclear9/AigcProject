@@ -5,12 +5,14 @@ import hashlib
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
 from app.repositories.workflows import WorkflowRepository
 from app.schemas.workflow import (
+    ConfirmEffectsRequest,
     ConfirmWorkflowRequest,
     DraftPatchRequest,
     OcrCandidateRequest,
@@ -631,10 +633,21 @@ def _enhancement_status(
 
 
 def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
+    phase = _canonical_workflow_phase(state)
     return {
         "run_id": run_id,
         "trace_id": run_id,
         "workflow_status": state.get("workflow_status", "running"),
+        "workflow_phase": phase,
+        "evidence_status": state.get("evidence_status", state.get("ocr_evidence_status", "trusted")),
+        "draft_status": state.get("draft_status", "not_started"),
+        "review_items": state.get("review_items", []),
+        "effect_status": state.get("effect_status", "not_started"),
+        "blocked_reasons": state.get("blocked_reasons", []),
+        "checkpoint_id": state.get("checkpoint_id"),
+        "command_ids": sorted((state.get("command_ids") or {}).keys()),
+        "evidence_envelopes": state.get("evidence_envelopes", []),
+        "field_evidence": state.get("field_evidence", []),
         "pending_action": state.get("pending_action"),
         "ocr_text": state.get("ocr_text", ""),
         "ocr_quality_report": state.get("ocr_quality_report"),
@@ -668,6 +681,27 @@ def _event_snapshot(run_id: str, state: dict[str, Any]) -> dict[str, Any]:
         "react_suggestions": state.get("react_suggestions", []),
         **_provider_snapshot_fields(state),
     }
+
+
+def _canonical_workflow_phase(state: dict[str, Any]) -> str:
+    status = state.get("workflow_status", "queued")
+    if state.get("effect_status") == "executing":
+        return "effects_executing"
+    if status == "completed":
+        return "completed"
+    if status == "cancelled":
+        return "cancelled"
+    if status == "failed":
+        return "failed"
+    if status == "awaiting_ocr_review":
+        return "review_required"
+    if status == "awaiting_review":
+        return "review_center"
+    if status == "running":
+        return "draft_generating"
+    if status == "queued":
+        return "received"
+    return "degraded" if state.get("summary_status") == "degraded" else "evidence_collecting"
 
 
 async def _schedule(run_id: str, initial: dict[str, Any], preclaimed: bool = False) -> None:
@@ -773,6 +807,16 @@ def _initial_state(
         "warnings": [],
         "node_trace": [],
         "workflow_status": "queued",
+        "workflow_phase": "received",
+        "evidence_status": "trusted" if input_kind == "text" else "review_required",
+        "draft_status": "not_started",
+        "review_items": [],
+        "effect_status": "not_started",
+        "blocked_reasons": [],
+        "checkpoint_id": run_id,
+        "command_ids": {},
+        "evidence_envelopes": [],
+        "field_evidence": [],
         "pending_action": None,
         "revision": 0,
         "result_stage": "provisional",
@@ -950,8 +994,28 @@ def submit_ocr_candidate(run_id: str, request: OcrCandidateRequest) -> WorkflowR
     state["ocr_candidate_versions"] = adjudication.candidates
     state["ocr_conflicts"] = adjudication.critical_conflicts
     state["ocr_evidence_status"] = "review_required" if adjudication.requires_review else "trusted"
+    state["evidence_status"] = state["ocr_evidence_status"]
     state["summary_status"] = "blocked" if adjudication.requires_review else "provisional"
+    state["workflow_phase"] = "review_required" if adjudication.requires_review else "evidence_adjudication"
+    state["review_items"] = [
+        {"kind": "ocr", "reason": reason} for reason in adjudication.review_reasons
+    ]
+    state["blocked_reasons"] = list(adjudication.review_reasons)
     state["evidence_spans"] = _candidate_spans(adjudication.selected)
+    state["evidence_envelopes"] = [
+        {
+            "source_id": f"{run_id}:ocr:{len(candidates)}",
+            "source_type": "ocr",
+            "version": len(candidates),
+            "raw_text": str(adjudication.selected.get("text", "")),
+            "blocks": adjudication.selected.get("blocks", []),
+            "spans": _candidate_spans(adjudication.selected),
+            "quality_report": adjudication.selected.get("quality_report", {}),
+            "trust_status": state["evidence_status"],
+            "conflicts": adjudication.critical_conflicts,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ]
     conflict = (
         f"OCR candidates conflict ({'; '.join(adjudication.critical_conflicts)}); "
         "review critical fields"
@@ -1254,11 +1318,14 @@ def _revalidate_user_draft(state: dict[str, Any]) -> None:
     state["action_graph"] = graph
 
 
-def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRunResponse:
+def _confirm_workflow_once(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRunResponse:
     state = repository.get_state(run_id)
     if int(state.get("revision", 0)) != request.revision:
         raise ValueError(f"revision conflict: expected {state.get('revision', 0)}")
     _revalidate_user_draft(state)
+    evidence_status = state.get("evidence_status", state.get("ocr_evidence_status", "trusted"))
+    if evidence_status == "review_required" or state.get("summary_status") == "blocked":
+        raise ValueError("evidence review is required before confirmation")
     if state.get("team_workflow_review", {}).get("required") and not state.get("user_reviewed"):
         raise ValueError("team workflow review is required before confirmation")
     if state.get("validation_errors"):
@@ -1326,6 +1393,60 @@ def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRu
     )
     cleanup_workflow_input(run_id)
     return repository.response(run_id)
+
+
+def confirm_effects(run_id: str, request: ConfirmEffectsRequest) -> WorkflowRunResponse:
+    state = repository.get_state(run_id)
+    commands = dict(state.get("command_ids") or {})
+    existing = commands.get(request.idempotency_key)
+    if existing:
+        return repository.response(run_id)
+    if int(state.get("revision", 0)) != request.revision:
+        raise ValueError(f"revision conflict: expected {state.get('revision', 0)}")
+    selected_cards = set(request.confirmed_card_ids)
+    if selected_cards and selected_cards - {str(card.get("id")) for card in state.get("cards", [])}:
+        raise ValueError("confirmed_card_ids contains an unknown card")
+    selected_tasks = set(request.confirmed_team_task_ids)
+    if selected_tasks and selected_tasks - {str(task.get("task_id")) for task in state.get("team_tasks", [])}:
+        raise ValueError("confirmed_team_task_ids contains an unknown team task")
+    state["effect_status"] = "executing"
+    state["workflow_phase"] = "effects_executing"
+    state["command_ids"] = {**commands, request.idempotency_key: {"status": "executing", "effects": request.effect_types}}
+    repository.save(run_id, state)
+    repository.append_event(run_id, "decision_made", {"command_id": request.idempotency_key, "effect_types": request.effect_types}, f"command-start:{request.idempotency_key}")
+    try:
+        result = _confirm_workflow_once(run_id, ConfirmWorkflowRequest(revision=request.revision))
+    except Exception:
+        state = repository.get_state(run_id)
+        state["effect_status"] = "degraded"
+        state["workflow_phase"] = "degraded"
+        commands = dict(state.get("command_ids") or {})
+        commands[request.idempotency_key] = {"status": "degraded", "effects": request.effect_types}
+        state["command_ids"] = commands
+        repository.save(run_id, state)
+        raise
+    state = repository.get_state(run_id)
+    commands = dict(state.get("command_ids") or {})
+    commands[request.idempotency_key] = {"status": "completed", "effects": request.effect_types}
+    state["command_ids"] = commands
+    state["effect_status"] = "completed"
+    state["workflow_phase"] = "completed"
+    repository.save(run_id, state)
+    repository.append_event(run_id, "completed", {"command_id": request.idempotency_key, "effects_executed": request.effect_types}, f"command-complete:{request.idempotency_key}")
+    return repository.response(run_id)
+
+
+def confirm_workflow(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRunResponse:
+    return confirm_effects(
+        run_id,
+        ConfirmEffectsRequest(
+            revision=request.revision,
+            confirmed_card_ids=[],
+            confirmed_team_task_ids=[],
+            effect_types=["cards", "reminders", "team_tasks"],
+            idempotency_key=f"legacy-confirm:{run_id}:{request.revision}",
+        ),
+    )
 
 
 async def cancel_workflow(run_id: str) -> WorkflowRunResponse:
@@ -1431,10 +1552,26 @@ async def resolve_ocr_text(
             "ocr_review_reasons": [],
             "ocr_candidates": [corrected_candidate],
             "ocr_evidence_status": "user_verified",
+            "evidence_status": "user_verified",
             "ocr_candidate_versions": [corrected_candidate],
             "ocr_conflicts": [],
             "evidence_spans": _candidate_spans(corrected_candidate),
+            "evidence_envelopes": list(state.get("evidence_envelopes", [])) + [{
+                "source_id": f"{run_id}:user-edit:{int(state.get('revision', 0)) + 1}",
+                "source_type": "user_edit",
+                "version": int(state.get("revision", 0)) + 1,
+                "raw_text": corrected,
+                "blocks": corrected_candidate.get("blocks", []),
+                "spans": _candidate_spans(corrected_candidate),
+                "quality_report": corrected_candidate.get("quality_report", {}),
+                "trust_status": "user_verified",
+                "conflicts": [],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }],
             "summary_status": "provisional",
+            "workflow_phase": "evidence_adjudication",
+            "review_items": [],
+            "blocked_reasons": [],
             "revision": int(state.get("revision", 0)) + 1,
             "warnings": [
                 warning

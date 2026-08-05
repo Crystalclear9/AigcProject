@@ -17,6 +17,7 @@ from app.schemas.agent_workflow import (
     TeamTask,
     TeamWorkflowReview,
 )
+from app.schemas.evidence import EvidenceEnvelope, FieldEvidence
 
 WorkflowStatus = Literal[
     "queued",
@@ -114,6 +115,14 @@ class ConfirmWorkflowRequest(BaseModel):
     revision: int = Field(ge=0)
 
 
+class ConfirmEffectsRequest(BaseModel):
+    revision: int = Field(ge=0)
+    confirmed_card_ids: list[str] = Field(default_factory=list, max_length=100)
+    confirmed_team_task_ids: list[str] = Field(default_factory=list, max_length=100)
+    effect_types: list[Literal["cards", "reminders", "team_tasks"]] = Field(default_factory=list)
+    idempotency_key: str = Field(min_length=8, max_length=160)
+
+
 class WorkflowReactRequest(BaseModel):
     base_revision: int = Field(ge=0)
     instruction: str = Field(default="", max_length=600)
@@ -196,6 +205,20 @@ class WorkflowRunResponse(BaseModel):
     image_generation_status: EnhancementStatus = "not_configured"
     react_session: ReActSession | None = None
     react_suggestions: list[str] = Field(default_factory=list)
+    workflow_phase: Literal[
+        "received", "evidence_collecting", "evidence_adjudication", "review_required",
+        "draft_generating", "draft_ready", "review_center", "confirmed",
+        "effects_executing", "completed", "degraded", "blocked", "cancelled", "failed",
+    ] = "received"
+    evidence_status: Literal["trusted", "review_required", "user_verified"] = "trusted"
+    draft_status: Literal["not_started", "provisional", "ready", "grounded", "degraded", "blocked"] = "not_started"
+    review_items: list[dict[str, Any]] = Field(default_factory=list)
+    effect_status: Literal["not_started", "pending_confirmation", "executing", "completed", "degraded"] = "not_started"
+    blocked_reasons: list[str] = Field(default_factory=list)
+    checkpoint_id: str | None = None
+    command_ids: list[str] = Field(default_factory=list)
+    evidence_envelopes: list[EvidenceEnvelope] = Field(default_factory=list)
+    field_evidence: list[FieldEvidence] = Field(default_factory=list)
 
 
 class WorkflowEvent(BaseModel):
