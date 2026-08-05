@@ -222,6 +222,60 @@ class AppDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrationSevenToEightAddsTeamCollaborationColumnsWithoutLosingRows() {
+        openAtVersion(
+            version = 7,
+            onCreate = { db ->
+                db.execSQL("CREATE TABLE cards (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL)")
+                db.execSQL("INSERT INTO cards (id, title) VALUES ('card-1', '提交实验报告')")
+                db.execSQL(
+                    "CREATE TABLE team_workspaces (" +
+                        "id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, created_at TEXT NOT NULL)"
+                )
+                db.execSQL(
+                    "INSERT INTO team_workspaces (id, name, created_at) " +
+                        "VALUES ('team-1', '课程小组', '2026-08-01T00:00:00')"
+                )
+                db.execSQL(
+                    "CREATE TABLE team_members (" +
+                        "id TEXT NOT NULL PRIMARY KEY, workspace_id TEXT NOT NULL, " +
+                        "display_name TEXT NOT NULL, role TEXT NOT NULL)"
+                )
+            },
+        ).close()
+
+        val migrated = openAtVersion(
+            version = 8,
+            onCreate = { error("version 7 database should already exist") },
+            onUpgrade = { db, oldVersion, newVersion ->
+                assertEquals(7, oldVersion)
+                assertEquals(8, newVersion)
+                AppDatabase.MIGRATION_7_8.migrate(db)
+            },
+        )
+
+        assertTrue(tableColumns(migrated.writableDatabase, "team_workspaces").containsAll(listOf(
+            "invite_code",
+            "owner_id",
+            "my_role",
+            "updated_at",
+        )))
+        assertTrue(tableColumns(migrated.writableDatabase, "team_members").contains("avatar_color"))
+        assertTrue(tableColumns(migrated.writableDatabase, "cards").containsAll(listOf(
+            "milestone_id",
+            "updated_at",
+        )))
+        migrated.writableDatabase.query(
+            "SELECT name, my_role FROM team_workspaces WHERE id = 'team-1'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("课程小组", cursor.getString(0))
+            assertEquals("member", cursor.getString(1))
+        }
+        migrated.close()
+    }
+
     private fun tableColumns(db: SupportSQLiteDatabase, table: String): List<String> =
         db.query("PRAGMA table_info($table)").use { cursor ->
             val nameIndex = cursor.getColumnIndex("name")

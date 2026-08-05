@@ -38,6 +38,8 @@ import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,14 +69,18 @@ import com.suishouban.app.data.local.IntakeSessionEntity
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.CardTypes
 import com.suishouban.app.domain.screenshot.ScreenshotWorkflowStage
+import com.suishouban.app.domain.team.TeamMemberOption
+import com.suishouban.app.domain.team.TeamWorkspacePolicy
 import com.suishouban.app.domain.TextIntegrity
 import com.suishouban.app.reminder.ScreenshotMonitorService
 import com.suishouban.app.mascot.MascotOverlayService
 import com.suishouban.app.ui.components.DraftEditor
+import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.PreviewActionsCard
 import com.suishouban.app.ui.components.formatSmartTime
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.Muted
 import com.suishouban.app.ui.theme.visualForPriority
 import com.suishouban.app.ui.theme.SuiShouBanTheme
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -143,6 +149,8 @@ class ScreenshotPreviewActivity : ComponentActivity() {
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                val teamState by viewModel.teamUiState.collectAsStateWithLifecycle()
+                val teamMembers by viewModel.teamMemberOptions.collectAsStateWithLifecycle()
 
                 LaunchedEffect(screenshotUri, ocrText) {
                     if (screenshotUri == null) {
@@ -189,6 +197,9 @@ class ScreenshotPreviewActivity : ComponentActivity() {
                     onRefineWithAi = viewModel::refineDraftWithAi,
                     onResolveOcr = { corrected -> viewModel.analyzeText(corrected) },
                     onManualAdd = viewModel::addManualDraftFromCurrentText,
+                    teams = teamState.teams,
+                    teamMembers = teamMembers,
+                    onSelectWorkspace = viewModel::setDraftWorkspace,
                     onConfirm = {
                         viewModel.confirmDrafts {
                             sessionFinished = true
@@ -305,6 +316,9 @@ private fun ScreenshotFloatingPanel(
     onRefineWithAi: (String) -> Unit,
     onResolveOcr: (String) -> Unit,
     onManualAdd: () -> Unit,
+    teams: List<TeamSummary> = emptyList(),
+    teamMembers: List<TeamMemberOption> = emptyList(),
+    onSelectWorkspace: (String?) -> Unit = {},
     onConfirm: () -> Unit,
     onIgnore: () -> Unit,
 ) {
@@ -357,6 +371,9 @@ private fun ScreenshotFloatingPanel(
                     onSelectAll = onSelectAll,
                     onRefineWithAi = onRefineWithAi,
                     onResolveOcr = onResolveOcr,
+                    teams = teams,
+                    teamMembers = teamMembers,
+                    onSelectWorkspace = onSelectWorkspace,
                     onConfirm = onConfirm,
                 )
             }
@@ -476,6 +493,9 @@ private fun DraftPane(
     onSelectAll: () -> Unit,
     onRefineWithAi: (String) -> Unit,
     onResolveOcr: (String) -> Unit,
+    teams: List<TeamSummary> = emptyList(),
+    teamMembers: List<TeamMemberOption> = emptyList(),
+    onSelectWorkspace: (String?) -> Unit = {},
     onConfirm: () -> Unit,
 ) {
     val selectedCount = state.selectedDraftIds.size
@@ -484,6 +504,9 @@ private fun DraftPane(
     val canCreate = selectedCount > 0 &&
         !requiresOcrReview &&
         selectedCards.all { it.isReadyForCreation() }
+    val selectedTeamMembers = state.draftTeamId
+        ?.let { teamId -> teamMembers.filter { it.teamId == teamId } }
+        .orEmpty()
     var correctedOcrText by remember(state.traceId) { mutableStateOf(state.ocrText) }
     val suggestedOcrText = remember(state.ocrText) { TextIntegrity.suggestOcrCorrection(state.ocrText) }
     Column(
@@ -546,6 +569,46 @@ private fun DraftPane(
             }
             item {
                 EvidenceSummary(state = state)
+            }
+            if (teams.isNotEmpty()) {
+                // Batch-level 归属 chip: one quiet control for the whole candidate list.
+                item {
+                    var menuOpen by remember { mutableStateOf(false) }
+                    val selectedLabel = teams.firstOrNull { it.id == state.draftTeamId }?.name ?: "个人"
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("归属", style = MaterialTheme.typography.labelMedium, color = Muted)
+                        Spacer(Modifier.width(8.dp))
+                        Box {
+                            NeutralPill(
+                                text = "$selectedLabel ▾",
+                                selected = state.draftTeamId != null,
+                                onClick = { menuOpen = true },
+                            )
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("个人") },
+                                    onClick = {
+                                        menuOpen = false
+                                        onSelectWorkspace(null)
+                                    },
+                                )
+                                teams.forEach { team ->
+                                    DropdownMenuItem(
+                                        text = { Text(team.name) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onSelectWorkspace(team.id)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (state.draftTeamSuggested && state.draftTeamId != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Text("AI 建议", style = MaterialTheme.typography.labelSmall, color = Muted)
+                        }
+                    }
+                }
             }
             items(state.draftCards, key = { it.id }) { card ->
                 val selected = card.id in state.selectedDraftIds
@@ -624,6 +687,24 @@ private fun DraftPane(
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onErrorContainer,
                                     )
+                                }
+                            }
+                            if (state.draftTeamId != null) {
+                                val assigneeLabel = TeamWorkspacePolicy
+                                    .matchAssignee(card.assigneeId, selectedTeamMembers)?.nickname
+                                    ?: card.assigneeId?.trim()?.takeIf(String::isNotBlank)
+                                assigneeLabel?.let { label ->
+                                    Surface(
+                                        color = BrandBlue.copy(alpha = 0.10f),
+                                        shape = RoundedCornerShape(999.dp),
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = BrandBlue,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -707,6 +788,14 @@ private fun DraftPane(
                         modifier = Modifier
                             .fillMaxWidth()
                             .semantics { contentDescription = "AI 完善建议" },
+                    )
+                }
+                state.teamPushError?.let { pushError ->
+                    Text(
+                        text = pushError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
                 Row(

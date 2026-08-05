@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "defaults": {
+    "transition": {
+      "effect": "fade",
+      "duration": 0.4
+    }
+  },
+  "slides": {
+    "01_封面": {
+      "groups": {
+        "screenshot-inputs": {"effect": "entrance_float", "order": 1, "duration": 0.45},
+        "mofei-hero": {"effect": "entrance_bounce", "order": 2, "duration": 0.8},
+        "action-output": {"effect": "entrance_wheel", "order": 3, "duration": 0.6}
+      }
+    },
+    "02_重要信息停在相册里": {
+      "groups": {
+        "gallery-screen-content": {"effect": "entrance_fly", "order": 1, "duration": 0.45},
+        "mofei-overwhelmed": {"effect": "entrance_boomerang", "order": 2, "duration": 0.8},
+        "mofei-idle-observer": {"effect": "entrance_peek", "order": 3, "duration": 0.45},
+        "time-highlights": {"effect": "entrance_color_reveal", "order": 4, "duration": 0.65}
+      }
+    },
+    "03_工具很多使用停在第一次": {
+      "groups": {
+        "apps-phone-screen": {"effect": "entrance_dissolve", "order": 1, "duration": 0.55},
+        "usage-records": {"effect": "entrance_fade", "order": 2, "duration": 0.45},
+        "mofei-peek": {"effect": "entrance_peek", "order": 3, "duration": 0.7}
+      }
+    },
+    "04_截图之后继续发生": {
+      "groups": {
+        "screenshot-flash": {"effect": "entrance_flash_once", "order": 1, "duration": 0.35},
+        "detection-banner": {"effect": "entrance_rise_up", "order": 2, "duration": 0.5},
+        "mofei-catch": {"effect": "entrance_light_speed", "order": 3, "duration": 0.75},
+        "task-draft": {"effect": "entrance_float", "order": 4, "duration": 0.55}
+      }
+    },
+    "05_三张截图三种行动": {
+      "groups": {
+        "course-path": {"effect": "entrance_flip", "order": 1, "duration": 0.5},
+        "event-path": {"effect": "entrance_flip", "order": 2, "duration": 0.5},
+        "promise-path": {"effect": "entrance_flip", "order": 3, "duration": 0.5},
+        "mofei-router": {"effect": "entrance_center_revolve", "order": 4, "duration": 0.75}
+      }
+    },
+    "06_先有草稿再确认": {
+      "groups": {
+        "flow-line": {"effect": "entrance_wipe", "order": 1, "duration": 0.6},
+        "mofei-scan": {"effect": "entrance_spinner", "order": 2, "duration": 0.75},
+        "step-confirm": {"effect": "entrance_zoom", "order": 3, "duration": 0.5},
+        "mofei-confirm-burst": {"effect": "entrance_bounce", "order": 4, "duration": 0.7}
+      }
+    },
+    "07_五类行动五种处理": {
+      "groups": {
+        "type-task": {"effect": "entrance_fly", "order": 1, "duration": 0.4},
+        "type-event": {"effect": "entrance_fly", "order": 2, "duration": 0.4},
+        "type-promise": {"effect": "entrance_fly", "order": 3, "duration": 0.4},
+        "type-comparison": {"effect": "entrance_fly", "order": 4, "duration": 0.4},
+        "type-collection": {"effect": "entrance_fly", "order": 5, "duration": 0.4},
+        "mofei-sweep": {"effect": "entrance_swish", "order": 6, "duration": 0.75},
+        "mofei-reminder": {"effect": "entrance_float", "order": 7, "duration": 0.45}
+      }
+    },
+    "08_越不确定越保守": {
+      "groups": {
+        "confidence-scale": {"effect": "entrance_wipe", "order": 1, "duration": 0.65},
+        "mofei-question": {"effect": "entrance_faded_swivel", "order": 2, "duration": 0.75},
+        "medium-confidence": {"effect": "entrance_flash_once", "order": 3, "duration": 0.45},
+        "mofei-due-soon": {"effect": "entrance_bounce", "order": 4, "duration": 0.55}
+      }
+    },
+    "09_一张海报三件事": {
+      "groups": {
+        "poster-frame": {"effect": "entrance_expand", "order": 1, "duration": 0.55},
+        "callout-registration": {"effect": "entrance_wipe", "order": 2, "duration": 0.4},
+        "callout-material": {"effect": "entrance_wipe", "order": 3, "duration": 0.4},
+        "callout-match": {"effect": "entrance_wipe", "order": 4, "duration": 0.4},
+        "mofei-focus": {"effect": "entrance_spinner", "order": 5, "duration": 0.7}
+      }
+    },
+    "10_ActionGraph拆分": {
+      "groups": {
+        "poster-source": {"effect": "entrance_faded_zoom", "order": 1, "duration": 0.5},
+        "mofei-split": {"effect": "entrance_split", "order": 2, "duration": 0.75},
+        "action-register": {"effect": "entrance_fly", "order": 3, "duration": 0.45},
+        "action-material": {"effect": "entrance_fly", "order": 4, "duration": 0.45},
+        "action-match": {"effect": "entrance_fly", "order": 5, "duration": 0.45},
+        "dependency-links": {"effect": "entrance_wipe", "order": 6, "duration": 0.5}
+      }
+    },
+    "11_多模块并行仲裁": {
+      "groups": {
+        "module-classify": {"effect": "entrance_light_speed", "order": 1, "duration": 0.35},
+        "module-time": {"effect": "entrance_light_speed", "order": 2, "duration": 0.35},
+        "module-place": {"effect": "entrance_light_speed", "order": 3, "duration": 0.35},
+        "module-money": {"effect": "entrance_light_speed", "order": 4, "duration": 0.35},
+        "module-dedupe": {"effect": "entrance_light_speed", "order": 5, "duration": 0.35},
+        "module-risk": {"effect": "entrance_flash_once", "order": 6, "duration": 0.35},
+        "mofei-orchestrator": {"effect": "entrance_center_revolve", "order": 7, "duration": 0.8},
+        "field-arbitration": {"effect": "entrance_zoom", "order": 8, "duration": 0.5}
+      }
+    },
+    "12_修改一次少改一点": {
+      "groups": {
+        "edit-first": {"effect": "entrance_fade", "order": 1, "duration": 0.4},
+        "edit-second": {"effect": "entrance_fade", "order": 2, "duration": 0.4},
+        "edit-third": {"effect": "entrance_fade", "order": 3, "duration": 0.4},
+        "mofei-learn": {"effect": "entrance_grow_and_turn", "order": 4, "duration": 0.75}
+      }
+    },
+    "13_偏好只留在手机里": {
+      "groups": {
+        "preference-teacher": {"effect": "entrance_fly", "order": 1, "duration": 0.4},
+        "preference-reminder": {"effect": "entrance_fly", "order": 2, "duration": 0.4},
+        "preference-place": {"effect": "entrance_fly", "order": 3, "duration": 0.4},
+        "mofei-guard": {"effect": "entrance_expand", "order": 4, "duration": 0.75},
+        "cloud-boundary": {"effect": "entrance_dissolve", "order": 5, "duration": 0.45}
+      }
+    },
+    "14_字段编辑率下降": {
+      "groups": {
+        "edit-rate-chart": {"effect": "entrance_wipe", "order": 1, "duration": 0.7},
+        "mofei-busy": {"effect": "emphasis_teeter", "order": 2, "duration": 0.55},
+        "week-four-details": {"effect": "entrance_zoom", "order": 3, "duration": 0.5},
+        "mofei-relaxed": {"effect": "entrance_bounce", "order": 4, "duration": 0.65}
+      }
+    },
+    "15_确认后才执行": {
+      "groups": {
+        "source-evidence": {"effect": "entrance_color_reveal", "order": 1, "duration": 0.55},
+        "evidence-links": {"effect": "entrance_wipe", "order": 2, "duration": 0.5},
+        "mofei-confirm-state": {"effect": "entrance_faded_swivel", "order": 3, "duration": 0.6},
+        "action-buttons": {"effect": "entrance_rise_up", "order": 4, "duration": 0.5},
+        "mofei-confirm": {"effect": "entrance_bounce", "order": 5, "duration": 0.65}
+      }
+    },
+    "16_云端失联事情不消失": {
+      "groups": {
+        "cloud-layer": {"effect": "emphasis_flicker", "order": 1, "duration": 0.55},
+        "mofei-alarm": {"effect": "entrance_flash_once", "order": 2, "duration": 0.5},
+        "mofei-urgent": {"effect": "entrance_whip", "order": 3, "duration": 0.55},
+        "local-layer": {"effect": "entrance_fade", "order": 4, "duration": 0.45},
+        "mofei-offline": {"effect": "entrance_float", "order": 5, "duration": 0.6},
+        "mofei-rest": {"effect": "entrance_faded_zoom", "order": 6, "duration": 0.55}
+      }
+    },
+    "17_更多行动入口": {
+      "groups": {
+        "scene-label-campus": {"effect": "entrance_fade", "order": 1, "duration": 0.35},
+        "scene-label-meeting": {"effect": "entrance_fade", "order": 2, "duration": 0.35},
+        "scene-label-travel": {"effect": "entrance_fade", "order": 3, "duration": 0.35},
+        "scene-label-service": {"effect": "entrance_fade", "order": 4, "duration": 0.35},
+        "ecosystem-mofei": {"effect": "entrance_center_revolve", "order": 5, "duration": 0.8},
+        "capability-path": {"effect": "entrance_color_reveal", "order": 6, "duration": 0.55}
+      }
+    },
+    "18_让截图直接进入下一步": {
+      "transition": {"effect": "zoom", "duration": 0.55},
+      "groups": {
+        "closing-phone-screen": {"effect": "entrance_fade", "order": 1, "duration": 0.4},
+        "closing-transform-path": {"effect": "entrance_wipe", "order": 2, "duration": 0.7},
+        "mofei-celebrate": {"effect": "entrance_bounce", "order": 3, "duration": 0.9},
+        "closing-brand": {"effect": "entrance_zoom", "order": 4, "duration": 0.55}
+      }
+    }
+  }
+}

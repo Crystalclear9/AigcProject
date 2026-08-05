@@ -1,6 +1,7 @@
 param(
     [int]$Port = 8000,
     [int]$PollSeconds = 5,
+    [int]$BackendStartupTimeoutSeconds = 60,
     [string]$CredentialPath = "$env:LOCALAPPDATA\Suishouban\secrets\vivo-api-key.xml"
 )
 
@@ -149,7 +150,8 @@ try {
                 Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
             }
             $backend = Start-Backend
-            $deadline = (Get-Date).AddSeconds(20)
+            # Workflow imports and SQLite recovery can exceed 20 seconds on a cold Windows login.
+            $deadline = (Get-Date).AddSeconds([Math]::Max(20, $BackendStartupTimeoutSeconds))
             while ((Get-Date) -lt $deadline -and -not (Test-BackendReady)) {
                 Start-Sleep -Milliseconds 500
             }

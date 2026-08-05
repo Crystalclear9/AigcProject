@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <image id="future-scene" data-pptx-role="decoration" href="../images/ai_scene_future_ecosystem.png" x="64" y="164" width="1152" height="468" preserveAspectRatio="xMidYMid meet" opacity="0.86"/>
+  <rect id="future-wash" data-pptx-role="decoration" x="64" y="164" width="1152" height="468" fill="#F7F9FE" opacity="0.12"/>
+  <g id="page-title" data-pptx-bounds="64 40 1030 112">
+    <text x="64" y="86" font-size="42" font-weight="700" fill="#1748B8">下一步，让更多信息直接进入行动</text>
+    <text x="64" y="132" font-size="24" fill="#182033">确认与本地优先不变，能力扩展到更多生活与协作场景。</text>
+  </g>
+  <g id="scene-label-campus" data-pptx-bounds="84 182 174 54">
+    <rect x="84" y="182" width="174" height="44" rx="22" fill="#FFFFFF"/>
+    <text x="171" y="211" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">校园通知</text>
+  </g>
+  <g id="scene-label-meeting" data-pptx-bounds="956 182 174 54">
+    <rect x="956" y="182" width="174" height="44" rx="22" fill="#FFFFFF"/>
+    <text x="1043" y="211" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">工作会议</text>
+  </g>
+  <g id="scene-label-travel" data-pptx-bounds="86 536 174 54">
+    <rect x="86" y="536" width="174" height="44" rx="22" fill="#FFFFFF"/>
+    <text x="173" y="565" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">差旅行程</text>
+  </g>
+  <g id="scene-label-service" data-pptx-bounds="954 536 174 54">
+    <rect x="954" y="536" width="174" height="44" rx="22" fill="#FFFFFF"/>
+    <text x="1041" y="565" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">公共办事</text>
+  </g>
+  <g id="ecosystem-mofei" data-pptx-bounds="472 250 336 286">
+    <image href="../images/mofei_action_ring_full.png" x="472" y="250" width="336" height="286" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="lightweight-entry" data-pptx-bounds="86 252 330 184">
+    <line x1="86" y1="260" x2="236" y2="260" stroke="#2F6BFF" stroke-width="5"/>
+    <text x="86" y="292" font-size="18" font-weight="700" fill="#1748B8">轻量入口</text>
+    <text x="86" y="324" font-size="18" fill="#182033">截图菜单 · 悬浮球 · 快捷入口</text>
+    <text x="86" y="364" font-size="18" font-weight="700" fill="#1748B8">多模态录入</text>
+    <text x="86" y="396" font-size="18" fill="#182033">语音 · 文字 · 粘贴</text>
+    <text x="86" y="428" font-size="18" fill="#2F6BFF">开放入口 · 多端同步</text>
+  </g>
+  <g id="originos-integration" data-pptx-bounds="844 252 340 216">
+    <line x1="844" y1="260" x2="1010" y2="260" stroke="#2F6BFF" stroke-width="5"/>
+    <text x="844" y="292" font-size="18" font-weight="700" fill="#1748B8">OriginOS 组件化接入</text>
+    <text x="844" y="324" font-size="18" fill="#182033">封装为系统组件或服务</text>
+    <text x="844" y="364" font-size="18" font-weight="700" fill="#1748B8">多应用联动</text>
+    <text x="844" y="396" font-size="18" fill="#182033">日历 · 时钟 · 待办 · 便签<tspan x="844" dy="30">通知中心 · 相册 · 文件管理</tspan></text>
+    <text x="844" y="462" font-size="18" fill="#2F6BFF">组织模板 · 团队 ActionGraph</text>
+  </g>
+  <g id="capability-path" data-pptx-bounds="290 230 760 350">
+    <circle cx="484" cy="300" r="6" fill="#2F6BFF"/>
+    <circle cx="796" cy="300" r="6" fill="#2F6BFF"/>
+    <circle cx="484" cy="490" r="6" fill="#2F6BFF"/>
+    <circle cx="796" cy="490" r="6" fill="#2F6BFF"/>
+  </g>
+  <g id="business-possibilities" data-pptx-bounds="270 584 742 56">
+    <rect x="270" y="584" width="742" height="50" rx="25" fill="#1748B8"/>
+    <text x="641" y="617" text-anchor="middle" font-size="18" font-weight="700" fill="#FFFFFF">个人效率增值 · 校园与组织服务 · 场景化合作</text>
+  </g>
+  <g id="system-workflow" data-pptx-bounds="272 536 736 44">
+    <text x="640" y="566" text-anchor="middle" font-size="18" font-weight="700" fill="#1748B8">识别截图 → 提取任务 → 生成日历事件 → 创建提醒与待办 → 同步系统卡片</text>
+  </g>
+  <g id="growth-space" data-pptx-bounds="84 454 312 64">
+    <text x="84" y="480" font-size="18" font-weight="700" fill="#1748B8">增长空间</text>
+    <text x="84" y="510" font-size="18" fill="#182033">校园 → 实习 → 办公与轻协作</text>
+  </g>
+  <g id="current-app-evidence" data-pptx-bounds="1132 304 70 152">
+    <image href="../images/suishouban-mofei-app-current.png" x="1132" y="304" width="70" height="152" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">17</text></g>
+</svg>

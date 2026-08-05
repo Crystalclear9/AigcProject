@@ -48,6 +48,7 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
             need_confirm TEXT NOT NULL DEFAULT '[]',
             status TEXT NOT NULL DEFAULT 'draft',
             source_text TEXT NOT NULL DEFAULT '',
+            goal_id TEXT,
             created_at TEXT NOT NULL
         )
         """
@@ -92,11 +93,17 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
         "deliverables": (
             "ALTER TABLE cards ADD COLUMN deliverables TEXT NOT NULL DEFAULT '[]'"
         ),
+        "goal_id": "ALTER TABLE cards ADD COLUMN goal_id TEXT",
         "source_session_id": "ALTER TABLE cards ADD COLUMN source_session_id TEXT",
+        "milestone_id": "ALTER TABLE cards ADD COLUMN milestone_id TEXT",
+        "updated_at": "ALTER TABLE cards ADD COLUMN updated_at TEXT",
     }
     for column, statement in migrations.items():
         if column not in existing_columns:
             conn.execute(statement)
+    # Existing rows predate updated_at; backfill so last-write-wins comparisons
+    # always have a baseline.
+    conn.execute("UPDATE cards SET updated_at = created_at WHERE updated_at IS NULL")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS intake_sessions (
@@ -109,6 +116,66 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
             state_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            nickname TEXT NOT NULL,
+            avatar_color TEXT NOT NULL DEFAULT 'blue',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS teams (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            invite_code TEXT NOT NULL UNIQUE,
+            owner_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS team_members (
+            team_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member',
+            joined_at TEXT NOT NULL,
+            PRIMARY KEY (team_id, user_id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS team_goals (
+            id TEXT PRIMARY KEY,
+            team_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            due_date TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            decompose_source TEXT NOT NULL DEFAULT 'template',
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS milestones (
+            id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            due_date TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0
         )
         """
     )

@@ -1,8 +1,10 @@
 package com.suishouban.app.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +27,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,17 +38,23 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.suishouban.app.AppUiState
+import com.suishouban.app.TeamSummary
 import com.suishouban.app.data.model.ActionCard
 import com.suishouban.app.data.model.effectiveReminderNodes
 import com.suishouban.app.data.model.mergeReminderLabels
+import com.suishouban.app.domain.team.TeamMemberOption
+import com.suishouban.app.domain.team.TeamWorkspacePolicy
 import com.suishouban.app.ui.components.NeutralPill
 import com.suishouban.app.ui.components.DateTimeWheelPickerDialog
 import com.suishouban.app.ui.components.ReminderNodesEditor
@@ -56,6 +66,8 @@ import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.DS
 import com.suishouban.app.ui.theme.Ink
 import com.suishouban.app.ui.theme.Line
+import com.suishouban.app.ui.theme.MistBlue
+import com.suishouban.app.ui.theme.Muted
 import com.suishouban.app.ui.theme.SoftCard
 import com.suishouban.app.ui.theme.visualForCardType
 import com.suishouban.app.ui.theme.visualForPriority
@@ -72,11 +84,17 @@ fun PreviewScreen(
     onManualAdd: () -> Unit,
     onImport: () -> Unit,
     onAddMaterials: () -> Unit,
+    teams: List<TeamSummary> = emptyList(),
+    teamMembers: List<TeamMemberOption> = emptyList(),
+    onSelectWorkspace: (String?) -> Unit = {},
 ) {
     var showDiagnostics by rememberSaveable { mutableStateOf(false) }
     val localDraftValid = state.draftCards.all {
         it.title.isNotBlank() && (it.cardType != "promise" || it.deadline != null || it.startTime != null)
     }
+    val selectedTeamMembers = state.draftTeamId
+        ?.let { teamId -> teamMembers.filter { it.teamId == teamId } }
+        .orEmpty()
     LazyColumn(
         modifier = Modifier.padding(horizontal = DS.ScreenPadding),
         verticalArrangement = Arrangement.spacedBy(DS.SectionGap),
@@ -237,10 +255,27 @@ fun PreviewScreen(
                 }
             }
 
+            if (teams.isNotEmpty()) {
+                item {
+                    WorkspaceChipRow(
+                        teams = teams,
+                        selectedTeamId = state.draftTeamId,
+                        suggested = state.draftTeamSuggested,
+                        onSelect = onSelectWorkspace,
+                    )
+                }
+            }
+
             items(state.draftCards, key = { it.id }) { card ->
                 DraftEditor(
                     card = card,
                     selected = card.id in state.selectedDraftIds,
+                    assigneeLabel = if (state.draftTeamId != null) {
+                        TeamWorkspacePolicy.matchAssignee(card.assigneeId, selectedTeamMembers)?.nickname
+                            ?: card.assigneeId?.trim()?.takeIf(String::isNotBlank)
+                    } else {
+                        null
+                    },
                     onSelectedChange = { onToggleDraftSelection(card.id) },
                     onChange = onUpdateDraft,
                     onRemove = { onRemoveDraft(card.id) },
@@ -261,6 +296,14 @@ fun PreviewScreen(
                     TextButton(onClick = onSelectAllDrafts) {
                         Text("全选")
                     }
+                }
+                state.teamPushError?.let { pushError ->
+                    Text(
+                        pushError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                 }
                 Button(
                     onClick = onConfirm,
@@ -309,6 +352,54 @@ private fun confidenceLabel(value: String): String = when (value) {
     else -> "低可信"
 }
 
+/**
+ * One quiet batch-level control: 归属 defaults to 个人 and can flow the whole batch into a team.
+ * A tiny Muted "AI 建议" suffix marks an automatic preselection; any tap replaces it.
+ */
+@Composable
+private fun WorkspaceChipRow(
+    teams: List<TeamSummary>,
+    selectedTeamId: String?,
+    suggested: Boolean,
+    onSelect: (String?) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val selectedLabel = teams.firstOrNull { it.id == selectedTeamId }?.name ?: "个人"
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("归属", style = MaterialTheme.typography.labelMedium, color = Muted)
+        Spacer(Modifier.width(8.dp))
+        Box {
+            NeutralPill(
+                text = "$selectedLabel ▾",
+                selected = selectedTeamId != null,
+                onClick = { menuOpen = true },
+            )
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("个人") },
+                    onClick = {
+                        menuOpen = false
+                        onSelect(null)
+                    },
+                )
+                teams.forEach { team ->
+                    DropdownMenuItem(
+                        text = { Text(team.name) },
+                        onClick = {
+                            menuOpen = false
+                            onSelect(team.id)
+                        },
+                    )
+                }
+            }
+        }
+        if (suggested && selectedTeamId != null) {
+            Spacer(Modifier.width(6.dp))
+            Text("AI 建议", style = MaterialTheme.typography.labelSmall, color = Muted)
+        }
+    }
+}
+
 @Composable
 private fun DraftEditor(
     card: ActionCard,
@@ -316,6 +407,7 @@ private fun DraftEditor(
     onSelectedChange: (Boolean) -> Unit,
     onChange: (ActionCard) -> Unit,
     onRemove: () -> Unit,
+    assigneeLabel: String? = null,
 ) {
     val visual = visualForCardType(card.cardType)
     val priorityVisual = visualForPriority(card.priority)
@@ -345,6 +437,19 @@ private fun DraftEditor(
                 )
                 if (card.needConfirm.isNotEmpty()) {
                     NeutralPill(text = "待确认 ${card.needConfirm.size}")
+                }
+                assigneeLabel?.let { label ->
+                    // Quiet member chip, same visual language as the team detail rows.
+                    Text(
+                        text = label,
+                        color = BrandBlue,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(DS.RadiusChipBadge))
+                            .background(MistBlue)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onRemove) {

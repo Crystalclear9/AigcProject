@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Insights
 import androidx.compose.material.icons.outlined.PendingActions
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,7 +63,9 @@ import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
 import com.suishouban.app.data.model.CardStatus
 import com.suishouban.app.data.model.Priority
+import com.suishouban.app.data.model.WorkspaceTypes
 import com.suishouban.app.data.model.primaryTime
+import com.suishouban.app.domain.team.TeamWorkspacePolicy
 import com.suishouban.app.ui.components.ActionCardItem
 import com.suishouban.app.ui.components.HomeMofei
 import com.suishouban.app.ui.components.HomeMofeiVariant
@@ -83,10 +86,17 @@ fun HomeScreen(
     onImportFromGallery: () -> Unit,
     onImportFromCamera: () -> Unit,
     onCards: () -> Unit,
+    onSettings: () -> Unit,
     onComplete: (String) -> Unit,
+    teamNames: Map<String, String> = emptyMap(),
 ) {
     var showImportOptions by rememberSaveable { mutableStateOf(false) }
-    val activeCards = state.cards.filter { it.status != CardStatus.ARCHIVED && it.status != CardStatus.DONE }
+    // 今日 keeps personal cards plus team cards assigned to ME; teammates' and unassigned team
+    // tasks stay in team detail and the 卡片页 团队 filter.
+    val activeCards = state.cards.filter {
+        it.status != CardStatus.ARCHIVED && it.status != CardStatus.DONE &&
+            TeamWorkspacePolicy.includeInTodayFocus(it.workspaceType, it.assigneeId, state.settings.localUserId)
+    }
     val urgentCards = activeCards.filter { it.priority == Priority.HIGH }.take(3)
     val needConfirm = activeCards.count { it.needConfirm.isNotEmpty() }
     val reminders = activeCards.sumOf { it.reminders.size }
@@ -99,6 +109,14 @@ fun HomeScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Outlined.Settings, contentDescription = "设置", tint = Muted)
+                }
+            }
             HomeHeroCard(
                 reduceMotion = reduceMotion,
                 onImport = { showImportOptions = true },
@@ -137,6 +155,11 @@ fun HomeScreen(
                     card = card,
                     compact = true,
                     onComplete = { onComplete(card.id) },
+                    teamBadge = if (card.workspaceType == WorkspaceTypes.TEAM) {
+                        teamNames[card.workspaceId]?.firstOrNull()?.toString() ?: "团"
+                    } else {
+                        null
+                    },
                 )
             }
             item {

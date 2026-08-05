@@ -368,6 +368,9 @@ data class ActionCardDto(
     val status: String = "draft",
     @SerializedName("source_text") val sourceText: String = "",
     @SerializedName("created_at") val createdAt: String,
+    @SerializedName("goal_id") val goalId: String? = null,
+    @SerializedName("milestone_id") val milestoneId: String? = null,
+    @SerializedName("updated_at") val updatedAt: String? = null,
 )
 
 fun ActionCardDto.toDomain(): ActionCard = ActionCard(
@@ -413,6 +416,9 @@ fun ActionCardDto.toDomain(): ActionCard = ActionCard(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
+    milestoneId = milestoneId,
+    updatedAt = updatedAt,
 )
 
 fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
@@ -448,6 +454,9 @@ fun ActionCard.toDto(): ActionCardDto = ActionCardDto(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
+    milestoneId = milestoneId,
+    updatedAt = updatedAt,
 )
 
 data class ReminderNodeDto(
@@ -596,3 +605,218 @@ fun AttachmentDescriptorDto.toDomain(cardId: String, uri: String = ""): CardAtta
 private fun normalizeCardType(value: String): String {
     return if (value == "note") CardTypes.COLLECTION else value
 }
+
+// --- Team collaboration (Phase 1) ---
+
+data class UserRegisterRequestDto(
+    val id: String,
+    val nickname: String,
+    @SerializedName("avatar_color") val avatarColor: String = "blue",
+)
+
+data class UserDto(
+    val id: String,
+    val nickname: String,
+    @SerializedName("avatar_color") val avatarColor: String = "blue",
+    @SerializedName("created_at") val createdAt: String = "",
+)
+
+data class TeamCreateRequestDto(
+    val name: String,
+)
+
+data class TeamJoinRequestDto(
+    @SerializedName("invite_code") val inviteCode: String,
+)
+
+data class TeamRenameRequestDto(
+    val name: String,
+)
+
+data class TeamMemberDto(
+    @SerializedName("user_id") val userId: String,
+    val nickname: String = "",
+    @SerializedName("avatar_color") val avatarColor: String = "blue",
+    val role: String = "member",
+    @SerializedName("joined_at") val joinedAt: String = "",
+)
+
+data class TeamDto(
+    val id: String,
+    val name: String,
+    @SerializedName("invite_code") val inviteCode: String = "",
+    @SerializedName("owner_id") val ownerId: String = "",
+    @SerializedName("created_at") val createdAt: String = "",
+    @SerializedName("updated_at") val updatedAt: String = "",
+    val members: List<TeamMemberDto> = emptyList(),
+)
+
+// --- Team collaboration (Phase 2: goals, decomposition, summary) ---
+
+data class MilestoneDto(
+    val id: String,
+    @SerializedName("goal_id") val goalId: String = "",
+    val title: String = "",
+    @SerializedName("due_date") val dueDate: String? = null,
+    @SerializedName("sort_order") val sortOrder: Int = 0,
+)
+
+data class TeamGoalDto(
+    val id: String,
+    @SerializedName("team_id") val teamId: String = "",
+    val title: String = "",
+    val description: String = "",
+    @SerializedName("due_date") val dueDate: String? = null,
+    val status: String = "active",
+    @SerializedName("decompose_source") val decomposeSource: String = "template",
+    @SerializedName("created_by") val createdBy: String = "",
+    @SerializedName("created_at") val createdAt: String = "",
+    @SerializedName("updated_at") val updatedAt: String = "",
+    val milestones: List<MilestoneDto> = emptyList(),
+)
+
+data class TeamGoalCreateRequestDto(
+    val title: String,
+    val description: String = "",
+    @SerializedName("due_date") val dueDate: String? = null,
+)
+
+data class ProposedTaskDto(
+    val title: String,
+    val summary: String = "",
+    @SerializedName("assignee_id") val assigneeId: String? = null,
+    @SerializedName("milestone_id") val milestoneId: String? = null,
+    @SerializedName("start_time") val startTime: String? = null,
+    val deadline: String? = null,
+    val deliverables: List<String> = emptyList(),
+)
+
+data class GoalDecompositionDto(
+    val goal: TeamGoalDto,
+    val tasks: List<ProposedTaskDto> = emptyList(),
+    val warnings: List<String> = emptyList(),
+)
+
+data class GoalConfirmRequestDto(
+    val tasks: List<ProposedTaskDto> = emptyList(),
+)
+
+data class GoalConfirmResponseDto(
+    val goal: TeamGoalDto,
+    val cards: List<ActionCardDto> = emptyList(),
+)
+
+data class MilestoneProgressDto(
+    val milestone: MilestoneDto,
+    val done: Int = 0,
+    val total: Int = 0,
+)
+
+data class GoalProgressDto(
+    val goal: TeamGoalDto,
+    val done: Int = 0,
+    val total: Int = 0,
+    val milestones: List<MilestoneProgressDto> = emptyList(),
+)
+
+data class MemberStatDto(
+    @SerializedName("user_id") val userId: String,
+    val nickname: String = "",
+    @SerializedName("avatar_color") val avatarColor: String = "blue",
+    val role: String = "member",
+    val done: Int = 0,
+    val total: Int = 0,
+)
+
+data class TeamSummaryResponseDto(
+    val team: TeamDto,
+    val goals: List<GoalProgressDto> = emptyList(),
+    @SerializedName("member_stats") val memberStats: List<MemberStatDto> = emptyList(),
+    @SerializedName("changed_cards") val changedCards: List<ActionCardDto> = emptyList(),
+    @SerializedName("server_time") val serverTime: String = "",
+)
+
+fun MilestoneDto.toDomain() = com.suishouban.app.data.model.TeamMilestone(
+    id = id,
+    title = title,
+    dueDate = dueDate,
+    sortOrder = sortOrder,
+)
+
+fun TeamGoalDto.toDomain() = com.suishouban.app.data.model.TeamGoalInfo(
+    id = id,
+    title = title,
+    description = description,
+    dueDate = dueDate,
+    status = status,
+    decomposeSource = decomposeSource,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    milestones = milestones.map(MilestoneDto::toDomain),
+)
+
+fun ProposedTaskDto.toDomain() = com.suishouban.app.data.model.ProposedTeamTask(
+    title = title,
+    summary = summary,
+    assigneeId = assigneeId,
+    milestoneId = milestoneId,
+    startTime = startTime,
+    deadline = deadline,
+    deliverables = deliverables,
+)
+
+fun com.suishouban.app.data.model.ProposedTeamTask.toDto() = ProposedTaskDto(
+    title = title,
+    summary = summary,
+    assigneeId = assigneeId,
+    milestoneId = milestoneId,
+    startTime = startTime,
+    deadline = deadline,
+    deliverables = deliverables,
+)
+
+fun GoalDecompositionDto.toDomain() = com.suishouban.app.data.model.TeamGoalPlan(
+    goal = goal.toDomain(),
+    tasks = tasks.map(ProposedTaskDto::toDomain),
+    warnings = warnings,
+)
+
+fun MilestoneProgressDto.toDomain() = com.suishouban.app.data.model.TeamMilestoneProgress(
+    milestone = milestone.toDomain(),
+    done = done,
+    total = total,
+)
+
+fun GoalProgressDto.toDomain() = com.suishouban.app.data.model.TeamGoalProgress(
+    goal = goal.toDomain(),
+    done = done,
+    total = total,
+    milestones = milestones.map(MilestoneProgressDto::toDomain),
+)
+
+fun MemberStatDto.toDomain() = com.suishouban.app.data.model.TeamMemberStat(
+    userId = userId,
+    nickname = nickname,
+    avatarColor = avatarColor,
+    role = role,
+    done = done,
+    total = total,
+)
+
+fun TeamSummaryResponseDto.toDomain() = com.suishouban.app.data.model.TeamDetailSummary(
+    teamId = team.id,
+    teamName = team.name,
+    inviteCode = team.inviteCode,
+    ownerId = team.ownerId,
+    members = team.members.map { member ->
+        com.suishouban.app.data.model.TeamMemberInfo(
+            userId = member.userId,
+            nickname = member.nickname,
+            avatarColor = member.avatarColor,
+            role = member.role,
+        )
+    },
+    goals = goals.map(GoalProgressDto::toDomain),
+    memberStats = memberStats.map(MemberStatDto::toDomain),
+    serverTime = serverTime,
+)

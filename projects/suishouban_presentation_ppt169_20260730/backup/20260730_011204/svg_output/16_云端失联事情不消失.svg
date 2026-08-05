@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" data-pptx-page-role="content" font-family="Microsoft YaHei, Segoe UI, Arial, sans-serif">
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#2F6BFF"/></marker></defs>
+  <rect id="background" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="#F7F9FE"/>
+  <g id="page-title" data-pptx-bounds="64 48 860 104">
+    <text x="64" y="92" font-size="42" font-weight="700" fill="#1748B8">云端失联，事情也不会消失</text>
+    <text x="64" y="136" font-size="24" fill="#182033">本地先完成基础处理，云端只补充复杂信息。</text>
+  </g>
+  <g id="local-layer" data-pptx-bounds="74 180 720 184">
+    <rect x="74" y="180" width="720" height="184" rx="24" fill="#EAF2FF" stroke="#1748B8" stroke-width="3"/>
+    <text x="106" y="222" font-size="18" font-weight="700" fill="#1748B8">手机端 · 稳定保留</text>
+    <text x="106" y="284" font-size="32" font-weight="700" fill="#182033">OCR</text>
+    <text x="246" y="284" font-size="32" font-weight="700" fill="#182033">本地拆卡</text>
+    <text x="448" y="284" font-size="32" font-weight="700" fill="#182033">数据存储</text>
+    <text x="646" y="284" font-size="32" font-weight="700" fill="#182033">定时提醒</text>
+    <line x1="106" y1="318" x2="760" y2="318" stroke="#AFC5F6" stroke-width="3"/>
+  </g>
+  <g id="cloud-layer" data-pptx-bounds="74 402 720 156">
+    <rect x="74" y="402" width="720" height="156" rx="24" fill="#FFFFFF" stroke="#7A8190" stroke-width="3" stroke-dasharray="10 8"/>
+    <text x="106" y="444" font-size="18" font-weight="700" fill="#7A8190">云端 · 可用时补全</text>
+    <text x="106" y="506" font-size="24" fill="#182033">复杂时间解析</text>
+    <text x="338" y="506" font-size="24" fill="#182033">内容补全</text>
+    <text x="520" y="506" font-size="24" fill="#182033">多步骤关系</text>
+  </g>
+  <g id="exceptions" data-pptx-bounds="846 182 354 180">
+    <text x="846" y="220" font-size="18" font-weight="700" fill="#E95656">异常也可能发生</text>
+    <text x="846" y="270" font-size="24" fill="#182033">网络断开</text>
+    <text x="846" y="312" font-size="24" fill="#182033">云端超时</text>
+    <text x="846" y="354" font-size="24" fill="#182033">模型失败</text>
+    <line x1="1008" y1="266" x2="1128" y2="412" stroke="#2F6BFF" stroke-width="3" marker-end="url(#arrow)"/>
+  </g>
+  <g id="local-draft-result" data-pptx-bounds="846 402 354 156">
+    <rect x="846" y="402" width="354" height="156" rx="24" fill="#1748B8"/>
+    <text x="1023" y="456" text-anchor="middle" font-size="18" fill="#CFE0FF">最终结果</text>
+    <text x="1023" y="510" text-anchor="middle" font-size="32" font-weight="700" fill="#FFFFFF">保留本地草稿</text>
+  </g>
+  <g id="mofei-offline" data-pptx-bounds="718 480 184 150">
+    <image href="../images/mofei_offline.png" x="718" y="480" width="184" height="150" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-alarm" data-pptx-bounds="1050 246 166 142">
+    <image href="../images/mofei_alarm.png" x="1050" y="246" width="166" height="142" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-urgent" data-pptx-bounds="936 254 110 110">
+    <image href="../images/mofei_urgent_f01.png" x="936" y="254" width="110" height="110" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="mofei-rest" data-pptx-bounds="574 304 120 110">
+    <image href="../images/mofei_rest_f01.png" x="574" y="304" width="120" height="110" preserveAspectRatio="xMidYMid meet"/>
+  </g>
+  <g id="page-footer" data-pptx-role="footer" data-pptx-bounds="64 648 1152 32"><text x="1196" y="669" text-anchor="end" font-size="18" fill="#7A8190">16</text></g>
+</svg>

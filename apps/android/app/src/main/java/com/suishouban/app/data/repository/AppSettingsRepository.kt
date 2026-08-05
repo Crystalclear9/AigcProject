@@ -12,9 +12,12 @@ import com.suishouban.app.data.model.ReminderPreset
 import com.suishouban.app.data.model.WorkflowDepthPolicy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.util.UUID
 
 data class AppSettings(
     val apiBaseUrl: String = BuildConfig.DEFAULT_API_BASE_URL,
+    val localUserId: String = "",
+    val userNickname: String = "",
     val autoDetectScreenshots: Boolean = false,
     val privacyMask: Boolean = true,
     val calendarSync: Boolean = false,
@@ -70,8 +73,16 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
             } else {
                 AiConnectionMode.LOCAL
             }
+        // A stable anonymous identity backs team collaboration; generate once and persist
+        // immediately so it survives reads that happen before the first update().
+        val localUserId = prefs.getString("local_user_id", null)?.takeIf { it.isNotBlank() }
+            ?: ("u-" + UUID.randomUUID()).also { generated ->
+                prefs.edit().putString("local_user_id", generated).apply()
+            }
         return AppSettings(
             apiBaseUrl = apiBaseUrl,
+            localUserId = localUserId,
+            userNickname = prefs.getString("user_nickname", "").orEmpty(),
             autoDetectScreenshots = prefs.getBoolean("auto_detect", false),
             privacyMask = prefs.getBoolean("privacy_mask", true),
             calendarSync = prefs.getBoolean("calendar_sync", false),
@@ -141,6 +152,8 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
         val normalizedApiUrl = settings.apiBaseUrl.trim()
         val normalizedSettings = settings.copy(
             apiBaseUrl = normalizedApiUrl,
+            localUserId = settings.localUserId.ifBlank { _settings.value.localUserId },
+            userNickname = settings.userNickname.trim(),
             preferCloudModel = settings.aiConnectionMode == AiConnectionMode.WORKFLOW_GATEWAY &&
                 isCloudModeEnabled(normalizedApiUrl, settings.preferCloudModel),
             mascotDockSide = normalizeMascotDockSide(settings.mascotDockSide),
@@ -155,6 +168,8 @@ class AppSettingsRepository(private val prefs: SharedPreferences) {
         )
         prefs.edit()
             .putString("api_base_url", normalizedSettings.apiBaseUrl)
+            .putString("local_user_id", normalizedSettings.localUserId)
+            .putString("user_nickname", normalizedSettings.userNickname)
             .putBoolean("auto_detect", normalizedSettings.autoDetectScreenshots)
             .putBoolean("privacy_mask", normalizedSettings.privacyMask)
             .putBoolean("calendar_sync", normalizedSettings.calendarSync)

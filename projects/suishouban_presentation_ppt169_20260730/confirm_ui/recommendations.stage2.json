@@ -1,0 +1,141 @@
+{
+  "stage": "stage2",
+  "lang": "zh",
+  "recommend": {
+    "delivery_purpose": "balanced",
+    "mode": "narrative",
+    "visual_style": "custom",
+    "image_usage": [
+      "provided"
+    ]
+  },
+  "page_count": {
+    "value": "18"
+  },
+  "image_notes": {
+    "value": "优先使用当前项目中的莫斐透明 PNG、逐帧动作资源和现有应用界面截图。手机界面页将手机外壳、屏幕内容、状态栏、浮层、文字和莫斐拆成独立可编辑对象；截图类素材不裁切关键信息。第 13 页编辑率曲线明确标为示意数据。"
+  },
+  "custom_candidates": {
+    "mode": {
+      "name_zh": "截图被接住之后",
+      "behavior_zh": "以一张被遗忘的截图开场，随后让莫斐接住截图并推动识别、拆卡、确认、学习和提醒；中后段转入可信边界与真实技术实现，最后以未来拓展和行动闭环收束。标题使用推进故事的短句，技术页仍保持因果关系清晰。"
+    },
+    "visual_style": {
+      "name_zh": "随手办原生平面版",
+      "behavior_zh": "保留当前产品的 BrandBlue、MistBlue、Paper、Ink 与橙色状态色，以及莫斐自身的透明质感；页面结构保持平面，不使用玻璃拟态、渐变发光、悬浮卡片墙或装饰性阴影。手机、截图、字段、时间轴和莫斐直接落在清晰网格上，以大面积浅色底、局部品牌蓝色区、字号和细线关系建立层级；圆角只用于真实手机控件或必要的标签。"
+    }
+  },
+  "design_directions": {
+    "selected": 0,
+    "candidates": [
+      {
+        "name_zh": "随手办原生平面版",
+        "note_zh": "默认中间方案。保留项目真实蓝白与橙色状态色，版式平面、轻盈，不做卡片墙。",
+        "visual_style": "custom",
+        "icons": "tabler-outline",
+        "color": {
+          "name_zh": "项目原生色",
+          "palette": {
+            "background": "#F7F9FE",
+            "secondary_bg": "#EAF2FF",
+            "primary": "#2F6BFF",
+            "accent": "#1748B8",
+            "secondary_accent": "#FF8A3D",
+            "body_text": "#182033"
+          }
+        },
+        "typography": {
+          "name_zh": "微软雅黑 + Segoe UI",
+          "heading": {
+            "primary": "Microsoft YaHei",
+            "english": "Segoe UI",
+            "css": "sans-serif"
+          },
+          "body": {
+            "primary": "Microsoft YaHei",
+            "english": "Segoe UI",
+            "css": "sans-serif"
+          },
+          "body_size": 24,
+          "sizes": {
+            "title": 44,
+            "subtitle": 32,
+            "annotation": 18
+          }
+        }
+      },
+      {
+        "name_zh": "原生色 · 极简网格",
+        "note_zh": "保留项目色，但进一步减少圆角与装饰，强调留白和精确对齐。",
+        "visual_style": "swiss-minimal",
+        "icons": "tabler-outline",
+        "color": {
+          "name_zh": "项目原生色",
+          "palette": {
+            "background": "#F7F9FE",
+            "secondary_bg": "#EAF2FF",
+            "primary": "#2F6BFF",
+            "accent": "#1748B8",
+            "secondary_accent": "#FF8A3D",
+            "body_text": "#182033"
+          }
+        },
+        "typography": {
+          "name_zh": "等线 + Arial",
+          "heading": {
+            "primary": "DengXian",
+            "english": "Arial",
+            "css": "sans-serif"
+          },
+          "body": {
+            "primary": "DengXian",
+            "english": "Arial",
+            "css": "sans-serif"
+          },
+          "body_size": 24,
+          "sizes": {
+            "title": 44,
+            "subtitle": 32,
+            "annotation": 18
+          }
+        }
+      },
+      {
+        "name_zh": "原生色 · 产品编辑风",
+        "note_zh": "保留项目色，用栏目、细线、页码和大标题组织信息，更适合会后阅读。",
+        "visual_style": "editorial",
+        "icons": "tabler-outline",
+        "color": {
+          "name_zh": "项目原生色",
+          "palette": {
+            "background": "#F7F9FE",
+            "secondary_bg": "#EAF2FF",
+            "primary": "#2F6BFF",
+            "accent": "#1748B8",
+            "secondary_accent": "#FF8A3D",
+            "body_text": "#182033"
+          }
+        },
+        "typography": {
+          "name_zh": "黑体 + Aptos",
+          "heading": {
+            "primary": "SimHei",
+            "english": "Aptos Display",
+            "css": "sans-serif"
+          },
+          "body": {
+            "primary": "Microsoft YaHei",
+            "english": "Aptos",
+            "css": "sans-serif"
+          },
+          "body_size": 24,
+          "sizes": {
+            "title": 44,
+            "subtitle": 32,
+            "annotation": 18
+          }
+        }
+      }
+    ]
+  }
+}

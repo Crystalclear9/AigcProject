@@ -169,14 +169,94 @@ interface SuiShouBanApi {
     suspend fun createCard(@Body card: ActionCardDto): ActionCardDto
 
     @PATCH("api/cards/{id}")
-    suspend fun updateCard(@Path("id") id: String, @Body card: ActionCardDto): ActionCardDto
+    suspend fun updateCard(
+        @Path("id") id: String,
+        @Body card: ActionCardDto,
+        @Header("X-User-Id") userId: String,
+    ): ActionCardDto
 
     @POST("api/cards/{id}/complete")
-    suspend fun completeCard(@Path("id") id: String): ActionCardDto
+    suspend fun completeCard(
+        @Path("id") id: String,
+        @Header("X-User-Id") userId: String,
+    ): ActionCardDto
 
     @POST("api/cards/{id}/replan")
     suspend fun replanCard(
         @Path("id") id: String,
         @Body request: CardReplanRequestDto,
+        @Header("X-User-Id") userId: String,
     ): CardReplanResponseDto
+
+    @POST("api/users")
+    suspend fun registerUser(@Body request: UserRegisterRequestDto): UserDto
+
+    @POST("api/teams")
+    suspend fun createTeam(
+        @Header("X-User-Id") userId: String,
+        @Body request: TeamCreateRequestDto,
+    ): TeamDto
+
+    @POST("api/teams/join")
+    suspend fun joinTeam(
+        @Header("X-User-Id") userId: String,
+        @Body request: TeamJoinRequestDto,
+    ): TeamDto
+
+    @GET("api/teams")
+    suspend fun listTeams(@Header("X-User-Id") userId: String): List<TeamDto>
+
+    @GET("api/teams/{id}")
+    suspend fun getTeam(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+    ): TeamDto
+
+    @PATCH("api/teams/{id}")
+    suspend fun renameTeam(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Body request: TeamRenameRequestDto,
+    ): TeamDto
+
+    @DELETE("api/teams/{id}")
+    suspend fun deleteTeam(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+    )
+
+    @DELETE("api/teams/{id}/members/{uid}")
+    suspend fun removeTeamMember(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Path("uid") memberId: String,
+    )
+
+    @POST("api/teams/{id}/goals")
+    suspend fun createTeamGoal(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Body request: TeamGoalCreateRequestDto,
+    ): GoalDecompositionDto
+
+    @POST("api/teams/{id}/goals/{goal_id}/confirm")
+    suspend fun confirmTeamGoal(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Path("goal_id") goalId: String,
+        @Body request: GoalConfirmRequestDto,
+    ): GoalConfirmResponseDto
+
+    @GET("api/teams/{id}/goals")
+    suspend fun listTeamGoals(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+    ): List<TeamGoalDto>
+
+    @GET("api/teams/{id}/summary")
+    suspend fun teamSummary(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Query("since") since: String? = null,
+    ): TeamSummaryResponseDto
 }

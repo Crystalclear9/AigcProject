@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TaskAlt
@@ -74,6 +75,8 @@ import com.suishouban.app.ui.screens.ImportScreen
 import com.suishouban.app.ui.screens.OnboardingScreen
 import com.suishouban.app.ui.screens.PreviewScreen
 import com.suishouban.app.ui.screens.SettingsScreen
+import com.suishouban.app.ui.screens.TeamDetailScreen
+import com.suishouban.app.ui.screens.TeamScreen
 import com.suishouban.app.ui.theme.BrandBlue
 import com.suishouban.app.ui.theme.MistBlue
 import com.suishouban.app.ui.theme.SuiShouBanTheme
@@ -106,6 +109,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             SuiShouBanTheme {
                 val state by viewModel.uiState.collectAsStateWithLifecycle()
+                val teamState by viewModel.teamUiState.collectAsStateWithLifecycle()
+                val teamMemberOptions by viewModel.teamMemberOptions.collectAsStateWithLifecycle()
+                val milestoneMarks by viewModel.milestoneMarks.collectAsStateWithLifecycle()
                 val systemReduceMotion = remember {
                     Settings.Global.getFloat(
                         contentResolver,
@@ -359,6 +365,9 @@ class MainActivity : ComponentActivity() {
                                 onConfirm = { viewModel.confirmDrafts { current = Screen.Cards.route } },
                                 onManualAdd = viewModel::addManualDraftFromCurrentText,
                                 onImport = { current = Screen.Import.route },
+                                teams = teamState.teams,
+                                teamMembers = teamMemberOptions,
+                                onSelectWorkspace = viewModel::setDraftWorkspace,
                                 onAddMaterials = {
                                     intakeMaterialsLauncher.launch(
                                         arrayOf(
@@ -381,13 +390,55 @@ class MainActivity : ComponentActivity() {
                                 onArchive = viewModel::archiveCard,
                                 onImport = { current = Screen.Import.route },
                                 highlightCardId = requestedOverlayNavigation.actionCardId,
+                                teamNames = teamState.teams.associate { it.id to it.name },
                             )
                             Screen.Calendar.route -> CalendarScreen(
                                 state = state,
                                 onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
+                                milestones = milestoneMarks,
                             )
+                            Screen.Team.route -> {
+                                // Simple two-level navigation: null shows the team list, an id
+                                // opens that team's detail. System back is handled inside detail.
+                                var openTeamId by rememberSaveable { mutableStateOf<String?>(null) }
+                                val openedTeamId = openTeamId
+                                if (openedTeamId == null) {
+                                    TeamScreen(
+                                        state = teamState,
+                                        onSaveNickname = viewModel::saveNickname,
+                                        onCreateTeam = viewModel::createTeam,
+                                        onJoinTeam = viewModel::joinTeam,
+                                        onRefresh = viewModel::refreshTeams,
+                                        onOpenTeam = { openTeamId = it },
+                                    )
+                                } else {
+                                    val teamDetail by viewModel.teamDetailState.collectAsStateWithLifecycle()
+                                    TeamDetailScreen(
+                                        teamId = openedTeamId,
+                                        teamRow = teamState.teams.firstOrNull { it.id == openedTeamId },
+                                        detail = teamDetail,
+                                        teamCards = state.cards.filter {
+                                            it.workspaceType == "team" && it.workspaceId == openedTeamId
+                                        },
+                                        myUserId = state.settings.localUserId,
+                                        reduceMotion = reduceMotion,
+                                        onBack = { openTeamId = null },
+                                        onStartPolling = viewModel::startTeamPolling,
+                                        onStopPolling = viewModel::stopTeamPolling,
+                                        onRefresh = viewModel::refreshTeamSummary,
+                                        onRename = viewModel::renameTeam,
+                                        onDissolve = viewModel::dissolveTeam,
+                                        onCreateGoal = viewModel::createTeamGoal,
+                                        onConfirmGoal = viewModel::confirmTeamGoal,
+                                        onExtractGoalSeed = viewModel::extractGoalSeed,
+                                        onUpdateTask = viewModel::updateTeamTask,
+                                    )
+                                }
+                            }
                             Screen.Settings.route -> SettingsScreen(
                                 state = state,
+                                onBack = { current = Screen.Home.route },
                                 onUpdate = viewModel::updateSettings,
                                 onSync = viewModel::syncFromServer,
                                 onTestConnection = viewModel::testConnection,
@@ -436,7 +487,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
+                                onSettings = { current = Screen.Settings.route },
                                 onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
                             )
                         }
                         }
@@ -646,6 +699,7 @@ private sealed class Screen(
     data object Import : Screen("import", "导入", Icons.Outlined.PhotoCamera)
     data object Cards : Screen("cards", "卡片", Icons.Outlined.TaskAlt)
     data object Calendar : Screen("calendar", "日历", Icons.Outlined.CalendarMonth)
+    data object Team : Screen("team", "团队", Icons.Outlined.Groups)
     data object Settings : Screen("settings", "设置", Icons.Outlined.Settings)
     data object Preview : Screen("preview", "预览", Icons.Outlined.TaskAlt)
 }
@@ -655,5 +709,5 @@ private val bottomScreens = listOf(
     Screen.Import,
     Screen.Cards,
     Screen.Calendar,
-    Screen.Settings,
+    Screen.Team,
 )

@@ -1,0 +1,28 @@
+{
+  "schema": "ppt-master.source_to_md.profile.v1",
+  "converter": "ppt_to_md.py",
+  "conversion_type": "pptx",
+  "source": {
+    "path": "E:/aigc/随手办.pptx",
+    "name": "随手办.pptx",
+    "suffix": ".pptx",
+    "kind": "file",
+    "exists": true,
+    "size_bytes": 14551987
+  },
+  "outputs": {
+    "markdown": "原版随手办_内容提取.md",
+    "asset_dir": "原版随手办_内容提取_files",
+    "image_manifest": "原版随手办_内容提取_files/image_manifest.json",
+    "image_count": 12
+  },
+  "markdown": {
+    "line_count": 489,
+    "char_count": 4467,
+    "heading_count": 14,
+    "table_count": 0,
+    "image_ref_count": 14,
+    "link_count": 0
+  },
+  "warnings": []
+}

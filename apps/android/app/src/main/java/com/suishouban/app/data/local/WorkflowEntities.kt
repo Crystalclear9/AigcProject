@@ -11,6 +11,10 @@ data class TeamWorkspaceEntity(
     @PrimaryKey val id: String,
     val name: String,
     @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "invite_code") val inviteCode: String = "",
+    @ColumnInfo(name = "owner_id") val ownerId: String = "",
+    @ColumnInfo(name = "my_role") val myRole: String = "member",
+    @ColumnInfo(name = "updated_at") val updatedAt: String = "",
 )
 
 @Entity(
@@ -30,6 +34,7 @@ data class TeamMemberEntity(
     @ColumnInfo(name = "workspace_id") val workspaceId: String,
     @ColumnInfo(name = "display_name") val displayName: String,
     val role: String,
+    @ColumnInfo(name = "avatar_color") val avatarColor: String = "blue",
 )
 
 @Entity(
@@ -56,6 +61,20 @@ data class TeamAssignmentEntity(
     @ColumnInfo(name = "member_id") val memberId: String,
     @ColumnInfo(name = "assignment_role") val assignmentRole: String,
     @ColumnInfo(name = "is_owner") val isOwner: Boolean,
+)
+
+/**
+ * Offline mirror of team goal milestones, refreshed delete-then-insert per goal from the team
+ * summary poll. Only the calendar reads it — the server stays the source of truth.
+ */
+@Entity(tableName = "team_milestones")
+data class TeamMilestoneEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") val teamId: String,
+    @ColumnInfo(name = "goal_id") val goalId: String,
+    val title: String,
+    @ColumnInfo(name = "due_date") val dueDate: String? = null,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
 )
 
 @Entity(tableName = "intake_sessions")

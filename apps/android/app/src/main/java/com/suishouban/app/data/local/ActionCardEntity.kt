@@ -41,6 +41,9 @@ data class ActionCardEntity(
     val status: String,
     @ColumnInfo(name = "source_text") val sourceText: String,
     @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "goal_id") val goalId: String? = null,
+    @ColumnInfo(name = "milestone_id") val milestoneId: String? = null,
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
 )
 
 fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
@@ -78,6 +81,9 @@ fun ActionCardEntity.toDomain(): ActionCard = ActionCard(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
+    milestoneId = milestoneId,
+    updatedAt = updatedAt,
 )
 
 fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
@@ -113,6 +119,9 @@ fun ActionCard.toEntity(): ActionCardEntity = ActionCardEntity(
     status = status,
     sourceText = sourceText,
     createdAt = createdAt,
+    goalId = goalId,
+    milestoneId = milestoneId,
+    updatedAt = updatedAt,
 )
 
 // Older prototype builds stored fallback cards as "note"; keep them readable after the 5-type migration.

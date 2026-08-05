@@ -21,9 +21,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TeamWorkspaceEntity::class,
         TeamMemberEntity::class,
         TeamAssignmentEntity::class,
+        TeamMilestoneEntity::class,
         IntakeSessionEntity::class,
     ],
-    version = 7,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(StringListConverter::class, ReminderNodeConverter::class)
@@ -51,6 +52,9 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
+                    MIGRATION_8_9,
+                    MIGRATION_9_10,
                 )
                 .build()
                 .also { instance = it }
@@ -362,6 +366,55 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE cards ADD COLUMN reminder_nodes TEXT NOT NULL DEFAULT '[]'",
                 )
+            }
+        }
+
+        /** Team collaboration phase 1: server-backed workspaces, roles, and milestone linkage. */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN invite_code TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN my_role TEXT NOT NULL DEFAULT 'member'",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_workspaces ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE team_members ADD COLUMN avatar_color TEXT NOT NULL DEFAULT 'blue'",
+                )
+                db.execSQL("ALTER TABLE cards ADD COLUMN milestone_id TEXT")
+                db.execSQL("ALTER TABLE cards ADD COLUMN updated_at TEXT")
+            }
+        }
+
+        /** Calendar fusion: milestone due dates are mirrored locally for quiet calendar marks. */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_milestones (
+                        id TEXT NOT NULL,
+                        team_id TEXT NOT NULL,
+                        goal_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        due_date TEXT,
+                        sort_order INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(id)
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        /** Stable task-to-goal linkage; legacy rows remain null and use compatibility matching. */
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE cards ADD COLUMN goal_id TEXT")
             }
         }
     }
