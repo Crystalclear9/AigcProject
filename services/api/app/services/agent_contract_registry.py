@@ -17,11 +17,14 @@ from app.schemas.agent_contracts import (
     FieldCoverage,
     HistoryRetrieverOutput,
     PrivacyRiskOutput,
+    PersonalPlannerOutput,
+    PlanningSuggestion,
     QualityVerifierOutput,
     RetrievalOutput,
     SemanticDecomposerOutput,
     TemporalConstraintOutput,
     TemporalSolverOutput,
+    TeamCoordinatorOutput,
     WebRetrieverOutput,
 )
 from app.schemas.agent_workflow import AgentResult, ToolName
@@ -94,6 +97,15 @@ def _accept_quality(output: BaseModel, _: AgentResult, state: dict[str, Any]) ->
     return []
 
 
+def _accept_planning(output: BaseModel, _: AgentResult, state: dict[str, Any]) -> list[str]:
+    verified = {str(item.get("id")) for item in state.get("evidence_spans", []) if item.get("id")}
+    return [
+        "acceptance:unknown_planning_evidence"
+        for suggestion in output.suggestions  # type: ignore[attr-defined]
+        if set(suggestion.evidence_refs) - verified
+    ]
+
+
 AGENT_CONTRACTS: dict[ToolName, AgentContract] = {
     "semantic_decomposer": AgentContract(
         "semantic_decomposer", "semantic_decomposition", SemanticDecomposerOutput,
@@ -142,6 +154,18 @@ AGENT_CONTRACTS: dict[ToolName, AgentContract] = {
         frozenset({"quality"}),
         ("critical fields are evaluated from independent evidence groups", "constraints are explicit"),
         8000, _accept_quality,
+    ),
+    "personal_planner": AgentContract(
+        "personal_planner", "personal_plan", PersonalPlannerOutput,
+        frozenset(),
+        ("planning suggestions preserve facts and require confirmation",),
+        2500, _accept_planning,
+    ),
+    "team_coordinator": AgentContract(
+        "team_coordinator", "team_coordination", TeamCoordinatorOutput,
+        frozenset(),
+        ("coordination suggestions preserve parent facts and require confirmation",),
+        2500, _accept_planning,
     ),
 }
 
@@ -360,6 +384,30 @@ def _quality(result: AgentResult, state: dict[str, Any]) -> dict[str, Any]:
     ).model_dump(mode="json")
 
 
+def _planning(result: AgentResult, state: dict[str, Any]) -> dict[str, Any]:
+    evidence_by_card: dict[str, set[str]] = {}
+    for item in state.get("field_evidence", []):
+        card_id = str(item.get("field", "")).split(".", 1)[0]
+        evidence_by_card.setdefault(card_id, set()).update(str(ref) for ref in item.get("evidence_refs", []))
+    suggestion_type = "team_coordination" if result.tool == "team_coordinator" else "schedule"
+    suggestions = [
+        PlanningSuggestion(
+            action_id=str(card.get("id")),
+            suggestion_type=suggestion_type,
+            value={
+                key: card.get(key)
+                for key in ("deadline", "priority", "assignee_id", "participant_ids")
+                if card.get(key) not in (None, "", [])
+            },
+            evidence_refs=sorted(evidence_by_card.get(str(card.get("id")), set())),
+            requires_confirmation=True,
+        )
+        for card in state.get("rule_cards", [])
+    ]
+    model = TeamCoordinatorOutput if result.tool == "team_coordinator" else PersonalPlannerOutput
+    return model(suggestions=suggestions).model_dump(mode="json")
+
+
 _PROJECTORS: dict[ToolName, Callable[[AgentResult, dict[str, Any]], dict[str, Any]]] = {
     "semantic_decomposer": _semantic,
     "temporal_solver": _temporal,
@@ -369,6 +417,8 @@ _PROJECTORS: dict[ToolName, Callable[[AgentResult, dict[str, Any]], dict[str, An
     "privacy_risk_analyzer": _privacy,
     "web_retriever": _web,
     "quality_verifier": _quality,
+    "personal_planner": _planning,
+    "team_coordinator": _planning,
 }
 
 

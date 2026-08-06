@@ -23,6 +23,13 @@ import com.suishouban.app.data.remote.toDto
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import com.google.gson.Gson
+import java.util.UUID
+import com.suishouban.app.data.local.PendingTeamCommandEntity
+import com.suishouban.app.data.local.TeamConflictEntity
+import com.suishouban.app.data.local.TeamSyncSnapshotEntity
+import com.suishouban.app.data.remote.TeamCommandRequestDto
+import retrofit2.HttpException
 
 /**
  * Server-backed team collaboration. The workflow gateway is the source of truth; Room only keeps
@@ -34,6 +41,7 @@ class TeamRepository(
     private val settingsRepository: AppSettingsRepository,
     private val cardRepository: ActionCardRepository,
 ) {
+    private val gson = Gson()
     // Goals and progress are session snapshots, not Room tables — the server owns them; only
     // team task cards and membership are mirrored locally for offline reads.
     private val _currentSummary = MutableStateFlow<TeamDetailSummary?>(null)
@@ -86,7 +94,70 @@ class TeamRepository(
                     dao.deleteMilestonesOfTeam(removedId)
                 }
             teams.forEach { mirrorTeam(it) }
+            flushPendingTeamCommands().getOrThrow()
         }
+    }
+
+    suspend fun flushPendingTeamCommands(): Result<Unit> {
+        val api = remoteApiOrNull() ?: return Result.failure(IllegalStateException(GATEWAY_UNAVAILABLE_MESSAGE))
+        return runCatching {
+            for (command in dao.loadPendingTeamCommands()) {
+                dao.updatePendingTeamCommandStatus(command.commandId, "sending", command.retryCount, null, now())
+                try {
+                    val response = api.teamCommand(
+                        localUserId(), command.teamId,
+                        TeamCommandRequestDto(
+                            operation = command.operation,
+                            payload = gson.fromJson(command.payload, Map::class.java) as Map<String, Any?>,
+                            baseRevision = command.baseRevision,
+                            idempotencyKey = command.idempotencyKey,
+                        ),
+                    )
+                    dao.rebasePendingTeamCommands(
+                        teamId = command.teamId,
+                        completedCommandId = command.commandId,
+                        previousRevision = command.baseRevision,
+                        newRevision = response.revision,
+                        updatedAt = now(),
+                    )
+                    dao.deletePendingTeamCommand(command.commandId)
+                    mirrorTeam(api.getTeam(localUserId(), command.teamId))
+                } catch (error: Exception) {
+                    val message = error.message ?: error::class.simpleName.orEmpty()
+                    if ((error as? HttpException)?.code() == 409 || message.contains("revision", ignoreCase = true)) {
+                        val server = runCatching { api.getTeam(localUserId(), command.teamId) }.getOrNull()
+                        dao.upsertTeamConflict(
+                            TeamConflictEntity(
+                                conflictId = command.commandId,
+                                teamId = command.teamId,
+                                taskId = command.taskId,
+                                localPayload = command.payload,
+                                serverPayload = gson.toJson(server),
+                                baseRevision = command.baseRevision,
+                                conflictType = "revision_conflict",
+                                createdAt = now(),
+                            ),
+                        )
+                        dao.updatePendingTeamCommandStatus(command.commandId, "conflicted", command.retryCount + 1, message, now())
+                    } else {
+                        dao.updatePendingTeamCommandStatus(command.commandId, "retry", command.retryCount + 1, message, now())
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+    suspend fun submitTeamCommand(
+        teamId: String,
+        taskId: String?,
+        operation: String,
+        payload: Map<String, Any?>,
+    ): Result<Unit> {
+        val snapshot = dao.findTeamSnapshot(teamId)
+        enqueueTeamCommand(teamId, taskId, operation, payload, snapshot?.serverRevision ?: 0)
+        if (remoteApiOrNull() == null) return Result.success(Unit)
+        return flushPendingTeamCommands()
     }
 
     suspend fun createTeam(name: String): Result<TeamWorkspaceEntity> {
@@ -108,16 +179,32 @@ class TeamRepository(
     }
 
     suspend fun renameTeam(teamId: String, name: String): Result<Unit> {
-        val api = remoteApiOrNull()
-            ?: return Result.failure(IllegalStateException(GATEWAY_UNAVAILABLE_MESSAGE))
-        return runCatching {
-            mirrorTeam(api.renameTeam(localUserId(), teamId, TeamRenameRequestDto(name = name)))
+        return submitTeamCommand(teamId, null, "rename_team", mapOf("name" to name)).map {
             _currentSummary.value?.let { summary ->
                 if (summary.teamId == teamId) _currentSummary.value = summary.copy(teamName = name)
             }
             Unit
         }
     }
+
+    private suspend fun enqueueTeamCommand(
+        teamId: String,
+        taskId: String?,
+        operation: String,
+        payload: Map<String, Any?>,
+        baseRevision: Long,
+    ) {
+        val idempotencyKey = UUID.randomUUID().toString()
+        dao.upsertPendingTeamCommand(
+            PendingTeamCommandEntity(
+                commandId = UUID.randomUUID().toString(), teamId = teamId, taskId = taskId,
+                operation = operation, payload = gson.toJson(payload), baseRevision = baseRevision,
+                idempotencyKey = idempotencyKey, createdAt = now(), updatedAt = now(),
+            ),
+        )
+    }
+
+    private fun now(): String = System.currentTimeMillis().toString()
 
     suspend fun dissolveTeam(teamId: String): Result<Unit> {
         val api = remoteApiOrNull()
@@ -182,6 +269,12 @@ class TeamRepository(
         return runCatching {
             val dto = api.teamSummary(localUserId(), teamId, since)
             mirrorTeam(dto.team)
+            val previous = dao.findTeamSnapshot(teamId)
+            val events = api.teamEvents(localUserId(), teamId, previous?.serverRevision ?: 0)
+            dao.upsertTeamSnapshot(
+                TeamSyncSnapshotEntity(teamId, events.revision, events.eventCursor,
+                    gson.toJson(dto), System.currentTimeMillis().toString()),
+            )
             cardRepository.upsertServerCards(dto.changedCards.map { it.toDomain() })
             mirrorMilestones(teamId, dto)
             dto.toDomain().also { summary ->
@@ -225,6 +318,10 @@ class TeamRepository(
             updatedAt = team.updatedAt,
         )
         dao.upsertWorkspace(entity)
+        dao.upsertTeamSnapshot(
+            TeamSyncSnapshotEntity(team.id, team.revision, team.revision.toString(),
+                gson.toJson(team), System.currentTimeMillis().toString()),
+        )
         // Replace instead of merge so members removed on the server disappear locally too.
         dao.deleteMembersOfWorkspace(team.id)
         dao.upsertMembers(

@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
@@ -43,6 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +72,7 @@ import com.suishouban.app.notification.InstalledAppRepository
 import com.suishouban.app.ui.components.GradientScreen
 import com.suishouban.app.ui.screens.CalendarScreen
 import com.suishouban.app.ui.screens.CardsScreen
+import com.suishouban.app.ui.screens.CardWorkspaceTab
 import com.suishouban.app.ui.screens.HomeScreen
 import com.suishouban.app.ui.screens.ImportScreen
 import com.suishouban.app.ui.screens.OnboardingScreen
@@ -149,6 +152,9 @@ class MainActivity : ComponentActivity() {
                     viewModel.mascotInteractions.collect { celebrationSignal++ }
                 }
                 var current by rememberSaveable { mutableStateOf(Screen.Home.route) }
+                var cardWorkspaceTab by rememberSaveable { mutableStateOf(CardWorkspaceTab.PERSONAL) }
+                var teamManagementOpen by rememberSaveable { mutableStateOf(false) }
+                var openTeamId by rememberSaveable { mutableStateOf<String?>(null) }
                 LaunchedEffect(current) {
                     // Leaving Preview severs the candidate-to-draft link; later imports cannot consume it.
                     if (current != Screen.Preview.route) viewModel.clearOpenedNotificationCandidate()
@@ -287,6 +293,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 LaunchedEffect(requestedOverlayNavigation.requestId) {
+                    requestedOverlayNavigation.actionCardId?.let { cardId ->
+                        state.cards.firstOrNull { it.id == cardId }?.let { card ->
+                            cardWorkspaceTab = if (card.workspaceType == "team") {
+                                CardWorkspaceTab.TEAM
+                            } else {
+                                CardWorkspaceTab.PERSONAL
+                            }
+                            teamManagementOpen = false
+                        }
+                    }
                     requestedOverlayNavigation.destinationRoute?.let { current = it }
                     requestedOverlayNavigation.mofeiAction?.let { action ->
                         executeMofeiCommand(
@@ -315,6 +331,7 @@ class MainActivity : ComponentActivity() {
                             bottomScreens.forEach { screen ->
                                 val selected = current == screen.route
                                 NavigationBarItem(
+                                    modifier = Modifier.testTag(if (screen == Screen.Cards) "bottom_cards" else "bottom_${screen.route}"),
                                     selected = selected,
                                     onClick = { current = screen.route },
                                     icon = { Icon(screen.icon, contentDescription = screen.label) },
@@ -383,27 +400,28 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                             )
-                            Screen.Cards.route -> CardsScreen(
-                                state = state,
-                                onUpdate = viewModel::updateCard,
-                                onComplete = viewModel::completeCard,
-                                onArchive = viewModel::archiveCard,
-                                onImport = { current = Screen.Import.route },
-                                highlightCardId = requestedOverlayNavigation.actionCardId,
-                                teamNames = teamState.teams.associate { it.id to it.name },
-                            )
-                            Screen.Calendar.route -> CalendarScreen(
-                                state = state,
-                                onComplete = viewModel::completeCard,
-                                teamNames = teamState.teams.associate { it.id to it.name },
-                                milestones = milestoneMarks,
-                            )
-                            Screen.Team.route -> {
-                                // Simple two-level navigation: null shows the team list, an id
-                                // opens that team's detail. System back is handled inside detail.
-                                var openTeamId by rememberSaveable { mutableStateOf<String?>(null) }
+                            Screen.Cards.route -> {
                                 val openedTeamId = openTeamId
-                                if (openedTeamId == null) {
+                                if (!teamManagementOpen) {
+                                    CardsScreen(
+                                        state = state,
+                                        onUpdate = viewModel::updateCard,
+                                        onComplete = viewModel::completeCard,
+                                        onArchive = viewModel::archiveCard,
+                                        onImport = { current = Screen.Import.route },
+                                        highlightCardId = requestedOverlayNavigation.actionCardId,
+                                        teamNames = teamState.teams.associate { it.id to it.name },
+                                        workspaceTab = cardWorkspaceTab,
+                                        onWorkspaceTabChange = { cardWorkspaceTab = it },
+                                        onManageTeams = {
+                                            cardWorkspaceTab = CardWorkspaceTab.TEAM
+                                            teamManagementOpen = true
+                                        },
+                                        teamCount = teamState.teams.size,
+                                        teamSyncing = teamState.loading,
+                                    )
+                                } else if (openedTeamId == null) {
+                                    BackHandler { teamManagementOpen = false }
                                     TeamScreen(
                                         state = teamState,
                                         onSaveNickname = viewModel::saveNickname,
@@ -435,6 +453,17 @@ class MainActivity : ComponentActivity() {
                                         onUpdateTask = viewModel::updateTeamTask,
                                     )
                                 }
+                            }
+                            Screen.Calendar.route -> CalendarScreen(
+                                state = state,
+                                onComplete = viewModel::completeCard,
+                                teamNames = teamState.teams.associate { it.id to it.name },
+                                milestones = milestoneMarks,
+                            )
+                            Screen.Team.route -> LaunchedEffect(Unit) {
+                                cardWorkspaceTab = CardWorkspaceTab.TEAM
+                                teamManagementOpen = true
+                                current = Screen.Cards.route
                             }
                             Screen.Settings.route -> SettingsScreen(
                                 state = state,
@@ -487,7 +516,6 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onImportFromCamera = { launchCameraCapture() },
                                 onCards = { current = Screen.Cards.route },
-                                onSettings = { current = Screen.Settings.route },
                                 onComplete = viewModel::completeCard,
                                 teamNames = teamState.teams.associate { it.id to it.name },
                             )
@@ -709,5 +737,5 @@ private val bottomScreens = listOf(
     Screen.Import,
     Screen.Cards,
     Screen.Calendar,
-    Screen.Team,
+    Screen.Settings,
 )

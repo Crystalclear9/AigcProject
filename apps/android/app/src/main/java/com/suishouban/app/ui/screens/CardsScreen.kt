@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.TravelExplore
@@ -26,6 +28,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
@@ -37,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suishouban.app.AppUiState
@@ -63,6 +69,11 @@ import com.suishouban.app.ui.theme.Muted
 import com.suishouban.app.ui.theme.SoftCard
 import java.time.OffsetDateTime
 
+enum class CardWorkspaceTab(val workspaceType: String) {
+    PERSONAL(WorkspaceTypes.PERSONAL),
+    TEAM(WorkspaceTypes.TEAM),
+}
+
 @Composable
 fun CardsScreen(
     state: AppUiState,
@@ -72,18 +83,29 @@ fun CardsScreen(
     onImport: () -> Unit,
     highlightCardId: String? = null,
     teamNames: Map<String, String> = emptyMap(),
+    workspaceTab: CardWorkspaceTab = CardWorkspaceTab.PERSONAL,
+    onWorkspaceTabChange: (CardWorkspaceTab) -> Unit = {},
+    onManageTeams: () -> Unit = {},
+    teamCount: Int = 0,
+    teamSyncing: Boolean = false,
 ) {
-    var type by rememberSaveable { mutableStateOf("all") }
-    var status by rememberSaveable { mutableStateOf("active") }
-    var workspace by rememberSaveable { mutableStateOf("all") }
-    var keyword by rememberSaveable { mutableStateOf("") }
+    var personalType by rememberSaveable { mutableStateOf("all") }
+    var teamType by rememberSaveable { mutableStateOf("all") }
+    var personalStatus by rememberSaveable { mutableStateOf("active") }
+    var teamStatus by rememberSaveable { mutableStateOf("active") }
+    var personalKeyword by rememberSaveable { mutableStateOf("") }
+    var teamKeyword by rememberSaveable { mutableStateOf("") }
     var editing by remember { mutableStateOf<ActionCard?>(null) }
     var selectedCardId by rememberSaveable { mutableStateOf<String?>(null) }
     var priorityEditingId by rememberSaveable { mutableStateOf<String?>(null) }
 
+    val type = if (workspaceTab == CardWorkspaceTab.PERSONAL) personalType else teamType
+    val status = if (workspaceTab == CardWorkspaceTab.PERSONAL) personalStatus else teamStatus
+    val keyword = if (workspaceTab == CardWorkspaceTab.PERSONAL) personalKeyword else teamKeyword
+
     val filtered = state.cards.filter { card ->
         (type == "all" || card.cardType == type) &&
-            (workspace == "all" || card.workspaceType == workspace) &&
+            card.workspaceType == workspaceTab.workspaceType &&
             when (status) {
                 "active" -> card.status != CardStatus.DONE && card.status != CardStatus.ARCHIVED
                 "done" -> card.status == CardStatus.DONE
@@ -101,14 +123,66 @@ fun CardsScreen(
             Spacer(Modifier.height(12.dp))
             SectionHeader("卡片中心", "${filtered.size} 张", icon = Icons.Outlined.Style)
         }
+        item {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                CardWorkspaceTab.entries.forEachIndexed { index, tab ->
+                    SegmentedButton(
+                        selected = workspaceTab == tab,
+                        onClick = { onWorkspaceTabChange(tab) },
+                        shape = SegmentedButtonDefaults.itemShape(index, CardWorkspaceTab.entries.size),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag(if (tab == CardWorkspaceTab.PERSONAL) "cards_tab_personal" else "cards_tab_team"),
+                    ) {
+                        Text(if (tab == CardWorkspaceTab.PERSONAL) "个人" else "团队", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+        if (workspaceTab == CardWorkspaceTab.TEAM) {
+            item {
+                SoftCard {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onManageTeams)
+                            .testTag("cards_manage_teams")
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AccentIconChip(icon = Icons.Outlined.Groups, accent = BrandBlue, size = 38.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text("管理团队", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Ink)
+                            Text(
+                                if (teamSyncing) "正在同步" else "$teamCount 个团队",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Muted,
+                            )
+                        }
+                        Icon(Icons.Outlined.ChevronRight, contentDescription = "进入团队管理", tint = Muted)
+                    }
+                }
+            }
+        }
         // Search + filters grouped into one toolbar card so the controls read as a unit.
         item {
             SoftCard {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = keyword,
-                        onValueChange = { keyword = it },
-                        modifier = Modifier.fillMaxWidth(),
+                        onValueChange = {
+                            if (workspaceTab == CardWorkspaceTab.PERSONAL) personalKeyword = it else teamKeyword = it
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(
+                                if (workspaceTab == CardWorkspaceTab.PERSONAL) {
+                                    "cards_search_personal"
+                                } else {
+                                    "cards_search_team"
+                                },
+                            ),
                         leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = BrandBlue) },
                         placeholder = { Text("搜索标题、摘要、原始截图文字") },
                         shape = RoundedCornerShape(DS.RadiusTile),
@@ -124,28 +198,18 @@ fun CardsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         listOf(
-                            "all" to "全部空间",
-                            WorkspaceTypes.PERSONAL to "个人",
-                            WorkspaceTypes.TEAM to "团队",
-                        ).forEach { (value, label) ->
-                            NeutralPill(
-                                text = label,
-                                selected = workspace == value,
-                                onClick = { workspace = value },
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(
                             "all" to "全部",
                             CardTypes.TASK to "任务",
                             CardTypes.EVENT to "事件",
                             CardTypes.PROMISE to "承诺",
                         ).forEach { (value, label) ->
-                            NeutralPill(text = label, selected = type == value, onClick = { type = value })
+                            NeutralPill(
+                                text = label,
+                                selected = type == value,
+                                onClick = {
+                                    if (workspaceTab == CardWorkspaceTab.PERSONAL) personalType = value else teamType = value
+                                },
+                            )
                         }
                     }
                     Row(
@@ -158,7 +222,13 @@ fun CardsScreen(
                             "archived" to "归档",
                             "all" to "全部状态",
                         ).forEach { (value, label) ->
-                            NeutralPill(text = label, selected = status == value, onClick = { status = value })
+                            NeutralPill(
+                                text = label,
+                                selected = status == value,
+                                onClick = {
+                                    if (workspaceTab == CardWorkspaceTab.PERSONAL) personalStatus = value else teamStatus = value
+                                },
+                            )
                         }
                     }
                 }

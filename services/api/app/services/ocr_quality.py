@@ -20,6 +20,17 @@ ACTION_TERMS = (
     "考试",
     "提醒",
     "负责",
+    "提交",
+    "上传",
+    "安排",
+    "更新",
+    "submit",
+    "upload",
+    "finish",
+    "prepare",
+    "review",
+    "publish",
+    "update",
 )
 OBJECT_TERMS = (
     "报告",
@@ -32,6 +43,14 @@ OBJECT_TERMS = (
     "课程",
     "项目",
     "申请",
+    "预算",
+    "合同",
+    "报告",
+    "assignment",
+    "budget",
+    "contract",
+    "notes",
+    "prototype",
 )
 PLACE_TERMS = (
     "教室",
@@ -42,6 +61,14 @@ PLACE_TERMS = (
     "群文件",
     "线上",
     "线下",
+    "地点",
+    "图书馆",
+    "实验室",
+    "office",
+    "library",
+    "lab",
+    "room",
+    "studio",
 )
 TIME_PATTERN = re.compile(
     r"(?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2}(?:日|号)?"

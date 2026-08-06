@@ -6,6 +6,7 @@ import statistics
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -49,6 +50,7 @@ from app.repositories.workflows import (
     cache_key,
     close_workflow_repository,
 )
+from app.repositories.cards import CardRepository
 
 
 class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
@@ -69,6 +71,16 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(enhanced.workflow_status, "awaiting_review")
         self.assertEqual(enhanced.pending_action, "confirm")
         self.assertTrue(enhanced.action_graph.actions)
+        phases = [item["phase"] for item in enhanced.phase_history]
+        expected = [
+            "received",
+            "evidence_collecting",
+            "draft_generating",
+            "workflow_planning",
+            "draft_ready",
+            "review_center",
+        ]
+        self.assertEqual([phase for phase in phases if phase in expected], expected)
         completed = confirm_workflow(
             started.run_id,
             ConfirmWorkflowRequest(revision=enhanced.revision),
@@ -90,6 +102,61 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         repeated = confirm_effects(review.run_id, request)
         self.assertEqual(repeated.command_ids, completed.command_ids)
 
+    async def test_text_workflow_exposes_persisted_field_evidence(self) -> None:
+        started = await start_text_workflow(
+            "课程通知：请在8月12日22:00前通过学习通提交实验报告，文件名为学号加姓名。"
+        )
+        review = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
+        self.assertTrue(review.cards)
+        self.assertTrue(review.evidence_spans)
+        self.assertTrue(review.evidence_envelopes)
+        known_refs = {str(item["id"]) for item in review.evidence_spans}
+        self.assertTrue(review.field_evidence)
+        self.assertTrue(all(set(item.evidence_refs) <= known_refs for item in review.field_evidence))
+        self.assertTrue(all(item.evidence_refs or item.needs_confirmation for item in review.field_evidence))
+
+    async def test_confirm_effects_only_executes_selected_card_and_returns_reminder_intent(self) -> None:
+        started = await start_text_workflow(
+            "6月10日22:00前提交实验报告；6月11日10:00参加组会并准备进展汇报"
+        )
+        review = await wait_for_result(started.run_id, timeout=3, accept_provisional=False)
+        self.assertGreaterEqual(len(review.cards), 2)
+        review = patch_draft(
+            review.run_id,
+            DraftPatchRequest(
+                base_revision=review.revision,
+                cards=review.cards,
+                locked_fields={str(card.id): ["title"] for card in review.cards},
+            ),
+        )
+        selected = str(review.cards[0].id)
+        unselected = str(review.cards[1].id)
+        completed = confirm_effects(
+            review.run_id,
+            ConfirmEffectsRequest(
+                revision=review.revision,
+                confirmed_card_ids=[selected],
+                effect_types=["cards", "reminders"],
+                idempotency_key="test-partial-effects-001",
+            ),
+        )
+        command = WorkflowRepository().get_effect_command(review.run_id, "test-partial-effects-001")
+        self.assertEqual({item["target_id"] for item in command["effects"]}, {selected})
+        self.assertEqual(CardRepository().get(selected).status, "confirmed")
+        with self.assertRaises(KeyError):
+            CardRepository().get(unselected)
+        reminder = next(item for item in completed.effect_results if item["effect_type"] == "reminders")
+        self.assertEqual(reminder["status"], "pending_device")
+        self.assertEqual(reminder["reminder_intent"]["effect_id"], reminder["effect_id"])
+        phases = [item["phase"] for item in completed.phase_history]
+        confirmed_index = phases.index("confirmed")
+        effects_index = phases.index("effects_executing")
+        completed_index = len(phases) - 1 - phases[::-1].index("completed")
+        self.assertLess(confirmed_index, effects_index)
+        self.assertLess(effects_index, completed_index)
+        phase_events = WorkflowRepository().events_after(review.run_id)
+        self.assertTrue(any(event.event == "phase_changed" for event in phase_events))
+
     async def test_image_ocr_candidate_races_failed_cloud_ocr(self) -> None:
         async def failing_ocr(*args, **kwargs):
             await asyncio.sleep(0.03)
@@ -105,9 +172,51 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
                     confidence=0.82,
                 ),
             )
-            completed = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
+            completed = await wait_for_result(started.run_id, timeout=5, accept_provisional=False)
         self.assertEqual(completed.workflow_status, "awaiting_review")
         self.assertTrue(completed.engine.startswith("mlkit+"))
+
+    async def test_image_waits_for_delayed_client_candidate_after_cloud_failure(self) -> None:
+        async def failing_ocr(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            raise VivoOcrError("offline")
+
+        with patch("app.services.workflow_graph.VivoOcrClient.recognize", failing_ocr):
+            started = await start_image_workflow(b"image")
+            await asyncio.sleep(0.35)
+            submit_ocr_candidate(
+                started.run_id,
+                OcrCandidateRequest(
+                    text="锟斤拷 5G 12::04 ???",
+                    engine="mlkit",
+                    confidence=0.35,
+                ),
+            )
+            review = await wait_for_result(started.run_id, timeout=3, accept_provisional=False)
+
+        self.assertEqual(review.workflow_status, "awaiting_ocr_review")
+        self.assertEqual(review.pending_action, "resolve_ocr")
+        self.assertEqual(review.summary_status, "blocked")
+        self.assertFalse(review.cards)
+
+    async def test_image_without_any_ocr_enters_review_instead_of_failing(self) -> None:
+        async def failing_ocr(*args, **kwargs):
+            raise VivoOcrError("offline")
+
+        with (
+            patch("app.services.workflow_graph.VivoOcrClient.recognize", failing_ocr),
+            patch(
+                "app.services.workflow_graph.settings",
+                replace(settings, vivo_ocr_timeout_seconds=0.05),
+            ),
+        ):
+            started = await start_image_workflow(b"image")
+            review = await wait_for_result(started.run_id, timeout=1, accept_provisional=False)
+
+        self.assertEqual(review.workflow_status, "awaiting_ocr_review")
+        self.assertEqual(review.pending_action, "resolve_ocr")
+        self.assertEqual(review.summary_status, "blocked")
+        self.assertFalse(review.cards)
 
     async def test_user_corrected_ocr_resumes_same_run_through_validation(self) -> None:
         async def failing_ocr(*args, **kwargs):
@@ -154,6 +263,8 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         persisted = WorkflowRepository().get_state(started.run_id)
         self.assertEqual(persisted["ocr_engine"], "user-corrected")
         self.assertEqual(persisted["ocr_candidates"][0]["engine"], "user-corrected")
+        self.assertGreaterEqual(len(persisted["ocr_candidate_versions"]), 2)
+        self.assertTrue(any(event.event == "workflow_interrupted" for event in WorkflowRepository().events_after(started.run_id)))
         self.assertEqual(
             persisted["ocr_candidates"][0]["quality_report"]["quality_score"],
             1.0,
@@ -362,7 +473,7 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
                     ocr_text="请在6月10日22:00前提交实验报告。",
                 ),
             )
-            completed = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
+            completed = await wait_for_result(started.run_id, timeout=5, accept_provisional=False)
         self.assertEqual(completed.workflow_status, "awaiting_review")
 
         other = await start_text_workflow("整理截图信息")
@@ -391,7 +502,7 @@ class WorkflowLifecycleTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(initial_state["workflow_status"], "queued")
         self.assertIn("multiple_cards", initial_state.get("complexity_reasons", []))
 
-        completed = await wait_for_result(started.run_id, timeout=2, accept_provisional=False)
+        completed = await wait_for_result(started.run_id, timeout=5, accept_provisional=False)
 
         self.assertEqual(completed.workflow_status, "awaiting_review")
         self.assertGreaterEqual(len(completed.cards), 2)

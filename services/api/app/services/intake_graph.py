@@ -42,6 +42,16 @@ ACTION_WORDS = (
     "务必",
     "submit",
     "upload",
+    "finish",
+    "complete",
+    "prepare",
+    "review",
+    "publish",
+    "update",
+    "book",
+    "summarize",
+    "must",
+    "deadline",
 )
 TIME_PATTERN = re.compile(
     r"(?:20\d{2}[年./-])?\d{1,2}[月./-]\d{1,2}[日号]?|"
@@ -78,6 +88,14 @@ ACTION_OBJECTS = (
     "原型",
     "PDF",
     "report",
+    "assignment",
+    "budget",
+    "contract",
+    "notes",
+    "prototype",
+    "spreadsheet",
+    "screenshots",
+    "deliverable",
 )
 PLATFORM_PATTERNS = ("学习通", "腾讯会议", "群文件", "雨课堂", "钉钉", "飞书", "Moodle")
 DELIVERABLE_PATTERNS = (
@@ -114,6 +132,7 @@ class IntakeGraphState(TypedDict, total=False):
     analyzer: str
     analyzer_results: Annotated[list[dict[str, Any]], operator.add]
     cards: list[dict[str, Any]]
+    team_tasks: list[dict[str, Any]]
     findings: list[str]
 
 
@@ -385,7 +404,30 @@ def finalize(state: IntakeGraphState) -> dict[str, Any]:
         findings.append("检测到多个时间表达，请逐卡确认时间归属")
     if workspace == "team" and not participants:
         findings.append("团队任务尚未分配负责人")
-    return {"cards": normalized_cards, "findings": findings}
+    team_tasks = []
+    if workspace == "team":
+        card_ids = {str(card.get("id")) for card in normalized_cards}
+        team_tasks = [
+            {
+                "task_id": str(card.get("id")),
+                "title": str(card.get("title", "")),
+                "owner_id": card.get("assignee_id"),
+                "participant_ids": card.get("participant_ids", []),
+                "dependency_ids": [
+                    str(item) for item in card.get("dependencies", []) if str(item) in card_ids
+                ],
+                "deliverables": card.get("deliverables") or card.get("materials", []),
+                "acceptance_criteria": [],
+                "deadline": card.get("deadline"),
+                "evidence_refs": [f"intake:{card.get('id')}:source"] if card.get("source_text") else [],
+                "status": "ready" if card.get("assignee_id") else "unassigned",
+                "unassigned_reason": None if card.get("assignee_id") else "owner_not_in_evidence",
+            }
+            for card in normalized_cards
+        ]
+        if any(not task["acceptance_criteria"] for task in team_tasks):
+            findings.append("团队任务缺少可由证据支持的验收条件，需要人工确认")
+    return {"cards": normalized_cards, "team_tasks": team_tasks, "findings": findings}
 
 
 def _is_advisory_support_card(

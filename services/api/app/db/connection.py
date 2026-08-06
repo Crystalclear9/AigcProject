@@ -93,6 +93,9 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
         "deliverables": (
             "ALTER TABLE cards ADD COLUMN deliverables TEXT NOT NULL DEFAULT '[]'"
         ),
+        "acceptance_criteria": (
+            "ALTER TABLE cards ADD COLUMN acceptance_criteria TEXT NOT NULL DEFAULT '[]'"
+        ),
         "goal_id": "ALTER TABLE cards ADD COLUMN goal_id TEXT",
         "source_session_id": "ALTER TABLE cards ADD COLUMN source_session_id TEXT",
         "milestone_id": "ALTER TABLE cards ADD COLUMN milestone_id TEXT",
@@ -121,6 +124,38 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS team_events (
+            event_id TEXT PRIMARY KEY,
+            team_id TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            UNIQUE(team_id, revision)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS index_team_events_team_revision ON team_events(team_id, revision)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS team_commands (
+            command_id TEXT PRIMARY KEY,
+            team_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            operation TEXT NOT NULL,
+            status TEXT NOT NULL,
+            revision INTEGER,
+            result TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    if "revision" not in {
+        str(row["name"]) for row in conn.execute("PRAGMA table_info(team_commands)").fetchall()
+    }:
+        conn.execute("ALTER TABLE team_commands ADD COLUMN revision INTEGER")
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             nickname TEXT NOT NULL,
@@ -137,10 +172,15 @@ def _ensure_schema_locked(conn: sqlite3.Connection) -> None:
             invite_code TEXT NOT NULL UNIQUE,
             owner_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+    if "revision" not in {
+        str(row["name"]) for row in conn.execute("PRAGMA table_info(teams)").fetchall()
+    }:
+        conn.execute("ALTER TABLE teams ADD COLUMN revision INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS team_members (

@@ -21,6 +21,7 @@ RefinementStatus = Literal[
 
 class UserProfileContext(BaseModel):
     version: int = Field(default=1, ge=1)
+    consent_granted: bool = False
     scenario: Literal[
         "unspecified",
         "study",

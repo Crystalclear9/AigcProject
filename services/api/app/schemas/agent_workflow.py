@@ -14,6 +14,8 @@ ToolName = Literal[
     "privacy_risk_analyzer",
     "web_retriever",
     "quality_verifier",
+    "personal_planner",
+    "team_coordinator",
 ]
 ReActToolName = Literal[
     "observe",
@@ -62,6 +64,39 @@ class TeamWorkflowReview(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     tasks: list[TeamTask] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AgentInputEnvelope(BaseModel):
+    run_id: str
+    trace_id: str
+    task_id: str
+    parent_task_id: str | None = None
+    contract_version: str = "agent-contract-v3-handoff"
+    objective: str
+    verified_evidence_refs: list[str] = Field(default_factory=list)
+    upstream_outputs: list[dict[str, Any]] = Field(default_factory=list)
+    user_locked_fields: list[str] = Field(default_factory=list)
+    compact_profile_policy: str = Field(default="", max_length=320)
+    dependency_failures: list[dict[str, str]] = Field(default_factory=list)
+    budget: dict[str, Any] = Field(default_factory=dict)
+    deadline_ms: int = Field(ge=100, le=30000)
+    idempotency_key: str
+
+
+class AgentOutputEnvelope(BaseModel):
+    task_id: str
+    output_type: str
+    status: TaskStatus
+    claims: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+    dependency_updates: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[str] = Field(default_factory=list)
+    suggested_actions: list[dict[str, Any]] = Field(default_factory=list)
+    requires_review: bool = False
+    contract_errors: list[str] = Field(default_factory=list)
+    duration_ms: float = Field(default=0, ge=0)
+    idempotency_key: str
 
 
 class AgentTask(BaseModel):
@@ -165,6 +200,8 @@ class AgentResult(BaseModel):
     evidence_coverage: float = Field(default=0, ge=0, le=1)
     dependency_failures: list[dict[str, str]] = Field(default_factory=list)
     decision_summary: str = Field(default="", max_length=240)
+    handoff_input: AgentInputEnvelope | None = None
+    handoff_output: AgentOutputEnvelope | None = None
 
 
 class BudgetUsage(BaseModel):

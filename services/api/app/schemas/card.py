@@ -47,6 +47,7 @@ class ActionCardBase(BaseModel):
     assignee_id: str | None = None
     participant_ids: list[str] = Field(default_factory=list)
     deliverables: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
     goal_id: str | None = None
     milestone_id: str | None = None
     source_session_id: str | None = None
@@ -86,6 +87,7 @@ class ActionCardUpdate(BaseModel):
     assignee_id: str | None = None
     participant_ids: list[str] | None = None
     deliverables: list[str] | None = None
+    acceptance_criteria: list[str] | None = None
     goal_id: str | None = None
     milestone_id: str | None = None
     source_session_id: str | None = None

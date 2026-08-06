@@ -76,4 +76,65 @@ interface WorkflowDao {
 
     @Query("SELECT * FROM team_milestones ORDER BY sort_order")
     fun observeMilestones(): Flow<List<TeamMilestoneEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTeamSnapshot(snapshot: TeamSyncSnapshotEntity)
+
+    @Query("SELECT * FROM team_sync_snapshots WHERE team_id=:teamId")
+    suspend fun findTeamSnapshot(teamId: String): TeamSyncSnapshotEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPendingTeamCommand(command: PendingTeamCommandEntity)
+
+    @Query(
+        "SELECT * FROM pending_team_commands WHERE status IN ('pending','retry','sending') " +
+            "ORDER BY created_at ASC",
+    )
+    suspend fun loadPendingTeamCommands(): List<PendingTeamCommandEntity>
+
+    @Query("SELECT * FROM pending_team_commands WHERE command_id=:commandId")
+    suspend fun findPendingTeamCommand(commandId: String): PendingTeamCommandEntity?
+
+    @Query("SELECT COUNT(*) FROM pending_team_commands WHERE status IN ('pending','retry','sending')")
+    fun observePendingTeamCommandCount(): Flow<Int>
+
+    @Query(
+        "UPDATE pending_team_commands SET status=:status, retry_count=:retryCount, " +
+            "last_error=:lastError, updated_at=:updatedAt WHERE command_id=:commandId",
+    )
+    suspend fun updatePendingTeamCommandStatus(
+        commandId: String,
+        status: String,
+        retryCount: Int,
+        lastError: String?,
+        updatedAt: String,
+    )
+
+    @Query(
+        "UPDATE pending_team_commands SET base_revision=:newRevision, updated_at=:updatedAt " +
+            "WHERE team_id=:teamId AND command_id!=:completedCommandId " +
+            "AND base_revision=:previousRevision AND status IN ('pending','retry','sending')",
+    )
+    suspend fun rebasePendingTeamCommands(
+        teamId: String,
+        completedCommandId: String,
+        previousRevision: Long,
+        newRevision: Long,
+        updatedAt: String,
+    )
+
+    @Query("DELETE FROM pending_team_commands WHERE command_id=:commandId")
+    suspend fun deletePendingTeamCommand(commandId: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTeamConflict(conflict: TeamConflictEntity)
+
+    @Query("SELECT * FROM team_conflicts WHERE status='open' ORDER BY created_at DESC")
+    fun observeOpenTeamConflicts(): Flow<List<TeamConflictEntity>>
+
+    @Query("SELECT COUNT(*) FROM team_conflicts WHERE status='open'")
+    fun observeOpenTeamConflictCount(): Flow<Int>
+
+    @Query("UPDATE team_conflicts SET status='resolved', resolved_at=:resolvedAt WHERE conflict_id=:conflictId")
+    suspend fun resolveTeamConflict(conflictId: String, resolvedAt: String)
 }

@@ -23,6 +23,11 @@ def validate_team_tasks(tasks: list[TeamTask | dict[str, Any]]) -> TeamWorkflowR
             reasons.append(f"missing_deliverable:{task.task_id}")
         if not task.acceptance_criteria:
             reasons.append(f"missing_acceptance:{task.task_id}")
+        if not task.evidence_refs:
+            reasons.append(f"missing_evidence:{task.task_id}")
+        for criterion in task.acceptance_criteria:
+            if not criterion.evidence_refs:
+                reasons.append(f"acceptance_without_evidence:{task.task_id}:{criterion.id}")
 
     graph = {task.task_id: [dep for dep in task.dependency_ids if dep in ids] for task in normalized}
     visiting: set[str] = set()

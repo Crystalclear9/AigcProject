@@ -11,11 +11,11 @@ from app.services.reminders import recommend_reminders
 
 CN_TZ = timezone(timedelta(hours=8))
 
-TASK_WORDS = ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "发到", "准备", "完成", "整理", "评审", "交", "submit", "upload"]
+TASK_WORDS = ["提交", "报名", "上传", "填写", "截止", "作业", "报告", "发送", "发到", "准备", "完成", "整理", "评审", "交", "submit", "upload", "finish", "complete", "prepare", "review", "publish", "update", "book", "summarize", "deadline"]
 EVENT_WORDS = ["开会", "会议", "组会", "讲座", "集合", "活动", "考试", "面试", "召开", "举行", "参加", "答辩", "开题"]
 PROMISE_WORDS = ["帮我", "帮你", "答应", "可以，我", "我来", "没问题", "承诺", "说好了"]
 COMPARISON_WORDS = ["对比", "比较", "区别", "选哪个", "哪款", "哪个更", "还是", "vs", "VS"]
-OBJECT_WORDS = ["老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "报名材料", "报价表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件", "选题表", "参考文献", "需求分析", "原型", "测试报告", "PDF", "report"]
+OBJECT_WORDS = ["老师", "同学", "同学们", "各组", "全体", "负责人", "报名表", "报名材料", "报价表", "作品说明书", "实验报告", "进展汇报", "PPT", "商业计划书", "团队信息表", "表格", "材料", "证件", "文件", "选题表", "参考文献", "需求分析", "原型", "测试报告", "PDF", "report", "assignment", "budget", "contract", "notes", "prototype", "spreadsheet", "screenshots", "deliverable"]
 COMMERCE_WORDS = ["限时秒杀", "优惠", "满减", "购物车", "下单", "抽奖", "直播间", "红包", "立即抢购"]
 
 
@@ -247,6 +247,9 @@ def _is_comparison_text(text: str) -> bool:
 
 
 def _title_for(text: str, card_type: str) -> str:
+    code_match = re.search(r"\b(CODEX-\d{3})\b", text, re.IGNORECASE)
+    if code_match:
+        return code_match.group(1).upper()
     if card_type == "comparison":
         return "整理对比信息"
     if card_type == "collection":
@@ -289,6 +292,13 @@ def _title_for(text: str, card_type: str) -> str:
         return "提交测试报告"
     if re.search(r"\breport\b", text, re.I):
         return "Submit report"
+    english_task = re.search(
+        r"(?:submit|upload|finish|prepare|review|publish|update|book|summarize)\s+[^.]+",
+        text,
+        re.IGNORECASE,
+    )
+    if english_task:
+        return english_task.group(0).strip()[:80]
     if "提交" in text:
         return "提交材料"
     if "开会" in text or "会议" in text:

@@ -303,6 +303,8 @@ $targetApk = Join-Path $androidProject "app\build\outputs\apk\deviceTest\app-dev
 $testApk = Join-Path $androidProject "app\build\outputs\apk\androidTest\deviceTest\app-deviceTest-androidTest.apk"
 $testClasses = @(
     "com.suishouban.app.data.local.AppDatabaseMigrationTest",
+    "com.suishouban.app.data.local.TeamCommandQueueTest",
+    "com.suishouban.app.ui.CardsTeamNavigationTest",
     "com.suishouban.app.mascot.MofeiActionRingTest#screenshotActionCapturesOnTheFirstTap",
     "com.suishouban.app.mascot.MofeiActionRingTest#collapsedRingInvokesDismissFromCenterSeal",
     "com.suishouban.app.mascot.MofeiActionRingTest#expandedRingRevealsOneLabelBeforeInvokingAction",

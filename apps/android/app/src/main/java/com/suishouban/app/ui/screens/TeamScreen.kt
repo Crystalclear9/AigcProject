@@ -40,6 +40,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -77,7 +78,9 @@ fun TeamScreen(
     LaunchedEffect(Unit) { onRefresh() }
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        modifier = Modifier
+            .padding(horizontal = DS.ScreenPadding)
+            .testTag("team_list"),
         verticalArrangement = Arrangement.spacedBy(DS.ItemGap),
     ) {
         item {

@@ -18,6 +18,7 @@ ARRAY_FIELDS = {
     "need_confirm",
     "participant_ids",
     "deliverables",
+    "acceptance_criteria",
 }
 
 
@@ -87,6 +88,7 @@ class CardRepository:
             "assignee_id",
             "participant_ids",
             "deliverables",
+            "acceptance_criteria",
             "goal_id",
             "milestone_id",
             "source_session_id",

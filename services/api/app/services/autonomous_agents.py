@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 from app.core.config import settings
 from app.repositories.cards import CardRepository
 from app.schemas.agent_workflow import (
+    AgentInputEnvelope,
+    AgentOutputEnvelope,
     AgentPlan,
     AgentResult,
     AgentTask,
@@ -190,6 +192,25 @@ def create_plan(state: dict[str, Any], recommended: list[str] | None = None) -> 
                 priority=75,
             )
         )
+
+    planning_dependencies = [
+        task.id for task in tasks
+        if task.tool in {"semantic_decomposer", "temporal_solver", "entity_linker", "dependency_solver"}
+    ]
+    planning_tool: ToolName = (
+        "team_coordinator" if state.get("workspace_type") == "team" else "personal_planner"
+    )
+    tasks.append(
+        _task(
+            run_id,
+            round_number,
+            planning_tool,
+            "Produce reviewable planning suggestions without changing source facts",
+            depends_on=planning_dependencies,
+            expected=["evidence-bound planning suggestions"],
+            priority=78,
+        )
+    )
 
     public_entities = _public_entities(str(state.get("ocr_text", "")))
     if settings.web_retrieval_enabled and public_entities and "private_content" not in reasons:
@@ -407,6 +428,36 @@ def _claim(
 
 async def execute_task(task: AgentTask, state: dict[str, Any]) -> AgentResult:
     dependency_failures = _task_dependency_failures(task, state)
+    envelope_data = state.get("prompt_envelope") or {}
+    profile_policy = str(envelope_data.get("user_policy", ""))[:320] if task.tool in {
+        "personal_planner", "team_coordinator"
+    } else ""
+    upstream_outputs = [
+        dict(item.get("validated_output", {}))
+        for item in state.get("agent_task_results", [])
+        if item.get("validated_output")
+    ][:8]
+    handoff_input = AgentInputEnvelope(
+        run_id=str(state.get("run_id", "workflow")),
+        trace_id=str(state.get("run_id", "workflow")),
+        task_id=task.id,
+        parent_task_id=task.depends_on[0] if task.depends_on else None,
+        objective=task.objective,
+        verified_evidence_refs=[
+            str(item.get("id")) for item in state.get("evidence_spans", []) if item.get("id")
+        ][:100],
+        upstream_outputs=upstream_outputs,
+        user_locked_fields=sorted({
+            str(field)
+            for fields in state.get("user_locked", {}).values()
+            for field in fields
+        }),
+        compact_profile_policy=profile_policy,
+        dependency_failures=dependency_failures,
+        budget=dict(state.get("budget_usage", {})),
+        deadline_ms=task.timeout_ms,
+        idempotency_key=task.idempotency_key,
+    )
     if dependency_failures:
         task = task.model_copy(
             update={
@@ -444,7 +495,43 @@ async def execute_task(task: AgentTask, state: dict[str, Any]) -> AgentResult:
             model_tier=task.model_tier,
         )
     result.duration_ms = round((time.perf_counter() - started) * 1000, 2)
-    return project_and_validate_result(result, state)
+    result = project_and_validate_result(result, state)
+    verified_spans = [dict(item) for item in state.get("evidence_spans", []) if item.get("id")]
+    evidence_refs: set[str] = set()
+    unsupported_claims = 0
+    for claim in result.claims:
+        if not claim.source_text or claim.start is None:
+            continue
+        matched = False
+        for span in verified_spans:
+            span_start, span_end = span.get("start"), span.get("end")
+            if span_start is None or span_end is None:
+                matched = claim.source_text.strip() in str(span.get("text", ""))
+            else:
+                matched = int(claim.start) < int(span_end) and int(claim.end or claim.start) > int(span_start)
+            if matched:
+                evidence_refs.add(str(span["id"]))
+        if not matched:
+            unsupported_claims += 1
+    if unsupported_claims:
+        result.contract_errors.append(f"unsupported_claims:{unsupported_claims}")
+        result.status = "degraded"
+    result.handoff_input = handoff_input
+    result.handoff_output = AgentOutputEnvelope(
+        task_id=result.task_id,
+        output_type=result.output_type,
+        status=result.status,
+        claims=[claim.model_dump(mode="json") for claim in result.claims],
+        evidence_refs=sorted(evidence_refs),
+        suggested_actions=list(result.validated_output.get("suggestions", [])),
+        uncertainties=list(result.findings) if result.status != "completed" else [],
+        conflicts=list(result.contract_errors),
+        requires_review=bool(result.contract_errors or result.status != "completed"),
+        contract_errors=list(result.contract_errors),
+        duration_ms=result.duration_ms,
+        idempotency_key=result.idempotency_key,
+    )
+    return result
 
 
 async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentResult:
@@ -452,53 +539,66 @@ async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentRe
     cards = [dict(card) for card in state.get("rule_cards", [])]
     findings: list[str] = []
     status = "completed"
+    execution_tier = task.model_tier
     if task.model_tier in {"fast_model", "expert_model"}:
-        try:
-            envelope_data = state.get("prompt_envelope")
-            envelope = (
-                PromptEnvelope(**envelope_data)
-                if envelope_data
-                else compile_prompt_envelope("action_analyst")
-            )
-            payload = await structured_completion(
-                task.model_tier,
-                system_prompt=compile_agent_system_prompt(
-                    envelope,
-                    task.tool,
-                    runtime_context={
-                        "user_locked_fields": [
-                            field
-                            for fields in state.get("user_locked", {}).values()
-                            for field in fields
-                        ],
-                        "dependency_failures": task.arguments.get("dependency_failures", []),
+        envelope_data = state.get("prompt_envelope")
+        envelope = (
+            PromptEnvelope(**envelope_data)
+            if envelope_data
+            else compile_prompt_envelope("action_analyst")
+        )
+        tiers = [task.model_tier]
+        if task.model_tier == "expert_model" and state.get("has_fast_model"):
+            tiers.append("fast_model")
+        model_cards: list[dict[str, Any]] | None = None
+        for tier in tiers:
+            try:
+                payload = await structured_completion(
+                    tier,
+                    system_prompt=compile_agent_system_prompt(
+                        envelope,
+                        task.tool,
+                        runtime_context={
+                            "user_locked_fields": [
+                                field
+                                for fields in state.get("user_locked", {}).values()
+                                for field in fields
+                            ],
+                            "dependency_failures": task.arguments.get("dependency_failures", []),
+                        },
+                    ),
+                    input_payload={
+                        "untrusted_source": text,
+                        "existing_rule_candidates": cards,
+                        "screenshot_time": state.get("screenshot_time"),
+                        "required": "Return action boundaries with exact evidence spans; do not return final cards.",
                     },
-                ),
-                input_payload={
-                    "untrusted_source": text,
-                    "existing_rule_candidates": cards,
-                    "screenshot_time": state.get("screenshot_time"),
-                    "required": "Return action boundaries with exact evidence spans; do not return final cards.",
-                },
-                schema_name="semantic_decomposition_v2",
-                schema=SemanticDecomposerOutput.model_json_schema(),
-                max_tokens=1800,
-            )
-            semantic = SemanticDecomposerOutput.model_validate(payload)
-            cards = [
-                {
-                    "action_id": action.action_id,
-                    "id": action.action_id,
-                    "card_type": action.card_type,
-                    "title": action.title,
-                    "summary": action.summary,
-                    "source_text": action.evidence.source_text,
-                }
-                for action in semantic.actions
-            ]
-        except Exception as error:
+                    schema_name="semantic_decomposition_v2",
+                    schema=SemanticDecomposerOutput.model_json_schema(),
+                    max_tokens=1800,
+                )
+                semantic = SemanticDecomposerOutput.model_validate(payload)
+                model_cards = [
+                    {
+                        "action_id": action.action_id,
+                        "id": action.action_id,
+                        "card_type": action.card_type,
+                        "title": action.title,
+                        "summary": action.summary,
+                        "source_text": action.evidence.source_text,
+                    }
+                    for action in semantic.actions
+                ]
+                execution_tier = tier
+                break
+            except Exception as error:
+                findings.append(f"model_fallback:{tier}:{type(error).__name__}")
+        if model_cards is not None:
+            cards = model_cards
+        else:
             status = "degraded"
-            findings.append(f"model_fallback:{type(error).__name__}")
+            execution_tier = "none"
+            findings.append("execution_layer:deterministic")
     if not cards:
         status = "degraded"
         findings.append("no_action_candidates")
@@ -510,14 +610,15 @@ async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentRe
             or stable_id("action", card.get("title"))
         )
         for field in ("card_type", "title", "summary"):
-            if card.get(field) not in (None, "", []):
+            value = card.get(field)
+            if value not in (None, "", []) and str(value) in text:
                 claims.append(
                     _claim(
                         task,
                         "field",
                         action_id=action_id,
                         field=field,
-                        value=card[field],
+                        value=value,
                         confidence=0.8 if not findings else 0.62,
                         source_text=text,
                         rationale="semantic action decomposition",
@@ -532,7 +633,7 @@ async def semantic_decomposer(task: AgentTask, state: dict[str, Any]) -> AgentRe
         cards=cards,
         findings=findings,
         idempotency_key=task.idempotency_key,
-        model_tier=task.model_tier,
+        model_tier=execution_tier,
     )
 
 
@@ -633,6 +734,16 @@ async def dependency_solver(task: AgentTask, state: dict[str, Any]) -> AgentResu
         status="completed",
         claims=claims,
         findings=sorted(set(findings)),
+        idempotency_key=task.idempotency_key,
+    )
+
+
+async def planning_coordinator(task: AgentTask, state: dict[str, Any]) -> AgentResult:
+    return AgentResult(
+        task_id=task.id,
+        tool=task.tool,
+        status="completed",
+        findings=[],
         idempotency_key=task.idempotency_key,
     )
 
@@ -964,4 +1075,6 @@ TOOL_REGISTRY: dict[ToolName, ToolHandler] = {
     "privacy_risk_analyzer": privacy_risk_analyzer,
     "web_retriever": web_retriever,
     "quality_verifier": quality_verifier,
+    "personal_planner": planning_coordinator,
+    "team_coordinator": planning_coordinator,
 }

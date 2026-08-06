@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import operator
 import time
+import unicodedata
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal, TypedDict
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import Send, interrupt
 
 from app.core.config import settings
 from app.repositories.workflows import WorkflowRepository
@@ -37,6 +39,10 @@ from app.schemas.agent_contracts import AGENT_CONTRACT_VERSION
 repository = WorkflowRepository()
 
 
+def _last_value(_: Any, value: Any) -> Any:
+    return value
+
+
 class WorkflowState(TypedDict, total=False):
     run_id: str
     input_kind: Literal["text", "image"]
@@ -52,6 +58,7 @@ class WorkflowState(TypedDict, total=False):
     ocr_review_reasons: list[str]
     ocr_candidates: list[dict[str, Any]]
     ocr_evidence_status: Literal["trusted", "review_required", "user_verified"]
+    evidence_status: Literal["trusted", "review_required", "user_verified"]
     ocr_candidate_versions: list[dict[str, Any]]
     ocr_conflicts: list[str]
     evidence_spans: list[dict[str, Any]]
@@ -101,6 +108,10 @@ class WorkflowState(TypedDict, total=False):
     prompt_envelope: dict[str, Any]
     team_tasks: list[dict[str, Any]]
     team_workflow_review: dict[str, Any]
+    evidence_envelopes: list[dict[str, Any]]
+    field_evidence: list[dict[str, Any]]
+    workflow_phase: Annotated[str, _last_value]
+    degraded_reasons: Annotated[list[str], operator.add]
 
 
 def _trace(node: str, started: float, status: str = "completed", **extra: Any) -> dict[str, Any]:
@@ -136,6 +147,50 @@ def _candidate_spans(candidate: dict[str, Any]) -> list[dict[str, Any]]:
     return spans
 
 
+def _field_evidence(cards: list[ActionCard], spans: list[dict[str, Any]], version: int = 1) -> list[dict[str, Any]]:
+    """Bind generated fields to source spans; unsupported values stay reviewable."""
+    def canonical(value: Any) -> str:
+        return "".join(unicodedata.normalize("NFKC", str(value)).split())
+
+    evidence: list[dict[str, Any]] = []
+    supported_fields = {
+        "title", "summary", "deadline", "start_time", "end_time", "location",
+        "assignee_id", "materials", "submit_method",
+    }
+    for card in cards:
+        payload = card.model_dump(mode="json")
+        card_source = canonical(card.source_text)
+        card_refs = [
+            str(span["id"])
+            for span in spans
+            if card_source and (
+                card_source in canonical(span.get("text", ""))
+                or canonical(span.get("text", "")) in card_source
+            )
+        ]
+        for field, value in payload.items():
+            if field not in supported_fields or value in (None, "", []):
+                continue
+            rendered = " ".join(str(item) for item in value) if isinstance(value, list) else str(value)
+            refs = [
+                str(span["id"])
+                for span in spans
+                if rendered and canonical(rendered) in canonical(span.get("text", ""))
+            ]
+            if not refs:
+                refs = card_refs
+            evidence.append({
+                "field": f"{card.id}.{field}",
+                "value": value if refs else None,
+                "evidence_refs": refs,
+                "confidence": 1.0 if refs else 0.0,
+                "source_version": version,
+                "locked": field in set(),
+                "needs_confirmation": not bool(refs),
+            })
+    return evidence
+
+
 async def prepare_text(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
     text = state.get("input_text", "").strip()
@@ -145,7 +200,9 @@ async def prepare_text(state: WorkflowState) -> dict[str, Any]:
         else "provided-text"
     )
     candidate = create_trusted_text_candidate(text, engine=engine)
+    spans = _candidate_spans(candidate)
     return {
+        "workflow_phase": "evidence_collecting",
         "ocr_text": text,
         "ocr_engine": engine,
         "ocr_quality": 1.0,
@@ -155,7 +212,13 @@ async def prepare_text(state: WorkflowState) -> dict[str, Any]:
         "ocr_evidence_status": "user_verified",
         "ocr_candidate_versions": [candidate],
         "ocr_conflicts": [],
-        "evidence_spans": _candidate_spans(candidate),
+        "evidence_spans": spans,
+        "evidence_envelopes": [{
+            "source_id": f"{state['run_id']}:text:1", "source_type": "user_edit" if engine == "user-corrected" else "text",
+            "version": 1, "raw_text": text, "blocks": candidate.get("blocks", []), "spans": spans,
+            "quality_report": candidate["quality_report"], "trust_status": "user_verified",
+            "conflicts": [], "created_at": datetime.now(timezone.utc).isoformat(),
+        }],
         "summary_status": "provisional",
         "workflow_status": "running",
         "node_trace": [_trace("prepare_text", started, engine=engine)],
@@ -177,6 +240,7 @@ async def _wait_for_client_ocr(run_id: str, timeout: float) -> dict[str, Any]:
 
 async def recognize_image(state: WorkflowState) -> dict[str, Any]:
     started = time.perf_counter()
+    ocr_deadline = time.monotonic() + settings.vivo_ocr_timeout_seconds
     image_bytes = state.get("image_bytes", b"")
     if not image_bytes and state.get("image_path"):
         image_bytes = await asyncio.to_thread(_read_bytes, state["image_path"])
@@ -192,10 +256,22 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
         return_when=asyncio.FIRST_COMPLETED,
         timeout=settings.vivo_ocr_timeout_seconds,
     )
-    # Give the second OCR path a short evidence window without delaying the first draft
-    # by a full provider timeout.
+    # A failed cloud request must not win the race against a client OCR candidate
+    # that is still crossing the start-image/candidate API boundary.
     if done and pending:
-        more_done, pending = await asyncio.wait(pending, timeout=0.15)
+        has_usable_result = False
+        for task in done:
+            if task.cancelled() or task.exception() is not None:
+                continue
+            result = task.result()
+            if task is cloud_task:
+                has_usable_result = bool(clean_ocr_lines(result).strip())
+            else:
+                has_usable_result = bool(str(result.get("text", "")).strip())
+            if has_usable_result:
+                break
+        evidence_window = 0.15 if has_usable_result else max(0, ocr_deadline - time.monotonic())
+        more_done, pending = await asyncio.wait(pending, timeout=evidence_window)
         done |= more_done
     for task in done:
         try:
@@ -237,7 +313,45 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
         )
     usable = [candidate for candidate in candidates if str(candidate.get("text", "")).strip()]
     if not usable:
-        raise RuntimeError("OCR unavailable")
+        reason = "no usable OCR candidate; provide or correct the recognized text"
+        return {
+            "ocr_text": "",
+            "ocr_engine": "unavailable",
+            "ocr_quality": 0.0,
+            "ocr_quality_report": {
+                "quality_score": 0.0,
+                "garbled_ratio": 0.0,
+                "completeness_score": 0.0,
+                "layout_score": 0.0,
+                "evidence_score": 0.0,
+                "agreement_score": 0.0,
+                "duplicate_ratio": 0.0,
+                "noise_ratio": 0.0,
+                "block_count": 0,
+                "time_expressions": [],
+                "reasons": [reason],
+            },
+            "ocr_review_reasons": [reason],
+            "ocr_candidates": [],
+            "ocr_evidence_status": "review_required",
+            "ocr_candidate_versions": [],
+            "ocr_conflicts": [],
+            "evidence_spans": [],
+            "summary_status": "blocked",
+            "review_requested": True,
+            "pending_action": "resolve_ocr",
+            "warnings": [*warnings, reason],
+            "degraded_reasons": [*warnings, reason],
+            "node_trace": [
+                _trace(
+                    "recognize_image",
+                    started,
+                    status="degraded",
+                    engine="unavailable",
+                    detail="0 OCR candidates; review required",
+                )
+            ],
+        }
     adjudication = adjudicate_candidates(_dedupe_ocr(usable))
     best = adjudication.selected
     return {
@@ -255,6 +369,7 @@ async def recognize_image(state: WorkflowState) -> dict[str, Any]:
         "review_requested": adjudication.requires_review,
         "pending_action": "resolve_ocr" if adjudication.requires_review else None,
         "warnings": warnings,
+        "degraded_reasons": warnings,
         "node_trace": [
             _trace(
                 "recognize_image",
@@ -368,6 +483,7 @@ async def create_rule_draft(state: WorkflowState) -> dict[str, Any]:
     cards = extract_cards_with_rules(state["ocr_text"], state.get("screenshot_time"))
     score, reasons = _rule_confidence(cards, state["ocr_text"], float(state.get("ocr_quality", 0.8)))
     card_dicts = _card_dicts(cards)
+    source_spans = list(state.get("evidence_spans", []))
     confidence = {}
     provenance = {}
     field_versions = {}
@@ -389,12 +505,14 @@ async def create_rule_draft(state: WorkflowState) -> dict[str, Any]:
         elapsed = round(float(previous_elapsed), 2)
     elapsed = max(1.0, elapsed)
     return {
+        "workflow_phase": "draft_generating",
         "rule_cards": card_dicts,
         "cards": card_dicts,
         "overall_confidence": round(score, 3),
         "confidence": confidence,
         "provenance": provenance,
         "field_versions": field_versions,
+        "field_evidence": _field_evidence(cards, source_spans, len(state.get("ocr_candidate_versions", [])) or 1),
         "complexity_reasons": reasons,
         "revision": 1,
         "result_stage": "provisional",
@@ -422,6 +540,7 @@ async def plan_workflow(state: WorkflowState) -> dict[str, Any]:
         fast_model_calls=1 if plan.created_by == "fast_model" else 0,
     )
     return {
+        "workflow_phase": "workflow_planning",
         "route": "supervisor_agents" if agents else "rules",
         "active_agents": agents,
         "decision_reasons": plan.reasons,
@@ -479,6 +598,8 @@ def dispatch_ready_tasks(state: WorkflowState) -> list[Send] | str:
             "prompt_envelope",
             "workspace_type",
             "user_locked",
+            "evidence_spans",
+            "budget_usage",
         )
     }
     return [
@@ -564,6 +685,7 @@ async def execute_agent_task(state: WorkflowState) -> dict[str, Any]:
         )
     output = _result_to_expert_output(result)
     return {
+        "workflow_phase": "agents_running",
         "agent_task_results": [result.model_dump(mode="json")],
         "expert_outputs": [output],
         "warnings": (
@@ -571,6 +693,8 @@ async def execute_agent_task(state: WorkflowState) -> dict[str, Any]:
             if result.status == "failed"
             else []
         ),
+        "degraded_reasons": [f"{result.tool}:{finding}" for finding in result.findings]
+        if result.status in {"failed", "degraded", "skipped"} else [],
         "node_trace": [
             _trace(
                 result.tool,
@@ -639,6 +763,9 @@ def finalize_rules_fast(state: WorkflowState) -> dict[str, Any]:
     cards = [ActionCard(**card) for card in state.get("cards", [])]
     final_ms = round((time.time() - float(state["started_at"])) * 1000, 2)
     return {
+        "workflow_phase": "review_center",
+        "phase_transitions": ["draft_ready", "review_center"],
+        "draft_status": "ready",
         "action_graph": graph.model_dump(mode="json"),
         "preview_actions": preview_actions_for(cards),
         "workflow_status": "awaiting_review",
@@ -681,6 +808,7 @@ def adjudicate_evidence(state: WorkflowState) -> dict[str, Any]:
     unresolved_high = any(not item.resolved and item.severity == "high" for item in graph.conflicts)
     needs_more = bool(errors) and int(state.get("expert_round", 0)) < 1 and "quality_agent" not in state.get("active_agents", [])
     return {
+        "workflow_phase": "evidence_adjudication",
         "cards": cards,
         "action_graph": graph.model_dump(mode="json"),
         "confidence": confidence,
@@ -734,6 +862,7 @@ def verify_workflow(state: WorkflowState) -> dict[str, Any]:
     if state.get("workspace_type") == "team":
         team_review = validate_team_tasks(team_tasks).model_dump(mode="json")
     return {
+        "workflow_phase": "evidence_verification",
         "agent_contract_version": AGENT_CONTRACT_VERSION,
         "agent_outputs": [
             {
@@ -798,6 +927,9 @@ def replan_workflow(state: WorkflowState) -> dict[str, Any]:
     usage = dict(state.get("budget_usage", {}))
     remaining = max(0, settings.workflow_agent_max_tasks - int(usage.get("tasks_scheduled", 0)))
     plan.tasks = plan.tasks[:remaining]
+    retained_ids = {task.id for task in plan.tasks}
+    for task in plan.tasks:
+        task.depends_on = [dependency for dependency in task.depends_on if dependency in retained_ids]
     usage["tasks_scheduled"] = int(usage.get("tasks_scheduled", 0)) + len(plan.tasks)
     usage["replans_used"] = replan_count
     if not plan.tasks:
@@ -820,6 +952,9 @@ def project_cards(state: WorkflowState) -> dict[str, Any]:
     cards = [ActionCard(**card) for card in state.get("cards", [])]
     final_ms = round((time.time() - float(state["started_at"])) * 1000, 2)
     return {
+        "workflow_phase": "review_center",
+        "phase_transitions": ["draft_ready", "review_center"],
+        "draft_status": "ready",
         "cards": _card_dicts(cards),
         "preview_actions": preview_actions_for(cards),
         "engine": (
@@ -843,6 +978,7 @@ def project_cards(state: WorkflowState) -> dict[str, Any]:
 
 def require_review(state: WorkflowState) -> dict[str, Any]:
     return {
+        "workflow_phase": "review_center",
         "workflow_status": "awaiting_review",
         "pending_action": "review_cards",
         "result_stage": "enhanced",
@@ -852,6 +988,7 @@ def require_review(state: WorkflowState) -> dict[str, Any]:
 
 def require_team_review(state: WorkflowState) -> dict[str, Any]:
     return {
+        "workflow_phase": "review_center",
         "workflow_status": "awaiting_review",
         "pending_action": "review_team_plan",
         "summary_status": "grounded" if state.get("ocr_evidence_status") in {"trusted", "user_verified"} else "degraded",
@@ -862,6 +999,7 @@ def require_team_review(state: WorkflowState) -> dict[str, Any]:
 
 def require_ocr_review(state: WorkflowState) -> dict[str, Any]:
     return {
+        "workflow_phase": "review_required",
         "workflow_status": "awaiting_ocr_review",
         "pending_action": "resolve_ocr",
         "result_stage": "provisional",
@@ -871,6 +1009,110 @@ def require_ocr_review(state: WorkflowState) -> dict[str, Any]:
             f"OCR review required: {reason}"
             for reason in state.get("ocr_review_reasons", [])
         ],
+    }
+
+
+def await_ocr_review(state: WorkflowState) -> dict[str, Any]:
+    payload = interrupt({
+        "kind": "ocr_review",
+        "run_id": state["run_id"],
+        "revision": int(state.get("revision", 0)),
+        "reasons": list(state.get("ocr_review_reasons", [])),
+        "conflicts": list(state.get("ocr_conflicts", [])),
+    })
+    if not isinstance(payload, dict) or payload.get("command") != "provide_ocr_text":
+        raise ValueError("OCR review requires provide_ocr_text")
+    corrected = str(payload.get("ocr_text", "")).strip()
+    if not corrected:
+        raise ValueError("ocr_text is required for OCR review")
+    candidate = create_trusted_text_candidate(corrected, engine="user-corrected")
+    spans = _candidate_spans(candidate)
+    version = len(state.get("ocr_candidate_versions", [])) + 1
+    return {
+        "input_kind": "text",
+        "input_text": corrected,
+        "ocr_text": corrected,
+        "ocr_engine": "user-corrected",
+        "ocr_quality": 1.0,
+        "ocr_quality_report": candidate["quality_report"],
+        "ocr_review_reasons": [],
+        "ocr_candidates": [candidate, *state.get("ocr_candidates", [])],
+        "ocr_candidate_versions": [*state.get("ocr_candidate_versions", []), candidate],
+        "ocr_conflicts": [],
+        "ocr_evidence_status": "user_verified",
+        "evidence_status": "user_verified",
+        "evidence_spans": spans,
+        "evidence_envelopes": [*state.get("evidence_envelopes", []), {
+            "source_id": f"{state['run_id']}:user-edit:{version}",
+            "source_type": "user_edit",
+            "version": version,
+            "raw_text": corrected,
+            "blocks": candidate.get("blocks", []),
+            "spans": spans,
+            "quality_report": candidate["quality_report"],
+            "trust_status": "user_verified",
+            "conflicts": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }],
+        "summary_status": "provisional",
+        "review_items": [],
+        "blocked_reasons": [],
+        "workflow_phase": "evidence_adjudication",
+        "workflow_status": "awaiting_review",
+        "pending_action": "confirm",
+        "review_requested": False,
+        "revision": int(state.get("revision", 0)) + 1,
+    }
+
+
+def await_card_review(state: WorkflowState) -> dict[str, Any]:
+    payload = interrupt({
+        "kind": "card_review",
+        "run_id": state["run_id"],
+        "revision": int(state.get("revision", 0)),
+    })
+    if not isinstance(payload, dict) or payload.get("command") != "review_cards":
+        raise ValueError("card review requires review_cards")
+    cards = [ActionCard.model_validate(item) for item in payload.get("cards", [])]
+    locked = {
+        str(card.id): [
+            field for field, value in card.model_dump(mode="json").items()
+            if field != "id" and value not in (None, "", [])
+        ]
+        for card in cards
+    }
+    return {
+        "cards": _card_dicts(cards),
+        "field_evidence": _field_evidence(cards, list(state.get("evidence_spans", []))),
+        "user_locked": locked,
+        "user_reviewed": True,
+        "workflow_phase": "review_center",
+        "workflow_status": "running",
+        "pending_action": None,
+        "revision": int(state.get("revision", 0)) + 1,
+    }
+
+
+def await_team_review(state: WorkflowState) -> dict[str, Any]:
+    payload = interrupt({
+        "kind": "team_review",
+        "run_id": state["run_id"],
+        "revision": int(state.get("revision", 0)),
+    })
+    if not isinstance(payload, dict) or payload.get("command") != "review_team_plan":
+        raise ValueError("team review requires review_team_plan")
+    tasks = list(payload.get("team_tasks", []))
+    review = validate_team_tasks(tasks)
+    if review.required:
+        raise ValueError(f"team plan validation failed: {review.reasons or review.conflicts}")
+    return {
+        "team_tasks": [task.model_dump(mode="json") for task in review.tasks],
+        "team_workflow_review": review.model_dump(mode="json"),
+        "user_reviewed": True,
+        "workflow_phase": "review_center",
+        "workflow_status": "awaiting_review",
+        "pending_action": "confirm",
+        "revision": int(state.get("revision", 0)) + 1,
     }
 
 
@@ -895,6 +1137,9 @@ def build_workflow_graph(checkpointer=None):
     graph.add_node("require_review", require_review)
     graph.add_node("require_team_review", require_team_review)
     graph.add_node("require_ocr_review", require_ocr_review)
+    graph.add_node("await_card_review", await_card_review)
+    graph.add_node("await_team_review", await_team_review)
+    graph.add_node("await_ocr_review", await_ocr_review)
 
     graph.add_conditional_edges(
         START,
@@ -934,8 +1179,11 @@ def build_workflow_graph(checkpointer=None):
     )
     graph.add_conditional_edges("replan", dispatch_ready_tasks)
     graph.add_edge("finalize_rules_fast", END)
-    graph.add_edge("require_review", END)
-    graph.add_edge("require_team_review", END)
-    graph.add_edge("require_ocr_review", END)
+    graph.add_edge("require_review", "await_card_review")
+    graph.add_edge("require_team_review", "await_team_review")
+    graph.add_edge("require_ocr_review", "await_ocr_review")
+    graph.add_edge("await_card_review", END)
+    graph.add_edge("await_team_review", END)
+    graph.add_edge("await_ocr_review", "create_rule_draft")
     graph.add_edge("project_cards", END)
     return graph.compile(checkpointer=checkpointer or MemorySaver())

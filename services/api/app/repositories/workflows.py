@@ -35,6 +35,9 @@ def _canonical_workflow_phase(state: dict[str, Any]) -> str:
     if status == "awaiting_review":
         return "review_center"
     if status == "running":
+        phase = state.get("workflow_phase")
+        if phase in {"evidence_collecting", "evidence_adjudication", "draft_generating", "workflow_planning", "agents_running", "evidence_verification", "draft_ready"}:
+            return str(phase)
         return "draft_generating"
     if status == "queued":
         return "received"
@@ -141,6 +144,28 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_agent_task_idempotency
             ON workflow_agent_tasks(run_id, idempotency_key);
+        CREATE TABLE IF NOT EXISTS workflow_effect_commands (
+            run_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            effects_json TEXT NOT NULL DEFAULT '[]',
+            result_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, idempotency_key)
+        );
+        CREATE TABLE IF NOT EXISTS workflow_effects (
+            run_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            effect_id TEXT NOT NULL,
+            effect_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            result_json TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, idempotency_key, effect_id)
+        );
         """
     )
     event_columns = {row[1] for row in conn.execute("PRAGMA table_info(workflow_events)").fetchall()}
@@ -169,6 +194,42 @@ def cache_key(text: str, model_signature: str, prompt_version: str = "adaptive-v
 
 
 class WorkflowRepository:
+    def get_effect_command(self, run_id: str, idempotency_key: str) -> dict[str, Any] | None:
+        with _connection_lock, _connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM workflow_effect_commands WHERE run_id=? AND idempotency_key=?",
+                (run_id, idempotency_key),
+            ).fetchone()
+        if row is None:
+            return None
+        return {**dict(row), "effects": json.loads(row["effects_json"]), "result": json.loads(row["result_json"])}
+
+    def save_effect_command(self, run_id: str, idempotency_key: str, revision: int,
+                            status: str, effects: list[dict[str, Any]], result: dict[str, Any] | None = None) -> None:
+        now = _now().isoformat()
+        with _connection_lock, _connect() as conn:
+            conn.execute(
+                """INSERT INTO workflow_effect_commands
+                (run_id,idempotency_key,revision,status,effects_json,result_json,created_at,updated_at)
+                VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(run_id,idempotency_key) DO UPDATE SET status=excluded.status,
+                effects_json=excluded.effects_json,result_json=excluded.result_json,updated_at=excluded.updated_at""",
+                (run_id, idempotency_key, revision, status, json.dumps(effects), json.dumps(result or {}), now, now),
+            )
+
+    def save_effect(self, run_id: str, idempotency_key: str, effect_id: str, effect_type: str,
+                    target_id: str, status: str, result: dict[str, Any] | None = None) -> None:
+        with _connection_lock, _connect() as conn:
+            conn.execute(
+                """INSERT INTO workflow_effects
+                (run_id,idempotency_key,effect_id,effect_type,target_id,status,result_json,updated_at)
+                VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(run_id,idempotency_key,effect_id) DO UPDATE SET status=excluded.status,
+                result_json=excluded.result_json,updated_at=excluded.updated_at""",
+                (run_id, idempotency_key, effect_id, effect_type, target_id, status,
+                 json.dumps(result or {}), _now().isoformat()),
+            )
+
     def healthcheck(self) -> bool:
         try:
             with _connection_lock, _connect() as conn:
@@ -646,6 +707,13 @@ class WorkflowRepository:
             ocr_enhancement_status=state.get("ocr_enhancement_status") or ocr_status,
             ocr_quality_report=state.get("ocr_quality_report"),
             ocr_review_reasons=state.get("ocr_review_reasons", []),
+            ocr_evidence_status=state.get("ocr_evidence_status", "trusted"),
+            ocr_candidate_versions=state.get("ocr_candidate_versions", []),
+            ocr_conflicts=state.get("ocr_conflicts", []),
+            evidence_spans=state.get("evidence_spans", []),
+            summary_status=state.get("summary_status", "provisional"),
+            team_tasks=state.get("team_tasks", []),
+            team_workflow_review=state.get("team_workflow_review", {}),
             image_generation_status=state.get("image_generation_status") or image_generation_status,
             react_session=state.get("react_session"),
             react_suggestions=state.get("react_suggestions", []),
@@ -657,6 +725,9 @@ class WorkflowRepository:
             blocked_reasons=state.get("blocked_reasons", []),
             checkpoint_id=state.get("checkpoint_id"),
             command_ids=sorted((state.get("command_ids") or {}).keys()),
+            effect_results=state.get("effect_results", []),
+            phase_history=state.get("phase_history", []),
+            degraded_reasons=state.get("degraded_reasons", []),
             evidence_envelopes=state.get("evidence_envelopes", []),
             field_evidence=state.get("field_evidence", []),
         )

@@ -144,6 +144,24 @@ class QualityVerifierOutput(AgentContractModel):
     recommended_tools: list[str] = Field(default_factory=list)
 
 
+class PlanningSuggestion(AgentContractModel):
+    action_id: str
+    suggestion_type: Literal["schedule", "reminder", "priority", "team_coordination"]
+    value: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list)
+    requires_confirmation: bool = True
+
+
+class PersonalPlannerOutput(AgentContractModel):
+    output_type: Literal["personal_plan"] = "personal_plan"
+    suggestions: list[PlanningSuggestion] = Field(default_factory=list)
+
+
+class TeamCoordinatorOutput(AgentContractModel):
+    output_type: Literal["team_coordination"] = "team_coordination"
+    suggestions: list[PlanningSuggestion] = Field(default_factory=list)
+
+
 AgentValidatedOutput = (
     SemanticDecomposerOutput
     | TemporalSolverOutput
@@ -153,4 +171,6 @@ AgentValidatedOutput = (
     | PrivacyRiskOutput
     | WebRetrieverOutput
     | QualityVerifierOutput
+    | PersonalPlannerOutput
+    | TeamCoordinatorOutput
 )

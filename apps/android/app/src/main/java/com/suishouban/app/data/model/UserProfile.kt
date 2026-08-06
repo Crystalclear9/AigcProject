@@ -1,5 +1,6 @@
 package com.suishouban.app.data.model
 
+import com.google.gson.annotations.SerializedName
 import java.time.OffsetDateTime
 import java.time.ZoneId
 
@@ -65,19 +66,21 @@ data class ProfileSignalStat(
 
 data class UserProfileContext(
     val version: Int,
+    @SerializedName("consent_granted") val learningConsent: Boolean,
     val scenario: String,
-    val activePeriod: String,
-    val planningGranularity: String,
-    val reminderStyle: String,
-    val workRhythm: String,
-    val bufferPreference: String,
-    val weekendPolicy: String,
-    val assistantTone: String,
+    @SerializedName("active_period") val activePeriod: String,
+    @SerializedName("planning_granularity") val planningGranularity: String,
+    @SerializedName("reminder_style") val reminderStyle: String,
+    @SerializedName("work_rhythm") val workRhythm: String,
+    @SerializedName("buffer_preference") val bufferPreference: String,
+    @SerializedName("weekend_policy") val weekendPolicy: String,
+    @SerializedName("assistant_tone") val assistantTone: String,
     val timezone: String,
 )
 
 fun UserProfile.toContext(): UserProfileContext = UserProfileContext(
     version = version,
+    learningConsent = learningConsent,
     scenario = scenario,
     activePeriod = activePeriod,
     planningGranularity = planningGranularity,

@@ -47,7 +47,7 @@ class WorkflowStartTextRequest(BaseModel):
     text: str = Field(min_length=1)
     screenshot_time: str | None = None
     workspace_type: Literal["personal", "team"] = "personal"
-    profile_context: dict[str, str] = Field(default_factory=dict)
+    profile_context: dict[str, Any] = Field(default_factory=dict)
     role_template: Literal[
         "action_analyst",
         "personal_planner",
@@ -207,7 +207,8 @@ class WorkflowRunResponse(BaseModel):
     react_suggestions: list[str] = Field(default_factory=list)
     workflow_phase: Literal[
         "received", "evidence_collecting", "evidence_adjudication", "review_required",
-        "draft_generating", "draft_ready", "review_center", "confirmed",
+        "draft_generating", "workflow_planning", "agents_running", "evidence_verification",
+        "draft_ready", "review_center", "confirmed",
         "effects_executing", "completed", "degraded", "blocked", "cancelled", "failed",
     ] = "received"
     evidence_status: Literal["trusted", "review_required", "user_verified"] = "trusted"
@@ -217,6 +218,9 @@ class WorkflowRunResponse(BaseModel):
     blocked_reasons: list[str] = Field(default_factory=list)
     checkpoint_id: str | None = None
     command_ids: list[str] = Field(default_factory=list)
+    effect_results: list[dict[str, Any]] = Field(default_factory=list)
+    phase_history: list[dict[str, Any]] = Field(default_factory=list)
+    degraded_reasons: list[str] = Field(default_factory=list)
     evidence_envelopes: list[EvidenceEnvelope] = Field(default_factory=list)
     field_evidence: list[FieldEvidence] = Field(default_factory=list)
 
@@ -227,6 +231,8 @@ class WorkflowEvent(BaseModel):
     event: Literal[
         "run_started",
         "node_started",
+        "phase_changed",
+        "workflow_interrupted",
         "ocr_candidate",
         "draft_created",
         "draft_updated",

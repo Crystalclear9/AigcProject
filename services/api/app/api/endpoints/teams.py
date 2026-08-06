@@ -21,6 +21,10 @@ from app.schemas.team import (
     TeamJoinRequest,
     TeamRename,
     TeamSummary,
+    TeamCommandRequest,
+    TeamCommandResponse,
+    TeamEventsResponse,
+    TeamEvent,
 )
 from app.services.team_goal_service import decompose_goal
 
@@ -80,6 +84,55 @@ def get_team(
         return team
 
     return _guard(action)
+
+
+@router.get("/{team_id}/events", response_model=TeamEventsResponse, summary="Read team events after a revision")
+def team_events(
+    team_id: str,
+    after_revision: int = Query(default=0, ge=0),
+    user_id: str = Depends(require_user_id),
+    repo: TeamRepository = Depends(get_team_repository),
+) -> TeamEventsResponse:
+    def action() -> TeamEventsResponse:
+        team = repo.get_team(team_id)
+        repo.require_member(team_id, user_id)
+        events = [TeamEvent(**event) for event in repo.list_events(team_id, after_revision)]
+        return TeamEventsResponse(team_id=team_id, revision=team.revision,
+                                  event_cursor=str(team.revision), events=events)
+    return _guard(action)
+
+
+@router.post("/{team_id}/commands", response_model=TeamCommandResponse, summary="Apply an idempotent team command")
+def team_command(
+    team_id: str,
+    payload: TeamCommandRequest,
+    user_id: str = Depends(require_user_id),
+    repo: TeamRepository = Depends(get_team_repository),
+) -> TeamCommandResponse:
+    try:
+        result = repo.execute_command(team_id, user_id, payload.operation, payload.payload,
+                                      payload.base_revision, payload.idempotency_key)
+        return TeamCommandResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        if detail.startswith("revision_conflict:"):
+            _, base, current = detail.split(":", 2)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "type": "revision_conflict",
+                    "base_revision": int(base),
+                    "server_revision": int(current),
+                    "conflict_type": "team_revision",
+                    "operation": payload.operation,
+                    "local_payload": payload.payload,
+                    "server_snapshot": repo.get_team(team_id).model_dump(mode="json"),
+                },
+            ) from exc
+        raise HTTPException(status_code=422, detail=detail) from exc
+    except (PermissionError, KeyError) as exc:
+        raise HTTPException(status_code=403 if isinstance(exc, PermissionError) else 404,
+                            detail=str(exc)) from exc
 
 
 @router.patch("/{team_id}", response_model=Team, summary="Rename a team (owner only)")

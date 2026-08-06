@@ -265,4 +265,18 @@ interface SuiShouBanApi {
         @Path("id") teamId: String,
         @Query("since") since: String? = null,
     ): TeamSummaryResponseDto
+
+    @GET("api/teams/{id}/events")
+    suspend fun teamEvents(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Query("after_revision") afterRevision: Long = 0,
+    ): TeamEventsResponseDto
+
+    @POST("api/teams/{id}/commands")
+    suspend fun teamCommand(
+        @Header("X-User-Id") userId: String,
+        @Path("id") teamId: String,
+        @Body request: TeamCommandRequestDto,
+    ): TeamCommandResponseDto
 }

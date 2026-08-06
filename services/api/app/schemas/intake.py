@@ -36,6 +36,10 @@ class PromptEnvelope(BaseModel):
     fact_protection: str = ""
     output_policy: str = ""
     character_count: int = Field(ge=0, le=1200)
+    profile_applied: bool = False
+    profile_version: int | None = None
+    profile_fingerprint: str = ""
+    handoff_contract: str = ""
 
 
 class IntakeSessionResponse(BaseModel):

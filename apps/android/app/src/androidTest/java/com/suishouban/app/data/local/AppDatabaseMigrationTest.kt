@@ -276,6 +276,39 @@ class AppDatabaseMigrationTest {
         migrated.close()
     }
 
+    @Test
+    fun migrationTenToElevenCreatesDurableTeamSyncQueueAndConflictTables() {
+        openAtVersion(
+            version = 10,
+            onCreate = { db ->
+                db.execSQL("CREATE TABLE cards (id TEXT NOT NULL PRIMARY KEY)")
+            },
+        ).close()
+
+        val migrated = openAtVersion(
+            version = 11,
+            onCreate = { error("version 10 database should already exist") },
+            onUpgrade = { db, oldVersion, newVersion ->
+                assertEquals(10, oldVersion)
+                assertEquals(11, newVersion)
+                AppDatabase.MIGRATION_10_11.migrate(db)
+            },
+        )
+
+        listOf("team_sync_snapshots", "pending_team_commands", "team_conflicts").forEach { table ->
+            migrated.writableDatabase.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'",
+            ).use { cursor -> assertTrue("$table should exist", cursor.moveToFirst()) }
+        }
+        assertTrue(tableColumns(migrated.writableDatabase, "pending_team_commands").containsAll(listOf(
+            "command_id", "base_revision", "idempotency_key", "status", "retry_count", "last_error",
+        )))
+        assertTrue(tableColumns(migrated.writableDatabase, "team_conflicts").containsAll(listOf(
+            "local_payload", "server_payload", "conflict_type", "status",
+        )))
+        migrated.close()
+    }
+
     private fun tableColumns(db: SupportSQLiteDatabase, table: String): List<String> =
         db.query("PRAGMA table_info($table)").use { cursor ->
             val nameIndex = cursor.getColumnIndex("name")

@@ -86,7 +86,6 @@ fun HomeScreen(
     onImportFromGallery: () -> Unit,
     onImportFromCamera: () -> Unit,
     onCards: () -> Unit,
-    onSettings: () -> Unit,
     onComplete: (String) -> Unit,
     teamNames: Map<String, String> = emptyMap(),
 ) {
@@ -109,14 +108,6 @@ fun HomeScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                IconButton(onClick = onSettings) {
-                    Icon(Icons.Outlined.Settings, contentDescription = "设置", tint = Muted)
-                }
-            }
             HomeHeroCard(
                 reduceMotion = reduceMotion,
                 onImport = { showImportOptions = true },

@@ -23,8 +23,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TeamAssignmentEntity::class,
         TeamMilestoneEntity::class,
         IntakeSessionEntity::class,
+        TeamSyncSnapshotEntity::class,
+        PendingTeamCommandEntity::class,
+        TeamConflictEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 @TypeConverters(StringListConverter::class, ReminderNodeConverter::class)
@@ -55,6 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
                 )
                 .build()
                 .also { instance = it }
@@ -415,6 +419,65 @@ abstract class AppDatabase : RoomDatabase() {
         internal val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE cards ADD COLUMN goal_id TEXT")
+            }
+        }
+
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_sync_snapshots (
+                        team_id TEXT NOT NULL,
+                        server_revision INTEGER NOT NULL,
+                        event_cursor TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        fetched_at TEXT NOT NULL,
+                        PRIMARY KEY(team_id)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_team_commands (
+                        command_id TEXT NOT NULL,
+                        team_id TEXT NOT NULL,
+                        task_id TEXT,
+                        operation TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        base_revision INTEGER NOT NULL,
+                        idempotency_key TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        retry_count INTEGER NOT NULL,
+                        last_error TEXT,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(command_id)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_team_commands_team_id ON pending_team_commands(team_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_team_commands_status ON pending_team_commands(status)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_pending_team_commands_idempotency_key ON pending_team_commands(idempotency_key)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS team_conflicts (
+                        conflict_id TEXT NOT NULL,
+                        team_id TEXT NOT NULL,
+                        task_id TEXT,
+                        local_payload TEXT NOT NULL,
+                        server_payload TEXT NOT NULL,
+                        base_revision INTEGER NOT NULL,
+                        conflict_type TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        resolved_at TEXT,
+                        PRIMARY KEY(conflict_id)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_team_conflicts_team_id ON team_conflicts(team_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_team_conflicts_task_id ON team_conflicts(task_id)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_team_conflicts_status ON team_conflicts(status)")
             }
         }
     }

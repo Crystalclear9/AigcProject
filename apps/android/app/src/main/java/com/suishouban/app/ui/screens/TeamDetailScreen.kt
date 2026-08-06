@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -167,7 +168,9 @@ fun TeamDetailScreen(
     val nicknameById = summary?.members?.associate { it.userId to it.nickname }.orEmpty()
 
     LazyColumn(
-        modifier = Modifier.padding(horizontal = DS.ScreenPadding),
+        modifier = Modifier
+            .padding(horizontal = DS.ScreenPadding)
+            .testTag("team_detail"),
         verticalArrangement = Arrangement.spacedBy(DS.ItemGap),
     ) {
         item {

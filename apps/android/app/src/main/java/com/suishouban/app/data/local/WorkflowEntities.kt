@@ -89,6 +89,55 @@ data class IntakeSessionEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: String,
 )
 
+@Entity(tableName = "team_sync_snapshots")
+data class TeamSyncSnapshotEntity(
+    @PrimaryKey @ColumnInfo(name = "team_id") val teamId: String,
+    @ColumnInfo(name = "server_revision") val serverRevision: Long,
+    @ColumnInfo(name = "event_cursor") val eventCursor: String,
+    val payload: String,
+    @ColumnInfo(name = "fetched_at") val fetchedAt: String,
+)
+
+@Entity(
+    tableName = "pending_team_commands",
+    indices = [
+        Index("team_id"),
+        Index("status"),
+        Index(value = ["idempotency_key"], unique = true),
+    ],
+)
+data class PendingTeamCommandEntity(
+    @PrimaryKey @ColumnInfo(name = "command_id") val commandId: String,
+    @ColumnInfo(name = "team_id") val teamId: String,
+    @ColumnInfo(name = "task_id") val taskId: String? = null,
+    val operation: String,
+    val payload: String,
+    @ColumnInfo(name = "base_revision") val baseRevision: Long,
+    @ColumnInfo(name = "idempotency_key") val idempotencyKey: String,
+    val status: String = "pending",
+    @ColumnInfo(name = "retry_count") val retryCount: Int = 0,
+    @ColumnInfo(name = "last_error") val lastError: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: String,
+)
+
+@Entity(
+    tableName = "team_conflicts",
+    indices = [Index("team_id"), Index("task_id"), Index("status")],
+)
+data class TeamConflictEntity(
+    @PrimaryKey @ColumnInfo(name = "conflict_id") val conflictId: String,
+    @ColumnInfo(name = "team_id") val teamId: String,
+    @ColumnInfo(name = "task_id") val taskId: String? = null,
+    @ColumnInfo(name = "local_payload") val localPayload: String,
+    @ColumnInfo(name = "server_payload") val serverPayload: String,
+    @ColumnInfo(name = "base_revision") val baseRevision: Long,
+    @ColumnInfo(name = "conflict_type") val conflictType: String,
+    val status: String = "open",
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "resolved_at") val resolvedAt: String? = null,
+)
+
 data class DeviceActionProposal(
     val id: String,
     val cardId: String,

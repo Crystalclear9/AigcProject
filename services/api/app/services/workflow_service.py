@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from langgraph.types import Command
+
 from app.core.config import settings
 from app.repositories.workflows import WorkflowRepository
 from app.schemas.workflow import (
@@ -21,6 +23,8 @@ from app.schemas.workflow import (
     WorkflowRunResponse,
 )
 from app.schemas.card import ActionCard
+from app.schemas.card import ActionCardCreate
+from app.repositories.cards import CardRepository
 from app.services.provider_runtime import provider_usage_delta, runtime
 from app.services.react_refiner import refine_state_with_react
 from app.services.workflow_graph import build_workflow_graph, create_rule_draft, finalize_rules_fast
@@ -201,7 +205,7 @@ def _config(run_id: str) -> dict[str, Any]:
     return {"configurable": {"thread_id": run_id}}
 
 
-async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = False) -> None:
+async def _execute(run_id: str, graph_input: dict[str, Any] | Command, preclaimed: bool = False) -> None:
     _ensure_loop_runtime()
     logger.info("workflow started", extra={"run_id": run_id})
     try:
@@ -217,31 +221,46 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
                 return
             current["workflow_status"] = "running"
             graph = await _graph()
-            runtime_state = dict(initial)
+            runtime_state = dict(current) if isinstance(graph_input, Command) else dict(graph_input)
             heartbeat_at = time.monotonic()
             async for chunk in graph.astream(
-                initial,
+                graph_input,
                 _config(run_id),
                 stream_mode="updates",
-                durability="exit",
+                durability="async",
             ):
                 for node, updates in chunk.items():
+                    if node == "__interrupt__":
+                        repository.append_event(
+                            run_id,
+                            "workflow_interrupted",
+                            {"pending_action": runtime_state.get("pending_action")},
+                            f"interrupt:{runtime_state.get('pending_action')}:{runtime_state.get('revision', 0)}",
+                        )
+                        continue
                     if not updates:
                         continue
                     _merge_runtime_state(runtime_state, dict(updates))
                     should_persist = node in {
+                        "prepare_text",
                         "recognize_image",
                         "create_rule_draft",
                         "build_action_graph",
                         "project_cards",
                         "require_review",
+                        "require_team_review",
+                        "require_ocr_review",
                         "run_agent_task",
                         "task_barrier",
                         "verify_workflow",
+                        "adjudicate_evidence",
                         "replan",
                         "finalize_rules_fast",
+                        "await_card_review",
+                        "await_team_review",
+                        "await_ocr_review",
                     }
-                    if node == "supervisor" and runtime_state.get("active_agents"):
+                    if node == "supervisor":
                         should_persist = True
                     if should_persist:
                         await asyncio.to_thread(
@@ -286,7 +305,7 @@ async def _execute(run_id: str, initial: dict[str, Any], preclaimed: bool = Fals
             status = repository.get_status(run_id)
         except (KeyError, RuntimeError):
             status = None
-        if status in {"queued", "running"}:
+        if status in {"queued", "running", "awaiting_review", "awaiting_ocr_review"}:
             repository.release_job(run_id, _worker_id)
         if status in TERMINAL_WORKFLOW_STATUSES:
             cleanup_workflow_input(run_id)
@@ -346,11 +365,36 @@ def _commit_node_update(
     state["user_locked"] = persisted.get("user_locked") or state.get("user_locked", {})
     state["field_versions"] = persisted.get("field_versions") or state.get("field_versions", {})
     state["revision"] = max(int(state.get("revision", 0)), int(persisted.get("revision", 0)))
+    previous_phase = str(persisted.get("workflow_phase", "received"))
+    current_phase = str(state.get("workflow_phase", previous_phase))
+    phase_transitions = [
+        str(phase)
+        for phase in updates.pop("phase_transitions", [])
+        if phase
+    ] or [current_phase]
+    state.pop("phase_transitions", None)
+    history = list(persisted.get("phase_history", []))
+    for phase in phase_transitions:
+        if not history or history[-1].get("phase") != phase:
+            history.append({"phase": phase, "node": node, "revision": int(state.get("revision", 0)), "at": datetime.now(timezone.utc).isoformat()})
+    state["phase_history"] = history[-64:]
     state.update(_provider_snapshot_fields(state))
     state.pop("image_bytes", None)
     events: list[tuple[str, dict[str, Any], str | None]] = []
     revision = int(state.get("revision", 0))
     event_key = f"{node}:{revision}:{len(state.get('node_trace', []))}"
+    event_previous_phase = previous_phase
+    for phase in phase_transitions:
+        if phase == event_previous_phase:
+            continue
+        events.append(
+            (
+                "phase_changed",
+                {"from": event_previous_phase, "phase": phase, "node": node, "revision": revision},
+                f"phase:{phase}:{revision}:{node}",
+            )
+        )
+        event_previous_phase = phase
     events.append(
         ("node_started", {"node": node}, f"node:{event_key}")
     )
@@ -698,20 +742,44 @@ def _canonical_workflow_phase(state: dict[str, Any]) -> str:
     if status == "awaiting_review":
         return "review_center"
     if status == "running":
+        phase = state.get("workflow_phase")
+        if phase in {"evidence_collecting", "evidence_adjudication", "draft_generating", "workflow_planning", "agents_running", "evidence_verification", "draft_ready"}:
+            return str(phase)
         return "draft_generating"
     if status == "queued":
         return "received"
     return "degraded" if state.get("summary_status") == "degraded" else "evidence_collecting"
 
 
-async def _schedule(run_id: str, initial: dict[str, Any], preclaimed: bool = False) -> None:
+async def _schedule(run_id: str, graph_input: dict[str, Any] | Command, preclaimed: bool = False) -> None:
     _ensure_loop_runtime()
     async with _task_lock:
         task = asyncio.create_task(
-            _execute(run_id, initial, preclaimed=preclaimed),
+            _execute(run_id, graph_input, preclaimed=preclaimed),
             name=f"workflow-{run_id}",
         )
         _tasks[run_id] = task
+
+
+async def _wait_for_checkpoint_interrupt(run_id: str, kind: str, timeout: float = 2.0) -> None:
+    deadline = time.monotonic() + timeout
+    graph = await _graph()
+    while time.monotonic() < deadline:
+        snapshot = await graph.aget_state(_config(run_id))
+        for task in snapshot.tasks:
+            if any(
+                isinstance(item.value, dict) and item.value.get("kind") == kind
+                for item in task.interrupts
+            ):
+                return
+        async with _task_lock:
+            active = _tasks.get(run_id)
+        if active is not None and active.done():
+            error = active.exception()
+            if error is not None:
+                raise error
+        await asyncio.sleep(0.01)
+    raise TimeoutError(f"workflow checkpoint is not ready for {kind}")
 
 
 def _can_complete_rules_inline(state: dict[str, Any]) -> bool:
@@ -729,11 +797,41 @@ def _complete_rules_inline(run_id: str, state: dict[str, Any]) -> None:
     final_update = finalize_rules_fast(state)
     node_trace = list(state.get("node_trace", [])) + list(final_update.get("node_trace", []))
     final_state = {**state, **final_update, "node_trace": node_trace}
+    history = list(state.get("phase_history", []))
+    previous_phase = str(state.get("workflow_phase", "received"))
+    phase_transitions = [
+        "evidence_collecting",
+        "draft_generating",
+        "workflow_planning",
+        "draft_ready",
+        "review_center",
+    ]
+    for phase in phase_transitions:
+        if not history or history[-1].get("phase") != phase:
+            history.append({
+                "phase": phase,
+                "node": "finalize_rules_fast",
+                "revision": int(final_state.get("revision", 0)),
+                "at": datetime.now(timezone.utc).isoformat(),
+            })
+    final_state["phase_history"] = history[-64:]
     final_state.update(_provider_snapshot_fields(final_state))
     revision = int(final_state.get("revision", 0))
     snapshot = _event_snapshot(run_id, final_state)
     graph = final_state.get("action_graph", {})
     events = [
+        *[
+            (
+                "phase_changed",
+                {"from": previous, "phase": phase, "node": "finalize_rules_fast", "revision": revision},
+                f"phase:{phase}:{revision}:finalize_rules_fast",
+            )
+            for previous, phase in zip(
+                [previous_phase, *phase_transitions[:-1]],
+                phase_transitions,
+            )
+            if previous != phase
+        ],
         (
             "draft_created",
             {
@@ -815,6 +913,9 @@ def _initial_state(
         "blocked_reasons": [],
         "checkpoint_id": run_id,
         "command_ids": {},
+        "effect_results": [],
+        "phase_history": [{"phase": "received", "node": "start", "revision": 0, "at": datetime.now(timezone.utc).isoformat()}],
+        "degraded_reasons": [],
         "evidence_envelopes": [],
         "field_evidence": [],
         "pending_action": None,
@@ -896,12 +997,29 @@ async def start_text_workflow(
         screenshot_time=screenshot_time,
         workflow_context=workflow_context,
     )
+    trusted_candidate = create_trusted_text_candidate(text.strip(), engine="provided-text")
+    trusted_spans = _candidate_spans(trusted_candidate)
     primed_state = {
         **initial,
         "ocr_text": text.strip(),
         "ocr_engine": "provided-text",
         "ocr_quality": 1.0,
-        "ocr_candidates": [{"text": text.strip(), "engine": "provided-text", "confidence": 1.0}],
+        "ocr_quality_report": trusted_candidate["quality_report"],
+        "ocr_candidates": [trusted_candidate],
+        "ocr_candidate_versions": [trusted_candidate],
+        "evidence_spans": trusted_spans,
+        "evidence_envelopes": [{
+            "source_id": f"{run_id}:text:1",
+            "source_type": "text",
+            "version": 1,
+            "raw_text": text.strip(),
+            "blocks": trusted_candidate.get("blocks", []),
+            "spans": trusted_spans,
+            "quality_report": trusted_candidate["quality_report"],
+            "trust_status": "user_verified",
+            "conflicts": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }],
     }
     provisional = await create_rule_draft(primed_state)
     saved_state = {**primed_state, **provisional}
@@ -1318,7 +1436,12 @@ def _revalidate_user_draft(state: dict[str, Any]) -> None:
     state["action_graph"] = graph
 
 
-def _confirm_workflow_once(run_id: str, request: ConfirmWorkflowRequest) -> WorkflowRunResponse:
+def _confirm_workflow_once(
+    run_id: str,
+    request: ConfirmWorkflowRequest,
+    *,
+    finalize: bool = True,
+) -> WorkflowRunResponse:
     state = repository.get_state(run_id)
     if int(state.get("revision", 0)) != request.revision:
         raise ValueError(f"revision conflict: expected {state.get('revision', 0)}")
@@ -1373,6 +1496,8 @@ def _confirm_workflow_once(run_id: str, request: ConfirmWorkflowRequest) -> Work
             state.get("ocr_text", ""),
             state.get("ocr_candidates", []),
         ).model_dump(mode="json")
+    if not finalize:
+        return repository.response(run_id)
     state["workflow_status"] = "completed"
     state["pending_action"] = None
     state["result_stage"] = "final"
@@ -1395,11 +1520,46 @@ def _confirm_workflow_once(run_id: str, request: ConfirmWorkflowRequest) -> Work
     return repository.response(run_id)
 
 
+def _persist_phase_transition(
+    run_id: str,
+    state: dict[str, Any],
+    phase: str,
+    node: str,
+) -> None:
+    persisted = repository.get_state(run_id)
+    previous = str(persisted.get("workflow_phase", "received"))
+    history = list(persisted.get("phase_history", []))
+    state["workflow_phase"] = phase
+    if previous != phase:
+        history.append(
+            {
+                "phase": phase,
+                "node": node,
+                "revision": int(state.get("revision", 0)),
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    state["phase_history"] = history[-64:]
+    repository.save(run_id, state)
+    if previous != phase:
+        repository.append_event(
+            run_id,
+            "phase_changed",
+            {"from": previous, "phase": phase, "node": node, "revision": int(state.get("revision", 0))},
+            f"phase:{phase}:{state.get('revision', 0)}:{node}",
+        )
+
+
 def confirm_effects(run_id: str, request: ConfirmEffectsRequest) -> WorkflowRunResponse:
     state = repository.get_state(run_id)
     commands = dict(state.get("command_ids") or {})
+    if not request.effect_types:
+        raise ValueError("at least one effect type is required")
+    persisted = repository.get_effect_command(run_id, request.idempotency_key)
+    if persisted and persisted.get("status") == "completed":
+        return repository.response(run_id)
     existing = commands.get(request.idempotency_key)
-    if existing:
+    if existing and existing.get("status") == "completed":
         return repository.response(run_id)
     if int(state.get("revision", 0)) != request.revision:
         raise ValueError(f"revision conflict: expected {state.get('revision', 0)}")
@@ -1409,13 +1569,97 @@ def confirm_effects(run_id: str, request: ConfirmEffectsRequest) -> WorkflowRunR
     selected_tasks = set(request.confirmed_team_task_ids)
     if selected_tasks and selected_tasks - {str(task.get("task_id")) for task in state.get("team_tasks", [])}:
         raise ValueError("confirmed_team_task_ids contains an unknown team task")
-    state["effect_status"] = "executing"
-    state["workflow_phase"] = "effects_executing"
+    legacy_all = request.idempotency_key.startswith("legacy-confirm:")
+    if not selected_cards and legacy_all:
+        selected_cards = {str(card.get("id")) for card in state.get("cards", [])}
+    if not selected_tasks and legacy_all:
+        selected_tasks = {str(task.get("task_id")) for task in state.get("team_tasks", [])}
+    effects = [
+        {"effect_id": f"{effect_type}:{target_id}", "effect_type": effect_type, "target_id": target_id}
+        for effect_type in request.effect_types
+        for target_id in sorted(selected_cards if effect_type in {"cards", "reminders"} else selected_tasks)
+    ]
+    if not effects:
+        raise ValueError("no confirmed targets for requested effects")
+    if persisted:
+        effects = list(persisted.get("effects", effects))
+    repository.save_effect_command(run_id, request.idempotency_key, request.revision, "pending", effects)
+    state["effect_status"] = "pending_confirmation"
+    _persist_phase_transition(run_id, state, "confirmed", "confirm_effects")
     state["command_ids"] = {**commands, request.idempotency_key: {"status": "executing", "effects": request.effect_types}}
-    repository.save(run_id, state)
+    state["effect_status"] = "executing"
+    _persist_phase_transition(run_id, state, "effects_executing", "confirm_effects")
     repository.append_event(run_id, "decision_made", {"command_id": request.idempotency_key, "effect_types": request.effect_types}, f"command-start:{request.idempotency_key}")
     try:
-        result = _confirm_workflow_once(run_id, ConfirmWorkflowRequest(revision=request.revision))
+        _confirm_workflow_once(
+            run_id,
+            ConfirmWorkflowRequest(revision=request.revision),
+            finalize=False,
+        )
+        effect_results: list[dict[str, Any]] = []
+        card_by_id = {str(card.get("id")): dict(card) for card in state.get("cards", [])}
+        task_by_id = {str(task.get("task_id")): dict(task) for task in state.get("team_tasks", [])}
+        cards = CardRepository()
+        for effect in effects:
+            effect_type = effect["effect_type"]
+            target_id = effect["target_id"]
+            status = "completed"
+            detail: dict[str, Any] = {}
+            if effect_type == "cards":
+                payload = card_by_id[target_id]
+                try:
+                    cards.get(target_id)
+                except KeyError:
+                    create_payload = {
+                        key: value
+                        for key, value in payload.items()
+                        if key not in {"created_at", "updated_at"}
+                    }
+                    create_payload["status"] = "confirmed"
+                    cards.create(ActionCardCreate.model_validate(create_payload))
+                detail = {"card_id": target_id}
+            elif effect_type == "team_tasks":
+                task = task_by_id[target_id]
+                try:
+                    cards.get(target_id)
+                except KeyError:
+                    cards.create(ActionCardCreate(
+                        id=target_id,
+                        card_type="task",
+                        title=str(task["title"]),
+                        deadline=task.get("deadline"),
+                        workspace_type="team",
+                        workspace_id=str(state.get("workspace_id", "team")),
+                        assignee_id=task.get("owner_id"),
+                        participant_ids=task.get("participant_ids", []),
+                        dependencies=task.get("dependency_ids", []),
+                        deliverables=task.get("deliverables", []),
+                        acceptance_criteria=[
+                            str(item.get("description", ""))
+                            for item in task.get("acceptance_criteria", [])
+                            if item.get("description")
+                        ],
+                        evidence_summary=task.get("evidence_refs", []),
+                        status="confirmed",
+                        source_text=str(state.get("ocr_text", "")),
+                    ))
+                detail = {"team_task_id": target_id}
+            else:
+                card = card_by_id[target_id]
+                status = "pending_device"
+                detail = {
+                    "reminder_intent": {
+                        "effect_id": effect["effect_id"],
+                        "card_id": target_id,
+                        "reminders": card.get("reminders", []),
+                        "reminder_nodes": card.get("reminder_nodes", []),
+                    }
+                }
+            repository.save_effect(
+                run_id, request.idempotency_key, effect["effect_id"],
+                effect_type, target_id, status, detail,
+            )
+            effect_results.append({**effect, "status": status, **detail})
     except Exception:
         state = repository.get_state(run_id)
         state["effect_status"] = "degraded"
@@ -1423,16 +1667,27 @@ def confirm_effects(run_id: str, request: ConfirmEffectsRequest) -> WorkflowRunR
         commands = dict(state.get("command_ids") or {})
         commands[request.idempotency_key] = {"status": "degraded", "effects": request.effect_types}
         state["command_ids"] = commands
-        repository.save(run_id, state)
+        _persist_phase_transition(run_id, state, "degraded", "confirm_effects")
+        repository.save_effect_command(run_id, request.idempotency_key, request.revision, "degraded", effects, {"error": "effect execution failed"})
         raise
     state = repository.get_state(run_id)
     commands = dict(state.get("command_ids") or {})
     commands[request.idempotency_key] = {"status": "completed", "effects": request.effect_types}
     state["command_ids"] = commands
     state["effect_status"] = "completed"
-    state["workflow_phase"] = "completed"
-    repository.save(run_id, state)
+    state["effect_results"] = effect_results
+    state["workflow_status"] = "completed"
+    state["pending_action"] = None
+    state["result_stage"] = "final"
+    state["confirmed_revision"] = request.revision
+    state["time_to_final_ms"] = state.get("time_to_final_ms") or round(
+        (time.time() - float(state.get("started_at", time.time()))) * 1000,
+        2,
+    )
+    _persist_phase_transition(run_id, state, "completed", "confirm_effects")
+    repository.save_effect_command(run_id, request.idempotency_key, request.revision, "completed", effects, {"effects": state["effect_results"]})
     repository.append_event(run_id, "completed", {"command_id": request.idempotency_key, "effects_executed": request.effect_types}, f"command-complete:{request.idempotency_key}")
+    cleanup_workflow_input(run_id)
     return repository.response(run_id)
 
 
@@ -1469,50 +1724,35 @@ async def cancel_workflow(run_id: str) -> WorkflowRunResponse:
 async def resume_workflow(run_id: str, request: WorkflowResumeRequest) -> WorkflowRunResponse:
     if request.command == "cancel":
         return await cancel_workflow(run_id)
-    if request.command == "provide_ocr_text":
+    state = repository.get_state(run_id)
+    expected_actions = {
+        "provide_ocr_text": "resolve_ocr",
+        "review_cards": "review_cards",
+        "review_team_plan": "review_team_plan",
+    }
+    if request.command == "provide_ocr_text" and state.get("pending_action") != "resolve_ocr":
         return submit_ocr_candidate(
             run_id,
-            OcrCandidateRequest(text=request.ocr_text or "", engine="mlkit", confidence=0.8),
+            OcrCandidateRequest(
+                text=request.ocr_text or "",
+                engine="user-corrected",
+                confidence=1.0,
+            ),
         )
-    state = repository.get_state(run_id)
-    if request.command == "review_team_plan":
-        from app.services.team_workflow import validate_team_tasks
-
-        review = validate_team_tasks(request.team_tasks or [])
-        if review.required:
-            raise ValueError(f"team plan validation failed: {review.reasons or review.conflicts}")
-        state["team_tasks"] = [task.model_dump(mode="json") for task in request.team_tasks or []]
-        state["team_workflow_review"] = review.model_dump(mode="json")
-        state["user_reviewed"] = True
-        state["workflow_status"] = "awaiting_review"
-        state["pending_action"] = "confirm"
-        state["revision"] = int(state.get("revision", 0)) + 1
-        repository.save(run_id, state)
-        repository.append_event(run_id, "team_plan_created", {"task_count": len(state["team_tasks"]), "reviewed": True})
-        return repository.response(run_id)
-    patch = DraftPatchRequest(
-        base_revision=int(state.get("revision", 0)),
-        cards=request.cards or [],
-        locked_fields={
-            card.id: [
-                "card_type",
-                "title",
-                "summary",
-                "deadline",
-                "start_time",
-                "end_time",
-                "location",
-                "materials",
-                "submit_method",
-                "priority",
-                "tags",
-                "reminders",
-            ]
-            for card in request.cards or []
-        },
-    )
-    updated = patch_draft(run_id, patch)
-    return confirm_workflow(run_id, ConfirmWorkflowRequest(revision=updated.revision))
+    if state.get("pending_action") != expected_actions.get(request.command):
+        raise ValueError(f"workflow is not awaiting {request.command}")
+    interrupt_kinds = {
+        "provide_ocr_text": "ocr_review",
+        "review_cards": "card_review",
+        "review_team_plan": "team_review",
+    }
+    await _wait_for_checkpoint_interrupt(run_id, interrupt_kinds[request.command])
+    payload = request.model_dump(mode="json", exclude_none=True)
+    await _execute(run_id, Command(resume=payload))
+    if request.command == "review_cards":
+        updated = repository.response(run_id)
+        return confirm_workflow(run_id, ConfirmWorkflowRequest(revision=updated.revision))
+    return repository.response(run_id)
 
 
 async def resolve_ocr_text(
@@ -1522,77 +1762,10 @@ async def resolve_ocr_text(
     state = repository.get_state(run_id)
     if state.get("workflow_status") != "awaiting_ocr_review":
         raise ValueError("workflow is not awaiting OCR review")
-    corrected = request.text.strip()
-    context = {
-        key: state[key]
-        for key in (
-            "workspace_type",
-            "prompt_envelope",
-            "source_session_id",
-        )
-        if key in state
-    }
-    restarted = _initial_state(
+    return await resume_workflow(
         run_id,
-        "text",
-        text=corrected,
-        screenshot_time=state.get("screenshot_time"),
-        workflow_context=context,
+        WorkflowResumeRequest(command="provide_ocr_text", ocr_text=request.text.strip()),
     )
-    corrected_candidate = create_trusted_text_candidate(
-        corrected,
-        engine="user-corrected",
-    )
-    restarted.update(
-        {
-            "ocr_text": corrected,
-            "ocr_engine": "user-corrected",
-            "ocr_quality": 1.0,
-            "ocr_quality_report": corrected_candidate["quality_report"],
-            "ocr_review_reasons": [],
-            "ocr_candidates": [corrected_candidate],
-            "ocr_evidence_status": "user_verified",
-            "evidence_status": "user_verified",
-            "ocr_candidate_versions": [corrected_candidate],
-            "ocr_conflicts": [],
-            "evidence_spans": _candidate_spans(corrected_candidate),
-            "evidence_envelopes": list(state.get("evidence_envelopes", [])) + [{
-                "source_id": f"{run_id}:user-edit:{int(state.get('revision', 0)) + 1}",
-                "source_type": "user_edit",
-                "version": int(state.get("revision", 0)) + 1,
-                "raw_text": corrected,
-                "blocks": corrected_candidate.get("blocks", []),
-                "spans": _candidate_spans(corrected_candidate),
-                "quality_report": corrected_candidate.get("quality_report", {}),
-                "trust_status": "user_verified",
-                "conflicts": [],
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }],
-            "summary_status": "provisional",
-            "workflow_phase": "evidence_adjudication",
-            "review_items": [],
-            "blocked_reasons": [],
-            "revision": int(state.get("revision", 0)) + 1,
-            "warnings": [
-                warning
-                for warning in state.get("warnings", [])
-                if not str(warning).startswith("OCR review required")
-            ],
-        }
-    )
-    repository.save(run_id, restarted)
-    repository.append_event(
-        run_id,
-        "ocr_candidate",
-        {
-            "engine": "user-corrected",
-            "quality_score": 1.0,
-            "resolved": True,
-        },
-        f"ocr-resolved:{hashlib.sha1(corrected.encode('utf-8')).hexdigest()[:16]}",
-    )
-    await _schedule(run_id, restarted)
-    return repository.response(run_id)
 
 
 async def recover_workflows() -> int:

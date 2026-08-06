@@ -57,7 +57,46 @@ class Team(BaseModel):
     owner_id: str
     created_at: datetime
     updated_at: datetime
+    revision: int = 0
     members: list[TeamMember] = Field(default_factory=list)
+
+
+class TeamEvent(BaseModel):
+    event_id: str
+    team_id: str
+    revision: int
+    event_type: str
+    payload: dict = Field(default_factory=dict)
+    created_at: datetime
+
+
+class TeamEventsResponse(BaseModel):
+    team_id: str
+    revision: int
+    event_cursor: str
+    events: list[TeamEvent] = Field(default_factory=list)
+
+
+TeamCommandOperation = Literal[
+    "create_task", "update_task", "delete_task", "assign_owner", "update_deadline",
+    "set_dependencies", "set_deliverables", "set_acceptance_criteria", "update_status",
+    "rename_team",
+]
+
+
+class TeamCommandRequest(BaseModel):
+    operation: TeamCommandOperation
+    payload: dict = Field(default_factory=dict)
+    base_revision: int = Field(ge=0)
+    idempotency_key: str = Field(min_length=8, max_length=128)
+
+
+class TeamCommandResponse(BaseModel):
+    command_id: str
+    team_id: str
+    status: str
+    revision: int
+    result: dict = Field(default_factory=dict)
 
 
 class Milestone(BaseModel):

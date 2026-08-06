@@ -667,7 +667,39 @@ data class TeamDto(
     @SerializedName("owner_id") val ownerId: String = "",
     @SerializedName("created_at") val createdAt: String = "",
     @SerializedName("updated_at") val updatedAt: String = "",
+    val revision: Long = 0,
     val members: List<TeamMemberDto> = emptyList(),
+)
+
+data class TeamEventDto(
+    @SerializedName("event_id") val eventId: String,
+    @SerializedName("team_id") val teamId: String,
+    val revision: Long,
+    @SerializedName("event_type") val eventType: String,
+    val payload: Map<String, Any?> = emptyMap(),
+    @SerializedName("created_at") val createdAt: String = "",
+)
+
+data class TeamEventsResponseDto(
+    @SerializedName("team_id") val teamId: String,
+    val revision: Long = 0,
+    @SerializedName("event_cursor") val eventCursor: String = "",
+    val events: List<TeamEventDto> = emptyList(),
+)
+
+data class TeamCommandRequestDto(
+    val operation: String,
+    val payload: Map<String, Any?> = emptyMap(),
+    @SerializedName("base_revision") val baseRevision: Long,
+    @SerializedName("idempotency_key") val idempotencyKey: String,
+)
+
+data class TeamCommandResponseDto(
+    @SerializedName("command_id") val commandId: String,
+    @SerializedName("team_id") val teamId: String,
+    val status: String,
+    val revision: Long,
+    val result: Map<String, Any?> = emptyMap(),
 )
 
 // --- Team collaboration (Phase 2: goals, decomposition, summary) ---

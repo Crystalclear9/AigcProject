@@ -454,3 +454,46 @@ def test_moving_card_into_team_resolves_names(client: TestClient) -> None:
         headers={"X-User-Id": "u-bob"},
     )
     assert moved_out.status_code == 200
+
+
+def test_team_commands_are_idempotent_and_revision_checked(client: TestClient) -> None:
+    team = _team_with_members(client)
+    team = client.get(f"/api/teams/{team['id']}", headers={"X-User-Id": "u-alice"}).json()
+    owner = {"X-User-Id": "u-alice"}
+    request = {
+        "operation": "create_task",
+        "payload": {"title": "Prepare evidence", "deliverables": ["report"], "acceptance_criteria": ["reviewed"]},
+        "base_revision": team["revision"],
+        "idempotency_key": "team-command-create-001",
+    }
+    first = client.post(f"/api/teams/{team['id']}/commands", json=request, headers=owner)
+    assert first.status_code == 200, first.text
+    repeated = client.post(f"/api/teams/{team['id']}/commands", json=request, headers=owner)
+    assert repeated.status_code == 200
+    assert repeated.json()["command_id"] == first.json()["command_id"]
+    assert repeated.json()["revision"] == first.json()["revision"]
+    follow_up = client.post(
+        f"/api/teams/{team['id']}/commands",
+        json={
+            "operation": "set_deliverables",
+            "payload": {"task_id": first.json()["result"]["task_id"], "deliverables": ["signed report"]},
+            "base_revision": first.json()["revision"],
+            "idempotency_key": "team-command-follow-up-001",
+        },
+        headers=owner,
+    )
+    assert follow_up.status_code == 200, follow_up.text
+    replay_after_newer_command = client.post(
+        f"/api/teams/{team['id']}/commands", json=request, headers=owner
+    )
+    assert replay_after_newer_command.json()["revision"] == first.json()["revision"]
+    stale = {**request, "idempotency_key": "team-command-stale-001", "base_revision": team["revision"]}
+    conflict = client.post(f"/api/teams/{team['id']}/commands", json=stale, headers=owner)
+    assert conflict.status_code == 409
+    detail = conflict.json()["detail"]
+    assert detail["conflict_type"] == "team_revision"
+    assert detail["server_revision"] == follow_up.json()["revision"]
+    assert detail["local_payload"] == stale["payload"]
+    events = client.get(f"/api/teams/{team['id']}/events?after_revision=0", headers=owner)
+    assert events.status_code == 200
+    assert any(event["event_type"] == "create_task" for event in events.json()["events"])
