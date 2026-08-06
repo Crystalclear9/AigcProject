@@ -2,102 +2,54 @@
 
 > 把屏幕里的信息，变成可以真正完成的行动。
 
-随手办是一款 Android 多模态行动助理。它把截图、长截图、聊天记录、文字和办公文档整理为有证据、可复核、可恢复的个人卡片或团队行动图，并在用户确认后完成卡片保存、提醒注册和团队同步。
+随手办是一款 Android 多模态行动助理。它读取截图、长截图、聊天记录、文字和办公文档，找到其中真正需要完成的事项，再整理成可核对、可编辑的个人卡片与团队任务。
 
-产品采用“轻客户端 + 强后端”架构：手机负责采集、端侧 OCR、离线缓存、用户画像、Review Center 和最终确认；Workflow 网关负责证据裁决、Agent 编排、团队依赖验证、checkpoint、provider fallback 与幂等副作用。
+系统不会让未经验证的 OCR 或模型猜测直接创建任务。每项正式事实都要能回到原始证据；卡片、提醒和团队分派只有在用户确认后才会执行。
 
-## 2026.08 Release
+## 从信息到行动
 
-本次版本完成了卡片工作台、证据 Workflow 和团队同步的统一：
+![Evidence to Action workflow](docs/assets/workflow-design.svg)
 
-- 底栏固定为“今日、导入、卡片、日历、设置”。
-- 卡片页通过“个人 / 团队”双段控件切换工作区。
-- 团队创建、加入、成员、目标和详情收纳到团队卡片页签。
-- 服务器保存团队权威 revision 与事件流，Android Room 保存快照、pending command 和冲突副本。
-- 文本、OCR、附件和用户修正统一进入 EvidenceEnvelope。
-- Agent 只通过结构化 handoff contract 传递 claims、evidence refs 和 uncertainties。
-- 卡片、提醒和团队任务只在用户确认后通过幂等 command 执行。
-- 用户画像保留在手机本地，只向规划角色提供最多 320 字符的精简 policy。
-- Harness 统一覆盖文本、图片、OCR 拒答、Prompt、Agent、团队、同步、fallback 和设备 replay。
+整个流程围绕四个连续阶段展开：
 
-## 产品体验
+1. **确认来源**：收集文字、OCR、附件和用户修正，检查质量与关键信息冲突。
+2. **形成草稿**：从可信证据中识别任务边界，补全时间、人物和依赖关系，并生成个人或团队草稿。
+3. **核对结果**：验证每个事实的证据覆盖，集中处理缺失字段、锁定字段和冲突。
+4. **执行行动**：用户确认具体操作后，再幂等创建卡片、提醒或团队任务。
+
+证据不清晰时，流程会停在复核节点。用户修正会形成新版本，随后从原检查点继续，而不是重新执行已经完成的步骤。
+
+## 核心体验
 
 | 场景 | 随手办的处理方式 |
 |---|---|
-| 截图里包含多个事项 | 识别任务边界，拆成多张可编辑卡片 |
-| OCR 内容模糊或关键字段冲突 | 展示候选版本、证据位置和冲突字段，由用户修正后继续 |
-| 个人任务需要规划 | 建议优先级、提醒、时间块、材料和执行步骤 |
-| 团队任务需要协作 | 建议负责人、参与者、依赖、交付物和验收条件 |
-| 手机暂时离线 | 保留本地草稿和 pending command，恢复连接后按顺序同步 |
-| 云端增强暂不可用 | 回到端侧 ML Kit、本地规则和人工确认流程 |
+| 一张截图包含多个事项 | 识别任务边界，拆成多张可独立编辑的卡片 |
+| 文字模糊或时间、地点互相冲突 | 显示候选内容和对应位置，修正后继续原流程 |
+| 个人任务需要安排 | 建议优先级、提醒时间、所需材料和执行步骤 |
+| 团队事项需要协作 | 整理负责人、参与者、依赖、交付物和验收条件 |
+| 手机暂时离线 | 保留本地草稿与待同步操作，恢复连接后按顺序提交 |
+| 云端能力暂不可用 | 使用端侧识别与规则生成临时草稿，并明确提示用户复核 |
 
-## 应用导航
+## 应用结构
 
 ```text
 今日  导入  卡片  日历  设置
 ```
 
-“团队”不再占用独立底栏入口。卡片页顶部提供稳定的“个人 / 团队”切换：
+底栏保持五个稳定入口。团队工作收纳在“卡片”中，通过页面顶部的“个人 / 团队”切换进入：
 
-- 个人页签只显示 `workspaceType == personal` 的卡片。
-- 团队页签只显示 `workspaceType == team` 的卡片。
+- 个人页签呈现自己的行动卡片。
+- 团队页签呈现团队任务，并提供“管理团队”入口。
 - 两个工作区分别保存搜索、类型和状态筛选。
-- “管理团队”进入原团队列表、创建、加入和详情页面。
-- 返回顺序为“团队详情 -> 团队管理 -> 团队卡片”。
+- 团队创建、加入、成员、目标和详情沿用完整的管理流程。
+- 返回顺序保持“团队详情 → 团队管理 → 团队卡片”。
 - Activity 重建、旋转和底栏切换后恢复页签与筛选状态。
-- 旧 `team` 内部路由继续兼容，并重定向到团队卡片工作区。
+- 旧团队路由继续兼容，并自动进入团队卡片工作区。
 
-主要实现：
-
-- `apps/android/app/src/main/java/com/suishouban/app/MainActivity.kt`
-- `apps/android/app/src/main/java/com/suishouban/app/ui/screens/CardsScreen.kt`
-- `apps/android/app/src/main/java/com/suishouban/app/ui/screens/TeamScreen.kt`
-- `apps/android/app/src/main/java/com/suishouban/app/ui/screens/TeamDetailScreen.kt`
-
-## Workflow 架构
-
-![随手办统一证据 Workflow 设计](docs/assets/workflow-design.svg)
+## 工作流约束
 
 <details>
-<summary>查看可访问的文本结构图</summary>
-
-```mermaid
-flowchart LR
-    subgraph Android["Android Client"]
-        INPUT["Text / Screenshot / Attachment"]
-        LOCAL["ML Kit + Local Rules"]
-        PROFILE["Local Profile Policy"]
-        REVIEW["Review Center"]
-        ROOM["Room Cache + Pending Commands"]
-    end
-
-    subgraph Gateway["Workflow Gateway"]
-        EVIDENCE["EvidenceEnvelope"]
-        ADJUDICATE["Evidence Adjudication"]
-        DRAFT["Grounded Draft"]
-        AGENTS["Validated Agent DAG"]
-        VERIFY["Evidence Verification"]
-        CHECKPOINT["Checkpoint + Resume"]
-        EFFECTS["Confirmed Effects"]
-    end
-
-    subgraph TeamCloud["Team Authority"]
-        REVISION["Revision + Event Stream"]
-        COMMANDS["Idempotent Commands"]
-    end
-
-    INPUT --> LOCAL --> EVIDENCE --> ADJUDICATE
-    PROFILE --> AGENTS
-    ADJUDICATE --> DRAFT --> AGENTS --> VERIFY --> REVIEW
-    CHECKPOINT -. restore .-> ADJUDICATE
-    CHECKPOINT -. restore .-> AGENTS
-    REVIEW --> EFFECTS --> ROOM
-    EFFECTS --> COMMANDS --> REVISION --> ROOM
-```
-
-</details>
-
-### Canonical phases
+<summary>查看内部 Workflow 状态</summary>
 
 ```text
 received
@@ -121,6 +73,8 @@ review_required  degraded  blocked  cancelled  failed
 ```
 
 每个 run 都持久化 `workflow_phase`、`evidence_status`、`draft_status`、`review_items`、`effect_status`、`checkpoint_id` 和 `command_ids`。旧 `workflow_status` 字段继续返回，确保现有 Android DTO 和 API 调用兼容。
+
+</details>
 
 ## 证据模型
 
@@ -160,7 +114,7 @@ needs_confirmation
 - 状态栏、导航文字、乱码和无关 UI 不进入事实摘要。
 - 无 evidence ref 的关键字段保持 `null` 或 `need_confirm`。
 
-## Prompt 与 Agent Contract
+## Prompt 与 Agent 协作
 
 当前 Prompt 版本为 `prompt-envelope-v3-grounded`。输入严格分区：
 
@@ -203,7 +157,7 @@ semantic_decomposer
 
 `temporal_solver`、`entity_linker`、history retrieval 和 privacy analysis 可以并行；dependency、planner/coordinator 与 quality verifier 按依赖顺序执行。Verifier 只验证覆盖率与冲突，不生成新事实。
 
-## Provider fallback
+## 连续可用与降级
 
 云端增强按固定层级运行：
 
@@ -270,7 +224,7 @@ rename_team
 
 每条 command 携带 `base_revision` 和稳定 `idempotency_key`。服务器在单个事务中校验 revision、写业务数据、递增 revision、写 event 和保存 command result；重复 key 返回原结果。owner、deadline、dependency 和 acceptance criterion 等关键冲突进入 Review Center，不使用最后写入覆盖。
 
-## Confirmed Effects
+## 确认后执行
 
 所有副作用统一从以下接口执行：
 
@@ -304,7 +258,7 @@ validate revision
 
 重复请求返回相同 command 结果。提醒由后端返回稳定 reminder intent，Android 使用 effect ID 幂等注册并记录本地结果。
 
-## Android 与后端边界
+## 客户端与服务端边界
 
 ### Android 负责
 
@@ -354,7 +308,7 @@ scripts/                               构建、网关、真机与发布验证�
 .github/workflows/                     CI
 ```
 
-## Quick Start
+## 快速开始
 
 ### 环境
 
@@ -411,7 +365,7 @@ adb -s 10AF952BSR0024T reverse tcp:8000 tcp:8000
 
 本机 gateway 只用于 debug 验收，不等同公网 HTTPS 生产部署。Release build 继续拒绝 localhost、私网地址和 provider 直连地址。
 
-## API
+## API 概览
 
 ### Workflow
 
@@ -474,9 +428,9 @@ POST /api/harness/run?limit=150
 
 `/api/providers/probe` 和 Harness 默认关闭，只在受控开发或验收环境显式开启。响应、trace 和日志不回显 key、完整 prompt、原始 OCR 或完整画像。
 
-## Harness
+## 质量 Harness
 
-发布 Harness 包含：
+Harness 由以下独立套件组成：
 
 ```text
 locked_text_suite
@@ -506,7 +460,7 @@ device_replay_suite
 - profile leakage、fact contamination 与 locked overwrite
 - revision consistency、retry success 与 conflict detection
 
-数据集登记 150 条 reviewed 文本和 40 张 reviewed 独立图片。模板变体、图片变换和缺少构建 SHA 的 replay 不计作独立发布样本。
+数据集登记 150 条 reviewed 文本和 40 张 reviewed 独立图片。模板变体、图片变换和缺少构建 SHA 的 replay 不计作独立样本。
 
 执行：
 
@@ -517,7 +471,7 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"
 .\.venv\Scripts\python.exe -c "import asyncio,json; from app.services.workflow_harness import run_harness_suites; print(json.dumps(asyncio.run(run_harness_suites(150)), ensure_ascii=False, indent=2))"
 ```
 
-## Android 测试与真机验收
+## 测试与真机验收
 
 构建与 JVM 测试：
 
@@ -544,7 +498,7 @@ $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD="1"
 - APK SHA 与设备安装包一致性
 - 源码、APK、日志和 artifacts 敏感信息扫描
 
-2026-08-06 在 vivo V2502A（`10AF952BSR0024T`）完成后端 160 项测试、Android JVM 测试与 19 项真实 instrumentation。
+真机验证使用 vivo V2502A（`10AF952BSR0024T`），覆盖后端测试、Android JVM 测试与真实 instrumentation。
 
 真机产物目录：
 
@@ -566,7 +520,7 @@ artifacts/device-tests/
 - 外部副作用必须经过用户确认和幂等 command。
 - 日志、SSE、OpenTelemetry 和 diagnostics 使用脱敏字段。
 
-## 核心实现
+## 代码导航
 
 Android：
 

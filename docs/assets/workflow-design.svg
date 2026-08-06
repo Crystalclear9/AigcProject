@@ -1,195 +1,190 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1100" viewBox="0 0 1800 1100" role="img" aria-labelledby="title desc">
-  <title id="title">SuiShouBan canonical evidence workflow</title>
-  <desc id="desc">A two-row state flow from received through evidence collection, adjudication, drafting, agent planning, verification, review, confirmation, effects execution, and completion. Review interrupts, checkpoints, evidence rules, agent contracts, and provider fallback are shown as supporting controls.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">Evidence to Action Workflow</title>
+  <desc id="desc">A continuous evidence-first workflow. Content is collected and assessed, transformed into a grounded draft, verified and reviewed, then applied only after user confirmation. Unclear evidence pauses for correction, while checkpoints, contracts, fallback, and an execution ledger protect the entire flow.</desc>
   <defs>
     <style>
-      .title { font: 700 36px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #15213a; }
-      .subtitle { font: 400 17px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #60708b; }
-      .section { font: 700 14px "Segoe UI", "Microsoft YaHei", sans-serif; letter-spacing: 1.4px; fill: #3a6fd6; }
-      .node-title { font: 700 17px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #17233b; }
-      .node-copy { font: 400 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #64728a; }
-      .step { font: 700 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #ffffff; }
-      .support-title { font: 700 16px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #263650; }
-      .support-copy { font: 400 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #64728a; }
-      .legend { font: 600 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #61708a; }
-      .node { fill: #ffffff; stroke: #c9d8ed; stroke-width: 1.5; }
+      .title { font: 700 34px "Segoe UI", Arial, sans-serif; fill: #14213b; }
+      .subtitle { font: 400 16px "Segoe UI", Arial, sans-serif; fill: #61708a; }
+      .stage { font: 700 13px "Segoe UI", Arial, sans-serif; letter-spacing: 1.2px; fill: #2f69d9; }
+      .node-title { font: 700 16px "Segoe UI", Arial, sans-serif; fill: #17233b; }
+      .node-copy { font: 400 12px "Segoe UI", Arial, sans-serif; fill: #61708a; }
+      .step { font: 700 12px "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .branch-label { font: 600 12px "Segoe UI", Arial, sans-serif; fill: #93680f; }
+      .support-title { font: 700 15px "Segoe UI", Arial, sans-serif; fill: #263650; }
+      .support-copy { font: 400 12px "Segoe UI", Arial, sans-serif; fill: #61708a; }
+      .footer { font: 600 13px "Segoe UI", Arial, sans-serif; fill: #536987; }
+      .node { fill: #ffffff; stroke: #cad8ea; stroke-width: 1.5; }
       .compute { fill: #edf4ff; stroke: #82aaf0; stroke-width: 1.5; }
       .review { fill: #fff8e8; stroke: #e5b449; stroke-width: 1.5; }
       .effect { fill: #edf9f3; stroke: #72bf9d; stroke-width: 1.5; }
       .support { fill: #f8faff; stroke: #d3deee; stroke-width: 1.5; }
-      .arrow { fill: none; stroke: #3972db; stroke-width: 2.5; marker-end: url(#arrow); }
-      .arrow-soft { fill: none; stroke: #7c91b0; stroke-width: 2; marker-end: url(#arrowSoft); }
-      .arrow-dashed { fill: none; stroke: #7c91b0; stroke-width: 2; stroke-dasharray: 8 6; marker-end: url(#arrowSoft); }
-      .branch { fill: none; stroke: #d49a23; stroke-width: 2.2; marker-end: url(#arrowAmber); }
+      .arrow { fill: none; stroke: #3972db; stroke-width: 2.4; marker-end: url(#arrow); }
+      .branch { fill: none; stroke: #d49a23; stroke-width: 2; marker-end: url(#arrowAmber); }
+      .guard { fill: none; stroke: #8195b3; stroke-width: 1.8; stroke-dasharray: 7 6; marker-end: url(#arrowSoft); }
     </style>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10Z" fill="#3972db"/>
     </marker>
-    <marker id="arrowSoft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0 0L10 5L0 10Z" fill="#7c91b0"/>
-    </marker>
     <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0L10 5L0 10Z" fill="#d49a23"/>
     </marker>
+    <marker id="arrowSoft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="#8195b3"/>
+    </marker>
   </defs>
 
-  <rect width="1800" height="1100" fill="#f7faff"/>
-  <text x="55" y="58" class="title">SuiShouBan Canonical Evidence Workflow</text>
-  <text x="55" y="88" class="subtitle">Evidence-first, interruptible, recoverable, and user-confirmed</text>
+  <rect width="1600" height="900" fill="#f7faff"/>
+  <text x="40" y="50" class="title">Evidence to Action</text>
+  <text x="40" y="78" class="subtitle">Verify the source, shape the work, and act only after confirmation</text>
 
-  <text x="55" y="135" class="section">AUTOMATIC DRAFT PIPELINE</text>
+  <text x="40" y="124" class="stage">01  EVIDENCE</text>
+  <line x1="145" y1="119" x2="750" y2="119" stroke="#d6e2f2"/>
+  <text x="820" y="124" class="stage">02  DRAFT &amp; COORDINATE</text>
+  <line x1="1020" y1="119" x2="1560" y2="119" stroke="#d6e2f2"/>
 
-  <!-- Top row: automatic computation -->
-  <rect x="55" y="165" width="235" height="96" rx="8" class="node"/>
-  <circle cx="82" cy="192" r="15" fill="#3972db"/>
-  <text x="82" y="197" text-anchor="middle" class="step">1</text>
-  <text x="108" y="195" class="node-title">received</text>
-  <text x="79" y="226" class="node-copy">Create run, trace and revision</text>
+  <!-- Steps 1-6: evidence to coordinated draft -->
+  <rect x="40" y="145" width="220" height="96" rx="8" class="node"/>
+  <circle cx="66" cy="171" r="14" fill="#3972db"/>
+  <text x="66" y="175" text-anchor="middle" class="step">1</text>
+  <text x="92" y="175" class="node-title">Receive</text>
+  <text x="64" y="211" class="node-copy">Open a traceable workflow</text>
 
-  <rect x="345" y="165" width="235" height="96" rx="8" class="compute"/>
-  <circle cx="372" cy="192" r="15" fill="#3972db"/>
-  <text x="372" y="197" text-anchor="middle" class="step">2</text>
-  <text x="398" y="195" class="node-title">evidence_collecting</text>
-  <text x="369" y="226" class="node-copy">Text, OCR, attachment, user edit</text>
+  <rect x="300" y="145" width="220" height="96" rx="8" class="compute"/>
+  <circle cx="326" cy="171" r="14" fill="#3972db"/>
+  <text x="326" y="175" text-anchor="middle" class="step">2</text>
+  <text x="352" y="175" class="node-title">Collect evidence</text>
+  <text x="324" y="211" class="node-copy">Text, OCR, attachments, and edits</text>
 
-  <rect x="635" y="165" width="235" height="96" rx="8" class="compute"/>
-  <circle cx="662" cy="192" r="15" fill="#3972db"/>
-  <text x="662" y="197" text-anchor="middle" class="step">3</text>
-  <text x="688" y="195" class="node-title">evidence_adjudication</text>
-  <text x="659" y="226" class="node-copy">Trust, quality, conflict, spans</text>
+  <rect x="560" y="145" width="220" height="96" rx="8" class="compute"/>
+  <circle cx="586" cy="171" r="14" fill="#3972db"/>
+  <text x="586" y="175" text-anchor="middle" class="step">3</text>
+  <text x="612" y="175" class="node-title">Assess evidence</text>
+  <text x="584" y="211" class="node-copy">Check quality, trust, and conflicts</text>
 
-  <rect x="925" y="165" width="235" height="96" rx="8" class="compute"/>
-  <circle cx="952" cy="192" r="15" fill="#3972db"/>
-  <text x="952" y="197" text-anchor="middle" class="step">4</text>
-  <text x="978" y="195" class="node-title">draft_generating</text>
-  <text x="949" y="226" class="node-copy">Grounded facts and card drafts</text>
+  <rect x="820" y="145" width="220" height="96" rx="8" class="compute"/>
+  <circle cx="846" cy="171" r="14" fill="#3972db"/>
+  <text x="846" y="175" text-anchor="middle" class="step">4</text>
+  <text x="872" y="175" class="node-title">Create draft</text>
+  <text x="844" y="211" class="node-copy">Build grounded facts and cards</text>
 
-  <rect x="1215" y="165" width="235" height="96" rx="8" class="compute"/>
-  <circle cx="1242" cy="192" r="15" fill="#3972db"/>
-  <text x="1242" y="197" text-anchor="middle" class="step">5</text>
-  <text x="1268" y="195" class="node-title">workflow_planning</text>
-  <text x="1239" y="226" class="node-copy">Build task graph and budgets</text>
+  <rect x="1080" y="145" width="220" height="96" rx="8" class="compute"/>
+  <circle cx="1106" cy="171" r="14" fill="#3972db"/>
+  <text x="1106" y="175" text-anchor="middle" class="step">5</text>
+  <text x="1132" y="175" class="node-title">Plan the work</text>
+  <text x="1104" y="211" class="node-copy">Tasks, dependencies, and scope</text>
 
-  <rect x="1505" y="165" width="235" height="128" rx="8" class="compute"/>
-  <circle cx="1532" cy="192" r="15" fill="#3972db"/>
-  <text x="1532" y="197" text-anchor="middle" class="step">6</text>
-  <text x="1558" y="195" class="node-title">agents_running</text>
-  <text x="1529" y="222" class="node-copy">semantic -> temporal / entity</text>
-  <text x="1529" y="244" class="node-copy">-> dependency -> planner</text>
-  <text x="1529" y="266" class="node-copy">-> privacy -> quality verifier</text>
+  <rect x="1340" y="145" width="220" height="120" rx="8" class="compute"/>
+  <circle cx="1366" cy="171" r="14" fill="#3972db"/>
+  <text x="1366" y="175" text-anchor="middle" class="step">6</text>
+  <text x="1392" y="175" class="node-title">Coordinate</text>
+  <text x="1364" y="202" class="node-copy">Meaning → time and people</text>
+  <text x="1364" y="224" class="node-copy">→ dependencies → planning</text>
+  <text x="1364" y="246" class="node-copy">→ privacy → quality</text>
 
-  <path d="M290 213H345" class="arrow"/>
-  <path d="M580 213H635" class="arrow"/>
-  <path d="M870 213H925" class="arrow"/>
-  <path d="M1160 213H1215" class="arrow"/>
-  <path d="M1450 213H1505" class="arrow"/>
+  <path d="M260 193H300" class="arrow"/>
+  <path d="M520 193H560" class="arrow"/>
+  <path d="M780 193H820" class="arrow"/>
+  <path d="M1040 193H1080" class="arrow"/>
+  <path d="M1300 193H1340" class="arrow"/>
 
-  <!-- Evidence review interrupt -->
-  <rect x="635" y="330" width="235" height="88" rx="8" class="review"/>
-  <text x="659" y="362" class="node-title">review_required</text>
-  <text x="659" y="388" class="node-copy">LangGraph interrupt; zero effects</text>
+  <!-- Review loop stays local to evidence assessment -->
+  <rect x="300" y="296" width="220" height="82" rx="8" class="review"/>
+  <text x="324" y="328" class="node-title">User correction</text>
+  <text x="324" y="354" class="node-copy">Save a new version and protect locks</text>
 
-  <rect x="345" y="330" width="235" height="88" rx="8" class="review"/>
-  <text x="369" y="362" class="node-title">User correction</text>
-  <text x="369" y="388" class="node-copy">New candidate version + locked fields</text>
+  <rect x="560" y="296" width="220" height="82" rx="8" class="review"/>
+  <text x="584" y="328" class="node-title">Needs review</text>
+  <text x="584" y="354" class="node-copy">Pause safely with no actions applied</text>
 
-  <path d="M752 261V330" class="branch"/>
-  <text x="765" y="303" class="legend" fill="#9a6d13">low quality / conflict</text>
-  <path d="M635 374H580" class="branch"/>
-  <path d="M462 330V300H752V261" class="branch"/>
-  <text x="482" y="293" class="legend" fill="#9a6d13">Command(resume)</text>
+  <path d="M670 241V296" class="branch"/>
+  <text x="685" y="273" class="branch-label">unclear or conflicting evidence</text>
+  <path d="M560 337H520" class="branch"/>
+  <path d="M410 296V278H670V241" class="branch"/>
+  <text x="430" y="271" class="branch-label">continue after correction</text>
 
-  <!-- Second row: verification, review and effects -->
-  <text x="55" y="500" class="section">VERIFICATION AND USER-CONFIRMED EFFECTS</text>
+  <text x="820" y="424" class="stage">03  VERIFY &amp; APPROVE</text>
+  <line x1="975" y1="419" x2="1560" y2="419" stroke="#d6e2f2"/>
+  <text x="40" y="424" class="stage">04  APPLY</text>
+  <line x1="115" y1="419" x2="750" y2="419" stroke="#d6e2f2"/>
 
-  <rect x="1505" y="530" width="235" height="96" rx="8" class="compute"/>
-  <circle cx="1532" cy="557" r="15" fill="#3972db"/>
-  <text x="1532" y="562" text-anchor="middle" class="step">7</text>
-  <text x="1558" y="560" class="node-title">evidence_verification</text>
-  <text x="1529" y="591" class="node-copy">Coverage, locks, DAG, contracts</text>
+  <!-- Steps 7-12: verification to reliable execution -->
+  <rect x="1340" y="445" width="220" height="96" rx="8" class="compute"/>
+  <circle cx="1366" cy="471" r="14" fill="#3972db"/>
+  <text x="1366" y="475" text-anchor="middle" class="step">7</text>
+  <text x="1392" y="475" class="node-title">Verify evidence</text>
+  <text x="1364" y="511" class="node-copy">Coverage, locks, and contracts</text>
 
-  <rect x="1215" y="530" width="235" height="96" rx="8" class="compute"/>
-  <circle cx="1242" cy="557" r="15" fill="#3972db"/>
-  <text x="1242" y="562" text-anchor="middle" class="step">8</text>
-  <text x="1268" y="560" class="node-title">draft_ready</text>
-  <text x="1239" y="591" class="node-copy">Projection with evidence refs</text>
+  <rect x="1080" y="445" width="220" height="96" rx="8" class="compute"/>
+  <circle cx="1106" cy="471" r="14" fill="#3972db"/>
+  <text x="1106" y="475" text-anchor="middle" class="step">8</text>
+  <text x="1132" y="475" class="node-title">Draft ready</text>
+  <text x="1104" y="511" class="node-copy">Every result points to its source</text>
 
-  <rect x="925" y="530" width="235" height="96" rx="8" class="review"/>
-  <circle cx="952" cy="557" r="15" fill="#d49a23"/>
-  <text x="952" y="562" text-anchor="middle" class="step">9</text>
-  <text x="978" y="560" class="node-title">review_center</text>
-  <text x="949" y="591" class="node-copy">Edit, lock, resolve, accept</text>
+  <rect x="820" y="445" width="220" height="96" rx="8" class="review"/>
+  <circle cx="846" cy="471" r="14" fill="#d49a23"/>
+  <text x="846" y="475" text-anchor="middle" class="step">9</text>
+  <text x="872" y="475" class="node-title">Review</text>
+  <text x="844" y="511" class="node-copy">Edit, lock, resolve, and accept</text>
 
-  <rect x="635" y="530" width="235" height="96" rx="8" class="review"/>
-  <circle cx="662" cy="557" r="15" fill="#d49a23"/>
-  <text x="662" y="562" text-anchor="middle" class="step">10</text>
-  <text x="688" y="560" class="node-title">confirmed</text>
-  <text x="659" y="591" class="node-copy">Revision and selections validated</text>
+  <rect x="560" y="445" width="220" height="96" rx="8" class="review"/>
+  <circle cx="586" cy="471" r="14" fill="#d49a23"/>
+  <text x="586" y="475" text-anchor="middle" class="step">10</text>
+  <text x="612" y="475" class="node-title">Confirm</text>
+  <text x="584" y="511" class="node-copy">Validate the version and selections</text>
 
-  <rect x="345" y="530" width="235" height="96" rx="8" class="effect"/>
-  <circle cx="372" cy="557" r="15" fill="#2b9b72"/>
-  <text x="372" y="562" text-anchor="middle" class="step">11</text>
-  <text x="398" y="560" class="node-title">effects_executing</text>
-  <text x="369" y="591" class="node-copy">Cards, reminders, team tasks</text>
+  <rect x="300" y="445" width="220" height="96" rx="8" class="effect"/>
+  <circle cx="326" cy="471" r="14" fill="#2b9b72"/>
+  <text x="326" y="475" text-anchor="middle" class="step">11</text>
+  <text x="352" y="475" class="node-title">Apply actions</text>
+  <text x="324" y="511" class="node-copy">Cards, reminders, and team work</text>
 
-  <rect x="55" y="530" width="235" height="96" rx="8" class="effect"/>
-  <circle cx="82" cy="557" r="15" fill="#2b9b72"/>
-  <text x="82" y="562" text-anchor="middle" class="step">12</text>
-  <text x="108" y="560" class="node-title">completed</text>
-  <text x="79" y="591" class="node-copy">Events, ledger and final result</text>
+  <rect x="40" y="445" width="220" height="96" rx="8" class="effect"/>
+  <circle cx="66" cy="471" r="14" fill="#2b9b72"/>
+  <text x="66" y="475" text-anchor="middle" class="step">12</text>
+  <text x="92" y="475" class="node-title">Complete</text>
+  <text x="64" y="511" class="node-copy">Save the result and execution record</text>
 
-  <path d="M1622 293V530" class="arrow"/>
-  <path d="M1505 578H1450" class="arrow"/>
-  <path d="M1215 578H1160" class="arrow"/>
-  <path d="M925 578H870" class="arrow"/>
-  <path d="M635 578H580" class="arrow"/>
-  <path d="M345 578H290" class="arrow"/>
+  <path d="M1450 265V445" class="arrow"/>
+  <path d="M1340 493H1300" class="arrow"/>
+  <path d="M1080 493H1040" class="arrow"/>
+  <path d="M820 493H780" class="arrow"/>
+  <path d="M560 493H520" class="arrow"/>
+  <path d="M300 493H260" class="arrow"/>
 
-  <rect x="930" y="650" width="220" height="32" rx="8" fill="#fff3d5" stroke="#e5b449"/>
-  <text x="1040" y="671" text-anchor="middle" class="legend" fill="#8a6518">User confirmation required</text>
-  <path d="M1040 626V650" class="branch"/>
+  <rect x="824" y="558" width="212" height="30" rx="8" class="review"/>
+  <text x="930" y="578" text-anchor="middle" class="branch-label">User confirmation is required</text>
+  <path d="M930 541V558" class="branch"/>
 
-  <!-- Cross-cutting controls -->
-  <text x="55" y="735" class="section">CROSS-CUTTING GUARANTEES</text>
+  <!-- Cross-cutting reliability band -->
+  <rect x="40" y="635" width="360" height="138" rx="8" class="support"/>
+  <text x="64" y="669" class="support-title">Pause and resume</text>
+  <text x="64" y="700" class="support-copy">Durable checkpoint for every workflow</text>
+  <text x="64" y="724" class="support-copy">Continue from the exact review point</text>
+  <text x="64" y="748" class="support-copy">Preserve versions, locks, and request identity</text>
 
-  <rect x="55" y="765" width="390" height="150" rx="8" class="support"/>
-  <text x="81" y="798" class="support-title">Checkpoint + Resume</text>
-  <text x="81" y="827" class="support-copy">SQLite checkpoint per run_id / thread_id</text>
-  <text x="81" y="851" class="support-copy">interrupt + Command(resume=...)</text>
-  <text x="81" y="875" class="support-copy">revision, field versions and idempotency preserved</text>
+  <rect x="420" y="635" width="360" height="138" rx="8" class="support"/>
+  <text x="444" y="669" class="support-title">Evidence contract</text>
+  <text x="444" y="700" class="support-copy">Facts and actions cite verified sources</text>
+  <text x="444" y="724" class="support-copy">Untrusted content cannot change agent roles</text>
+  <text x="444" y="748" class="support-copy">Structured handoffs preserve coverage</text>
 
-  <rect x="470" y="765" width="390" height="150" rx="8" class="support"/>
-  <text x="496" y="798" class="support-title">Evidence and Prompt Contract</text>
-  <text x="496" y="827" class="support-copy">prompt-envelope-v3-grounded</text>
-  <text x="496" y="851" class="support-copy">verified refs are mandatory for claims and actions</text>
-  <text x="496" y="875" class="support-copy">untrusted content cannot override role or schema</text>
+  <rect x="800" y="635" width="360" height="138" rx="8" class="support"/>
+  <text x="824" y="669" class="support-title">Graceful fallback</text>
+  <text x="824" y="700" class="support-copy">Expert → fast → deterministic logic</text>
+  <text x="824" y="724" class="support-copy">→ rule extraction → on-device rules</text>
+  <text x="824" y="748" class="support-copy">Every downgrade remains visible</text>
 
-  <rect x="885" y="765" width="390" height="150" rx="8" class="support"/>
-  <text x="911" y="798" class="support-title">Provider Fallback</text>
-  <text x="911" y="827" class="support-copy">expert -> fast -> deterministic agents</text>
-  <text x="911" y="851" class="support-copy">-> rule extractor -> Android local rules</text>
-  <text x="911" y="875" class="support-copy">degraded reason and final execution layer recorded</text>
+  <rect x="1180" y="635" width="380" height="138" rx="8" class="support"/>
+  <text x="1204" y="669" class="support-title">Reliable execution</text>
+  <text x="1204" y="700" class="support-copy">Validate versions, locks, evidence, dependencies</text>
+  <text x="1204" y="724" class="support-copy">Record the request before applying actions</text>
+  <text x="1204" y="748" class="support-copy">Never apply a completed action twice</text>
 
-  <rect x="1300" y="765" width="440" height="150" rx="8" class="support"/>
-  <text x="1326" y="798" class="support-title">Confirmed Effects Ledger</text>
-  <text x="1326" y="827" class="support-copy">validate revision, locks, evidence and team DAG</text>
-  <text x="1326" y="851" class="support-copy">persist command before selected effects execute</text>
-  <text x="1326" y="875" class="support-copy">completed effect IDs are never replayed</text>
+  <path d="M220 635V594H670V541" class="guard"/>
+  <path d="M600 635V610H1190V541" class="guard"/>
+  <path d="M980 635V610H1450V541" class="guard"/>
+  <path d="M1370 635V594H410V541" class="guard"/>
 
-  <path d="M250 765V700H752V626" class="arrow-dashed"/>
-  <path d="M665 765V720H1332V626" class="arrow-dashed"/>
-  <path d="M1080 765V720H1622V626" class="arrow-dashed"/>
-  <path d="M1520 765V700H462V626" class="arrow-dashed"/>
-
-  <!-- Legend -->
-  <rect x="55" y="965" width="1690" height="70" rx="8" fill="#edf3fc" stroke="#d2dfef"/>
-  <rect x="85" y="987" width="22" height="22" rx="5" class="compute"/>
-  <text x="118" y="1003" class="legend">automatic computation</text>
-  <rect x="315" y="987" width="22" height="22" rx="5" class="review"/>
-  <text x="348" y="1003" class="legend">review or user confirmation</text>
-  <rect x="595" y="987" width="22" height="22" rx="5" class="effect"/>
-  <text x="628" y="1003" class="legend">confirmed side effects</text>
-  <line x1="860" y1="998" x2="915" y2="998" class="arrow-dashed"/>
-  <text x="930" y="1003" class="legend">checkpoint, policy or fallback control</text>
-  <text x="1420" y="1003" class="legend">All formal facts require evidence refs</text>
+  <rect x="40" y="820" width="1520" height="48" rx="8" fill="#edf3fc" stroke="#d2dfef"/>
+  <text x="800" y="850" text-anchor="middle" class="footer">VERIFIED EVIDENCE  /  EXPLICIT CONFIRMATION  /  IDEMPOTENT EXECUTION</text>
 </svg>
